@@ -26,3 +26,4 @@ repos:
         additional_dependencies:
           - bidict
           - pytest
+exclude: ^mra/
