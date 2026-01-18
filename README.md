@@ -1,6 +1,6 @@
 # pyhems
 
-[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ECHONET Lite library for Home Energy Management System (HEMS).
@@ -12,7 +12,7 @@ ECHONET Lite library for Home Energy Management System (HEMS).
 - ECHONET Lite frame encoding/decoding
 - UDP multicast device discovery
 - Async runtime client with event subscription
-- MRA (Machine Readable Appendix) data fetcher
+- Entity definitions based on MRA data
 - Full type hints (`py.typed`)
 
 ## Requirements

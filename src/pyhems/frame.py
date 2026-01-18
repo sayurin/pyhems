@@ -1,7 +1,11 @@
 """ECHONET Lite protocol frame handling."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Self
+
+from .eoj import EOJ
 
 
 @dataclass(slots=True)
@@ -25,8 +29,8 @@ class Property:
 class Frame:
     """ECHONET Lite frame structure."""
 
-    seoj: bytes
-    deoj: bytes
+    seoj: EOJ
+    deoj: EOJ
     esv: int
     tid: int = 0
     properties: list[Property] = field(default_factory=list)
@@ -65,8 +69,8 @@ class Frame:
             raise ValueError(f"Invalid ECHONET Lite header: {ehd1:#x} {ehd2:#x}")
 
         tid = int.from_bytes(data[2:4], "big")
-        seoj = data[4:7]
-        deoj = data[7:10]
+        seoj = EOJ.from_bytes(data[4:7])
+        deoj = EOJ.from_bytes(data[7:10])
         esv = data[10]
         opc = data[11]
 
@@ -89,8 +93,8 @@ class Frame:
         result.append(self.EHD1)
         result.append(self.EHD2)
         result.extend(self.tid.to_bytes(2, "big"))
-        result.extend(self.seoj)
-        result.extend(self.deoj)
+        result.extend(self.seoj.to_bytes())
+        result.extend(self.deoj.to_bytes())
         result.append(self.esv)
         result.append(len(self.properties))
 

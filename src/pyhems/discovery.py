@@ -5,10 +5,11 @@ from .const import (
     EPC_INSTANCE_LIST,
     EPC_SELF_NODE_INSTANCE_LIST,
 )
+from .eoj import EOJ
 from .frame import Frame
 
 
-def extract_discovery_info(frame: Frame) -> tuple[str | None, list[int]]:
+def _extract_discovery_info(frame: Frame) -> tuple[str | None, list[EOJ]]:
     """Extract node_id and instance list from a frame.
 
     Args:
@@ -17,11 +18,11 @@ def extract_discovery_info(frame: Frame) -> tuple[str | None, list[int]]:
     Returns:
         Tuple of (node_id, instances).
         node_id is None if not found.
-        instances is a list of instance EOJs.
+        instances is a list of EOJ objects.
 
     """
     node_id: str | None = None
-    instances: list[int] = []
+    instances: list[EOJ] = []
 
     for prop in frame.properties:
         if not prop.edt:
@@ -38,7 +39,7 @@ def extract_discovery_info(frame: Frame) -> tuple[str | None, list[int]]:
             for i in range(count):
                 offset = 1 + (i * 3)
                 if offset + 3 <= len(prop.edt):
-                    eoj = int.from_bytes(prop.edt[offset : offset + 3], "big")
+                    eoj = EOJ.from_bytes(prop.edt[offset : offset + 3])
                     instances.append(eoj)
 
     return node_id, instances

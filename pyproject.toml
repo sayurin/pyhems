@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyhems"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 license-files = ["LICENSE"]
 description = "ECHONET Lite library for Home Energy Management System (HEMS)"
@@ -34,6 +34,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pyhems = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -57,6 +60,7 @@ select = [
   "PT",     # flake8-pytest-style
   "SIM",    # flake8-simplify
   "T20",    # flake8-print
+  "ARG",    # flake8-unused-arguments
 ]
 
 ignore = [
