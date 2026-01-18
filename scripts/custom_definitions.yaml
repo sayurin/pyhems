@@ -1,0 +1,72 @@
+# Built-in custom ECHONET Lite property definitions
+#
+# This file defines manufacturer-specific EPCs (ECHONET Property Codes)
+# that are not part of the standard ECHONET Lite specification (MRA).
+#
+# This file is processed by generate_definitions.py and merged into
+# definitions.json. Custom entities are mixed with MRA entities in the
+# same device class.
+#
+# Users can create their own definitions in config/echonet_lite.yaml
+# using the same format (processed at runtime, not by the generator).
+#
+# Format:
+#   devices:
+#     <class_code>:  # 2-byte class code as hex (e.g., 0x0135)
+#       manufacturers:
+#         <manufacturer_code>:  # 3-byte manufacturer code as hex (e.g., 0x000005)
+#           name: "Manufacturer Name"  # Optional, for documentation
+#           entities:
+#             - epc: <epc_code>  # EPC as hex (e.g., 0xF1)
+#               byte_offset: <offset>  # Optional: byte position in EDT (0-indexed)
+#               # For sensor entities:
+#               format: <mra_format>  # MRA format: "uint8", "int8", "uint16", etc.
+#               unit: <mra_unit>  # MRA unit: "Celsius", "W", "%RH", etc.
+#               minimum: <min>  # Optional: minimum valid value (before scale)
+#               maximum: <max>  # Optional: maximum valid value (before scale)
+#               multipleOf: <scale>  # Optional: scale factor (default: 1.0)
+#               # For binary/select entities:
+#               enum_values: [...]  # List of {edt, key, name_en, name_ja}
+#               # Common fields:
+#               name_en: <name>  # English name (required for strings.json)
+#               name_ja: <name>  # Optional: Japanese name
+#
+# IDs are auto-generated as:
+#   class_{class_code}_custom_{mfr_code}_epc_{epc}_{index}
+# where index is a sequential number (1, 2, ...) for entities sharing the same EPC.
+#
+# Note: When byte_offset is specified, multiple entities can be created from
+# a single EPC. Each entity reads a slice of the EDT data.
+
+devices:
+  # Air cleaner (空気清浄機)
+  0x0135:
+    manufacturers:
+      # Sharp Corporation
+      0x000005:
+        name: "Sharp"
+        entities:
+          - epc: 0xF1
+            byte_offset: 3
+            format: int8
+            unit: Celsius
+            minimum: -127
+            maximum: 125
+            name_en: "Temperature"
+            name_ja: "温度"
+          - epc: 0xF1
+            byte_offset: 4
+            format: uint8
+            unit: "%RH"
+            minimum: 0
+            maximum: 100
+            name_en: "Humidity"
+            name_ja: "湿度"
+          - epc: 0xF1
+            byte_offset: 28
+            format: uint8
+            unit: "µg/m³"
+            minimum: 0
+            maximum: 255
+            name_en: "PM2.5"
+            name_ja: "PM2.5"

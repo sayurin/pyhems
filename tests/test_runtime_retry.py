@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from pyhems import EOJ
 from pyhems.frame import Frame, Property
 from pyhems.runtime import HemsClient
 
@@ -37,7 +38,7 @@ class TestRuntimeRetry:
 
         async def run_test() -> list[Property]:
             return await client.async_get(
-                node_id, 0x013001, [0x80], request_timeout=0.1
+                node_id, EOJ(0x013001), [0x80], request_timeout=0.1
             )
 
         get_task = asyncio.create_task(run_test())
@@ -59,8 +60,8 @@ class TestRuntimeRetry:
         # Now send response to the INITIAL request (which is same TID)
         response = Frame(
             tid=tid1,
-            seoj=b"\x01\x30\x01",
-            deoj=b"\x05\xff\x01",
+            seoj=EOJ(0x013001),
+            deoj=EOJ(0x05FF01),
             esv=0x72,
             properties=[Property(epc=0x80, edt=b"\x30")],
         )

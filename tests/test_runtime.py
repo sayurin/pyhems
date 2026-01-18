@@ -8,6 +8,7 @@ import pytest
 from pyhems import (
     CONTROLLER_INSTANCE,
     ECHONET_MULTICAST,
+    EOJ,
     EPC_IDENTIFICATION_NUMBER,
     EPC_MANUFACTURER_CODE,
     EPC_PRODUCT_CODE,
@@ -37,28 +38,28 @@ class TestRuntimeEvents:
 
     def test_frame_event_fields(self) -> None:
         """Test HemsFrameEvent field values."""
-        frame = Frame(tid=1, seoj=b"\x01\x01\x01", deoj=b"\x02\x02\x02", esv=0x72)
+        frame = Frame(tid=1, seoj=EOJ(0x010101), deoj=EOJ(0x020202), esv=0x72)
         event = HemsFrameEvent(
             received_at=1.0,
             frame=frame,
             node_id="abc123",
-            eoj=0x010101,
+            eoj=EOJ(0x010101),
         )
         assert event.received_at == 1.0
         assert event.frame == frame
         assert event.node_id == "abc123"
-        assert event.eoj == 0x010101
+        assert event.eoj == EOJ(0x010101)
 
     def test_instance_list_event_fields(self) -> None:
         """Test HemsInstanceListEvent field values."""
         event = HemsInstanceListEvent(
             received_at=2.0,
-            instances=[0x010101, 0x013001],
+            instances=[EOJ(0x010101), EOJ(0x013001)],
             node_id="def456",
             properties={0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"},
         )
         assert event.received_at == 2.0
-        assert event.instances == [0x010101, 0x013001]
+        assert event.instances == [EOJ(0x010101), EOJ(0x013001)]
         assert event.node_id == "def456"
         assert event.properties == {0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"}
 
@@ -169,8 +170,8 @@ class TestNodeProbe:
 
         # Decode the frame to verify
         frame = Frame.decode(data)
-        assert frame.seoj == CONTROLLER_INSTANCE.to_bytes(3, "big")
-        assert frame.deoj == NODE_PROFILE_INSTANCE.to_bytes(3, "big")
+        assert frame.seoj == CONTROLLER_INSTANCE
+        assert frame.deoj == NODE_PROFILE_INSTANCE
         assert frame.esv == ESV_GET
         # Default probe only includes required EPCs (identification and instance list)
         assert len(frame.properties) == 2
@@ -245,8 +246,8 @@ class TestNodeProbe:
 
         frame = Frame(
             tid=1,
-            seoj=NODE_PROFILE_INSTANCE.to_bytes(3, "big"),
-            deoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
+            seoj=NODE_PROFILE_INSTANCE,
+            deoj=CONTROLLER_INSTANCE,
             esv=0x72,  # Get_Res
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
@@ -261,7 +262,7 @@ class TestNodeProbe:
         event = events[0]
         assert isinstance(event, HemsInstanceListEvent)
         assert event.node_id == identification_hex
-        assert event.instances == [0x013001, 0x028701]
+        assert event.instances == [EOJ(0x013001), EOJ(0x028701)]
 
         # Address should be registered
         assert (
@@ -278,8 +279,8 @@ class TestNodeProbe:
         # Create a Get request frame (ESV=0x62, should be discarded)
         frame = Frame(
             tid=1,
-            seoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
-            deoj=NODE_PROFILE_INSTANCE.to_bytes(3, "big"),
+            seoj=CONTROLLER_INSTANCE,
+            deoj=NODE_PROFILE_INSTANCE,
             esv=0x62,  # Get (request ESV)
             properties=[Property(epc=EPC_IDENTIFICATION_NUMBER)],
         )
@@ -301,8 +302,8 @@ class TestNodeProbe:
         # Create a Get_Res frame from a device (not node profile)
         frame = Frame(
             tid=1,
-            seoj=bytes([0x01, 0x30, 0x01]),  # Air conditioner
-            deoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
+            seoj=EOJ(0x013001),  # Air conditioner
+            deoj=CONTROLLER_INSTANCE,
             esv=0x72,  # Get_Res
             properties=[Property(epc=0x80, edt=b"\x30")],  # Power status
         )
@@ -352,8 +353,8 @@ class TestNodeProbe:
         # First probe response from 192.168.1.100
         frame1 = Frame(
             tid=1,
-            seoj=NODE_PROFILE_INSTANCE.to_bytes(3, "big"),
-            deoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
+            seoj=NODE_PROFILE_INSTANCE,
+            deoj=CONTROLLER_INSTANCE,
             esv=0x72,
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
@@ -368,8 +369,8 @@ class TestNodeProbe:
         # Device gets new IP address (192.168.1.200)
         frame2 = Frame(
             tid=2,
-            seoj=NODE_PROFILE_INSTANCE.to_bytes(3, "big"),
-            deoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
+            seoj=NODE_PROFILE_INSTANCE,
+            deoj=CONTROLLER_INSTANCE,
             esv=0x72,
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
@@ -415,7 +416,7 @@ class TestAsyncGet:
 
         # Start the get request
         get_task = asyncio.create_task(
-            client.async_get(node_id, 0x013001, [0x80, 0xB0], request_timeout=1.0)
+            client.async_get(node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0)
         )
 
         # Give time for request to be registered
@@ -425,8 +426,8 @@ class TestAsyncGet:
         tid = next(iter(client._pending_gets.keys()))
         response_frame = Frame(
             tid=tid,
-            seoj=b"\x01\x30\x01",
-            deoj=b"\x05\xff\x01",
+            seoj=EOJ(0x013001),
+            deoj=EOJ(0x05FF01),
             esv=0x72,
             properties=[
                 Property(epc=0x80, edt=b"\x30"),
@@ -453,7 +454,7 @@ class TestAsyncGet:
 
         async def run_test() -> list[Property]:
             return await client.async_get(
-                node_id, 0x013001, [0x80, 0xB0, 0xBB], request_timeout=1.0
+                node_id, EOJ(0x013001), [0x80, 0xB0, 0xBB], request_timeout=1.0
             )
 
         get_task = asyncio.create_task(run_test())
@@ -465,8 +466,8 @@ class TestAsyncGet:
             tid1 = next(iter(client._pending_gets.keys()))
             response1 = Frame(
                 tid=tid1,
-                seoj=b"\x01\x30\x01",
-                deoj=b"\x05\xff\x01",
+                seoj=EOJ(0x013001),
+                deoj=EOJ(0x05FF01),
                 esv=0x52,  # Partial response
                 properties=[
                     Property(epc=0x80, edt=b"\x30"),  # Success
@@ -480,8 +481,8 @@ class TestAsyncGet:
             tid2 = next(iter(client._pending_gets.keys()))
             response2 = Frame(
                 tid=tid2,
-                seoj=b"\x01\x30\x01",
-                deoj=b"\x05\xff\x01",
+                seoj=EOJ(0x013001),
+                deoj=EOJ(0x05FF01),
                 esv=0x72,  # Full success
                 properties=[
                     Property(epc=0xB0, edt=b"\x45"),  # FAN mode
@@ -511,7 +512,7 @@ class TestAsyncGet:
 
         async def run_test() -> list[Property]:
             return await client.async_get(
-                node_id, 0x013001, [0x80, 0xB0], request_timeout=1.0
+                node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
             )
 
         get_task = asyncio.create_task(run_test())
@@ -522,8 +523,8 @@ class TestAsyncGet:
             tid1 = next(iter(client._pending_gets.keys()))
             response1 = Frame(
                 tid=tid1,
-                seoj=b"\x01\x30\x01",
-                deoj=b"\x05\xff\x01",
+                seoj=EOJ(0x013001),
+                deoj=EOJ(0x05FF01),
                 esv=0x52,  # Partial response
                 properties=[
                     Property(epc=0x80, edt=b"\x30"),  # Success
@@ -548,7 +549,7 @@ class TestAsyncGet:
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         result = await client.async_get(
-            node_id, 0x013001, [0x80, 0xB0], request_timeout=0.1, max_retries=0
+            node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=0.1, max_retries=0
         )
 
         # Should return empty properties for failed EPCs
@@ -564,7 +565,7 @@ class TestAsyncGet:
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
-        result = await client.async_get(node_id, 0x013001, [])
+        result = await client.async_get(node_id, EOJ(0x013001), [])
         assert result == []
 
     @pytest.mark.asyncio
@@ -574,5 +575,5 @@ class TestAsyncGet:
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
         # client._protocol is None
-        result = await client.async_get(node_id, 0x013001, [0x80])
+        result = await client.async_get(node_id, EOJ(0x013001), [0x80])
         assert result == []

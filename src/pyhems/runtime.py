@@ -21,7 +21,8 @@ from .const import (
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
 )
-from .discovery import extract_discovery_info
+from .discovery import _extract_discovery_info
+from .eoj import EOJ
 from .frame import Frame, Property
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
@@ -41,7 +42,7 @@ class HemsFrameEvent(RuntimeEvent):
 
     frame: Frame
     node_id: str
-    eoj: int
+    eoj: EOJ
 
 
 @dataclass(slots=True)
@@ -49,14 +50,14 @@ class HemsInstanceListEvent(RuntimeEvent):
     """Event containing discovered instances from a device.
 
     Attributes:
-        instances: List of EOJs (as integers) discovered on the device.
+        instances: List of EOJs discovered on the device.
         node_id: Device node ID (hex string from EPC 0x83).
         properties: All properties from the node profile response.
             Key is EPC, value is EDT bytes.
 
     """
 
-    instances: list[int]
+    instances: list[EOJ]
     node_id: str
     properties: dict[int, bytes]
 
@@ -100,13 +101,13 @@ class HemsClient:
         # address <-> node_id (hex) bidirectional mapping
         self._device_addresses: bidict[str, str] = bidict()
         # Queue to store frames from unknown devices (frame, eoj, received_at)
-        self._pending_frames: dict[str, list[tuple[Frame, int, float]]] = {}
+        self._pending_frames: dict[str, list[tuple[Frame, EOJ, float]]] = {}
         # Background tasks that need to be kept alive
         self._background_tasks: set[asyncio.Task[object]] = set()
         self._poll_task: asyncio.Task[None] | None = None
         # Pending Get requests: tid -> (address, deoj, requested_epcs, future)
         self._pending_gets: dict[
-            int, tuple[str, int, list[int], asyncio.Future[list[Property]]]
+            int, tuple[str, EOJ, list[int], asyncio.Future[list[Property]]]
         ] = {}
 
     def subscribe(self, callback: EventCallback) -> Callable[[], None]:
@@ -178,8 +179,8 @@ class HemsClient:
 
         frame = Frame(
             tid=Frame.next_tid(),
-            seoj=CONTROLLER_INSTANCE.to_bytes(3, "big"),
-            deoj=NODE_PROFILE_INSTANCE.to_bytes(3, "big"),
+            seoj=CONTROLLER_INSTANCE,
+            deoj=NODE_PROFILE_INSTANCE,
             esv=ESV_GET,
             properties=[Property(epc=epc) for epc in self._discovery_epcs],
         )
@@ -188,9 +189,9 @@ class HemsClient:
     async def async_get(
         self,
         node_id: str,
-        deoj: int,
+        deoj: EOJ,
         epcs: list[int],
-        seoj: int = CONTROLLER_INSTANCE,
+        seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = GET_TIMEOUT,
         max_retries: int = GET_MAX_RETRIES,
     ) -> list[Property]:
@@ -206,7 +207,7 @@ class HemsClient:
 
         Args:
             node_id: Device node ID (hex string from EPC 0x83).
-            deoj: Destination EOJ (3 bytes as int).
+            deoj: Destination EOJ.
             epcs: List of EPCs to read.
             seoj: Source EOJ (default: controller).
             request_timeout: Timeout in seconds for each request.
@@ -246,7 +247,7 @@ class HemsClient:
         finally:
             if remaining_epcs:
                 _LOGGER.debug(
-                    "Partial response from %s EOJ 0x%06X, missing EPCs: %s",
+                    "Partial response from %s %r, missing EPCs: %s",
                     address,
                     deoj,
                     [f"0x{epc:02X}" for epc in remaining_epcs],
@@ -292,11 +293,8 @@ class HemsClient:
                     future.set_result(frame.properties)
                 # Continue processing to also dispatch the event
 
-            seoj_int = int.from_bytes(frame.seoj, "big")
-            seoj_class = seoj_int >> 8
-
             # Handle node profile responses (identification and instance list)
-            if seoj_class == NODE_PROFILE_CLASS:
+            if frame.seoj.class_code == NODE_PROFILE_CLASS:
                 self._handle_node_profile(frame, address)
                 return
 
@@ -304,14 +302,14 @@ class HemsClient:
             node_id = self._device_addresses.get(address)
             if not node_id:
                 _LOGGER.debug(
-                    "Received frame from unknown device at %s (EOJ: 0x%06X), "
+                    "Received frame from unknown device at %s (EOJ: %r), "
                     "queuing and probing",
                     address,
-                    seoj_int,
+                    frame.seoj,
                 )
                 # Queue the frame for later processing
                 pending_frames = self._pending_frames.setdefault(address, [])
-                pending_frames.append((frame, seoj_int, time.monotonic()))
+                pending_frames.append((frame, frame.seoj, time.monotonic()))
                 # Trigger node probe to discover the device
                 task = asyncio.create_task(self.async_probe_nodes())
                 self._background_tasks.add(task)
@@ -324,7 +322,7 @@ class HemsClient:
                     received_at=time.monotonic(),
                     frame=frame,
                     node_id=node_id,
-                    eoj=seoj_int,
+                    eoj=frame.seoj,
                 )
             )
         except Exception as ex:
@@ -334,7 +332,7 @@ class HemsClient:
     def _handle_node_profile(self, frame: Frame, address: str) -> None:
         """Handle node profile responses."""
         # Extract node_id and instances using shared logic
-        node_id, instances = extract_discovery_info(frame)
+        node_id, instances = _extract_discovery_info(frame)
 
         if not node_id:
             return
@@ -397,8 +395,8 @@ class HemsClient:
     async def _attempt_get_request(
         self,
         address: str,
-        deoj: int,
-        seoj: int,
+        deoj: EOJ,
+        seoj: EOJ,
         epcs: list[int],
         request_timeout: float,
         attempt: int,
@@ -411,15 +409,15 @@ class HemsClient:
 
         frame = Frame(
             tid=tid,
-            seoj=seoj.to_bytes(3, "big"),
-            deoj=deoj.to_bytes(3, "big"),
+            seoj=seoj,
+            deoj=deoj,
             esv=ESV_GET,
             properties=[Property(epc=epc) for epc in epcs],
         )
 
         if attempt > 0:
             _LOGGER.debug(
-                "Retrying Get request (attempt %d) to %s EOJ 0x%06X for EPCs: [%s]",
+                "Retrying Get request (attempt %d) to %s %r for EPCs: [%s]",
                 attempt + 1,
                 address,
                 deoj,
@@ -437,7 +435,7 @@ class HemsClient:
         except TimeoutError:
             if not future.done():
                 _LOGGER.debug(
-                    "Get request to %s EOJ 0x%06X timed out (attempt %d)",
+                    "Get request to %s %r timed out (attempt %d)",
                     address,
                     deoj,
                     attempt + 1,

@@ -34,6 +34,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pyhems = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -57,6 +60,7 @@ select = [
   "PT",     # flake8-pytest-style
   "SIM",    # flake8-simplify
   "T20",    # flake8-print
+  "ARG",    # flake8-unused-arguments
 ]
 
 ignore = [

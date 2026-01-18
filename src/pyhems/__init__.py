@@ -17,13 +17,23 @@ from .const import (
     ESV_GET_SNA,
     ESV_INF,
     ESV_INF_REQ,
-    ESV_INF_SNA,
     ESV_SET_RES,
     ESV_SET_SNA,
     ESV_SETC,
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
 )
+from .definitions import (
+    DefinitionsLoadError,
+    DefinitionsRegistry,
+    EntityDefinition,
+    EnumValue,
+    create_binary_decoder,
+    create_enum_decoder,
+    create_numeric_decoder,
+    load_definitions_registry,
+)
+from .eoj import EOJ
 from .frame import Frame, Property
 from .transport import EchonetLiteProtocol, create_multicast_socket
 from .utils import decode_ascii_property, parse_property_map
@@ -36,6 +46,7 @@ __all__ = [
     "DISCOVERY_DEFAULT_EPCS",
     "ECHONET_MULTICAST",
     "ECHONET_PORT",
+    "EOJ",
     "EPC_IDENTIFICATION_NUMBER",
     "EPC_INSTANCE_LIST",
     "EPC_MANUFACTURER_CODE",
@@ -47,16 +58,23 @@ __all__ = [
     "ESV_GET_SNA",
     "ESV_INF",
     "ESV_INF_REQ",
-    "ESV_INF_SNA",
     "ESV_SETC",
     "ESV_SET_RES",
     "ESV_SET_SNA",
     "NODE_PROFILE_CLASS",
     "NODE_PROFILE_INSTANCE",
+    "DefinitionsLoadError",
+    "DefinitionsRegistry",
     "EchonetLiteProtocol",
+    "EntityDefinition",
+    "EnumValue",
     "Frame",
     "Property",
+    "create_binary_decoder",
+    "create_enum_decoder",
     "create_multicast_socket",
+    "create_numeric_decoder",
     "decode_ascii_property",
+    "load_definitions_registry",
     "parse_property_map",
 ]
