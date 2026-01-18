@@ -1,6 +1,6 @@
 # pyhems
 
-[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 HEMS（Home Energy Management System）向け ECHONET Lite 通信ライブラリ。
@@ -24,7 +24,7 @@ pyhems は ECHONET Lite 機器との通信を行うための Python ライブラ
 - **デバイス検出**: UDP マルチキャストによる機器自動検出
 - **イベント駆動**: コールバックによるイベント購読
 - **IP 非依存**: IP アドレス変更を自動追跡
-- **MRA 対応**: Machine Readable Appendix データの取得・キャッシュ
+- **エンティティ定義**: MRA ベースのデバイス・エンティティ定義
 - **型ヒント完備**: `py.typed` 対応
 
 ## 動作要件
@@ -59,7 +59,7 @@ async def main():
         if isinstance(event, HemsInstanceListEvent):
             # デバイス検出イベント
             print(f"ノードID: {event.node_id}")
-            print(f"インスタンス: {[hex(eoj) for eoj in event.instances]}")
+            print(f"インスタンス: {event.instances}")
         elif isinstance(event, HemsFrameEvent):
             # フレーム受信イベント
             print(f"フレーム受信: {event.frame}")
@@ -79,6 +79,7 @@ asyncio.run(main())
 
 ```python
 from pyhems.runtime import HemsClient
+from pyhems.eoj import EOJ
 
 async def read_properties():
     client = HemsClient(interface="0.0.0.0")
@@ -90,7 +91,7 @@ async def read_properties():
     # エアコン（0x013001）の動作状態（0x80）と設定温度（0xB3）を取得
     properties = await client.async_get(
         node_id=node_id,
-        deoj=0x013001,  # 家庭用エアコン インスタンス1
+        deoj=EOJ(0x013001),  # 家庭用エアコン インスタンス1
         epcs=[0x80, 0xB3],
     )
 
@@ -104,12 +105,13 @@ async def read_properties():
 
 ```python
 from pyhems.frame import Frame, Property
+from pyhems.eoj import EOJ
 
 # フレーム作成
 frame = Frame(
     tid=Frame.next_tid(),
-    seoj=b"\x05\xff\x01",  # コントローラ
-    deoj=b"\x01\x30\x01",  # エアコン
+    seoj=EOJ(0x05FF01),    # コントローラ
+    deoj=EOJ(0x013001),    # エアコン
     esv=0x62,              # Get
     properties=[
         Property(epc=0x80),  # 動作状態
@@ -123,6 +125,27 @@ data = frame.encode()
 decoded = Frame.decode(data)
 ```
 
+### EOJ クラス
+
+EOJ（ECHONET Lite Object）は、クラスグループコード、クラスコード、インスタンス番号を管理します。
+
+```python
+from pyhems.eoj import EOJ
+
+# 整数から作成
+eoj = EOJ(0x013001)  # エアコン インスタンス1
+
+# 属性へのアクセス
+print(f"クラスコード: 0x{eoj.class_code:04X}")  # 0x0130
+print(f"インスタンス: {eoj.instance}")          # 1
+
+# バイト列に変換
+eoj_bytes = eoj.to_bytes()  # b'\x01\x30\x01'
+
+# バイト列から作成
+eoj2 = EOJ.from_bytes(b'\x01\x30\x01')
+```
+
 ## イベントの種類
 
 ### HemsInstanceListEvent
@@ -132,9 +155,9 @@ decoded = Frame.decode(data)
 ```python
 @dataclass
 class HemsInstanceListEvent:
-    received_at: float       # 受信時刻
-    instances: list[int]     # EOJ のリスト
-    node_id: str             # ノード識別番号（EPC 0x83）
+    received_at: float            # 受信時刻
+    instances: list[EOJ]          # EOJ のリスト
+    node_id: str                  # ノード識別番号（EPC 0x83）
     properties: dict[int, bytes]  # 取得したプロパティ
 ```
 
@@ -148,7 +171,7 @@ class HemsFrameEvent:
     received_at: float  # 受信時刻
     frame: Frame        # 受信フレーム
     node_id: str        # ノード識別番号
-    eoj: int            # 送信元 EOJ
+    eoj: EOJ            # 送信元 EOJ
 ```
 
 ### HemsErrorEvent
@@ -168,78 +191,92 @@ class HemsErrorEvent:
 client = HemsClient(
     interface="0.0.0.0",     # バインドするインターフェース
     poll_interval=60.0,      # ノードプローブの間隔（秒）
-    extra_epcs=[0xD5, 0xD6], # 追加で取得するEPC
+    extra_epcs=[0x8A, 0x8D], # 追加で取得するEPC
 )
 ```
 
 - `interface`: UDP ソケットをバインドする IP アドレス
 - `poll_interval`: 定期的なノード検出の間隔
-- `extra_epcs`: ノードプロファイルから追加で取得する EPC
+- `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
 
-## MRA（Machine Readable Appendix）
+## エンティティ定義
 
-MRA は ECHONET Lite の機器仕様を機械可読形式で提供するデータです。
-pyhems では GitHub Pages からダウンロードしてキャッシュします。
+pyhems は MRA（Machine Readable Appendix）データに基づいたエンティティ定義を提供します。
+これにより、Home Assistant などの統合で使用するセンサーやスイッチを簡単に構成できます。
 
-### MRA の取得と利用
+### 定義レジストリの使用
 
 ```python
-from pyhems.mra_fetcher import MRAFetcher
+from pyhems import load_definitions_registry
 
-fetcher = MRAFetcher()
+# 定義を読み込み
+registry = load_definitions_registry()
 
-# MRA データをダウンロード（未取得の場合のみ）
-fetcher.ensure_mra()
-
-# デバイス仕様の読み込み
-device = fetcher.load_device("0x0130")  # 家庭用エアコン
-print(f"クラス名: {device['className']}")
-
-# スーパークラス（共通プロパティ）の読み込み
-super_class = fetcher.load_super_class()
-
-# 定義情報の読み込み
-definitions = fetcher.load_definitions()
+# 特定のデバイスクラスのエンティティ定義を取得
+entities = registry.get_entities(0x0130)  # 家庭用エアコン
+for entity in entities:
+    print(f"{entity.name_ja}: EPC=0x{entity.epc:02X}")
 ```
 
-### MRA データの構成
+### EntityDefinition の属性
 
+```python
+@dataclass
+class EntityDefinition:
+    id: str                 # 識別子（例: "class_0130_epc_bb"）
+    epc: int                # プロパティコード
+    name_en: str            # 英語名
+    name_ja: str            # 日本語名
+    format: str | None      # 数値フォーマット（"uint8", "int16" など）
+    unit: str | None        # 単位（"W", "Celsius", "%RH" など）
+    minimum: float | None   # 最小有効値
+    maximum: float | None   # 最大有効値
+    multiple_of: float      # スケール係数
+    enum_values: tuple[EnumValue, ...]  # 列挙値
+    byte_offset: int        # EDT内のバイト位置
+    manufacturer_code: int | None  # メーカー固有の場合のコード
 ```
-~/.cache/pyhems/mra/
-├── metaData.json      # バージョン情報
-├── definitions/       # 共通定義
-├── devices/           # デバイスクラス仕様
-├── nodeProfile/       # ノードプロファイル
-├── superClass/        # 共通プロパティ
-└── MCRules/           # 相互接続規則
+
+### デコーダファクトリ
+
+EDT データを解釈するためのデコーダ関数を生成できます。
+
+```python
+from pyhems import (
+    create_numeric_decoder,
+    create_binary_decoder,
+    create_enum_decoder,
+)
+
+# 数値デコーダ（温度: uint8, 0〜50℃）
+temp_decoder = create_numeric_decoder(
+    mra_format="uint8",
+    minimum=0,
+    maximum=50,
+)
+value = temp_decoder(b"\x1E")  # 30
+
+# バイナリデコーダ（ON/OFF）
+power_decoder = create_binary_decoder(on_value=b"\x30")
+is_on = power_decoder(b"\x30")  # True
+
+# 列挙型デコーダ
+mode_decoder = create_enum_decoder()
+mode = mode_decoder(b"\x42")  # 0x42
 ```
-
-### MRAFetcher のメソッド
-
-| メソッド               | 説明                       |
-| ---------------------- | -------------------------- |
-| `ensure_mra()`         | MRA がなければダウンロード |
-| `download()`           | MRA を強制ダウンロード     |
-| `is_cached`            | キャッシュ有無             |
-| `needs_update()`       | 更新が必要か確認           |
-| `get_local_version()`  | ローカルのバージョン       |
-| `get_remote_version()` | リモートのバージョン       |
-| `load_device(code)`    | デバイス仕様を読み込み     |
-| `load_super_class()`   | スーパークラスを読み込み   |
-| `load_definitions()`   | 定義を読み込み             |
-| `clear_cache()`        | キャッシュを削除           |
 
 ## モジュール構成
 
-| モジュール    | 説明                           |
-| ------------- | ------------------------------ |
-| `runtime`     | 高レベル通信クライアント       |
-| `frame`       | フレームのエンコード・デコード |
-| `transport`   | UDP 通信層                     |
-| `discovery`   | デバイス検出ユーティリティ     |
-| `mra_fetcher` | MRA データの取得・管理         |
-| `const`       | 定数定義                       |
-| `utils`       | ユーティリティ関数             |
+| モジュール    | 説明                            |
+| ------------- | ------------------------------- |
+| `runtime`     | 高レベル通信クライアント        |
+| `frame`       | フレームのエンコード・デコード  |
+| `eoj`         | EOJ（オブジェクト識別子）クラス |
+| `transport`   | UDP 通信層                      |
+| `discovery`   | デバイス検出ユーティリティ      |
+| `definitions` | エンティティ定義とデコーダ      |
+| `const`       | 定数定義                        |
+| `utils`       | ユーティリティ関数              |
 
 ## 参考リンク
 
