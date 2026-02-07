@@ -16,39 +16,47 @@
         }
       ],
       "epc": 128,
+      "get": "required",
       "id": "class_0000_epc_80",
       "name_en": "Operation status",
-      "name_ja": "動作状態"
+      "name_ja": "動作状態",
+      "set": "optional"
     },
     {
       "epc": 132,
       "format": "uint16",
+      "get": "optional",
       "id": "class_0000_epc_84",
       "maximum": 65533.0,
       "minimum": 0.0,
       "name_en": "Measured instantaneous power consumption",
       "name_ja": "瞬時消費電力計測値",
+      "set": "notApplicable",
       "unit": "W"
     },
     {
       "epc": 133,
       "format": "uint32",
+      "get": "optional",
       "id": "class_0000_epc_85",
       "maximum": 999999999.0,
       "minimum": 0.0,
       "multipleOf": 0.001,
       "name_en": "Measured cumulative electric energy consumption",
       "name_ja": "積算消費電力量計測値",
+      "set": "notApplicable",
       "unit": "kWh"
     },
     {
       "epc": 135,
       "format": "uint8",
+      "get": "optional",
       "id": "class_0000_epc_87",
       "maximum": 100.0,
       "minimum": 0.0,
       "name_en": "Current limit setting",
       "name_ja": "電流制限設定",
+      "set": "optional",
       "unit": "%"
     },
     {
@@ -67,9 +75,11 @@
         }
       ],
       "epc": 136,
+      "get": "required",
       "id": "class_0000_epc_88",
       "name_en": "Fault status",
-      "name_ja": "異常発生状態"
+      "name_ja": "異常発生状態",
+      "set": "notApplicable"
     },
     {
       "enum_values": [
@@ -141,9 +151,11 @@
         }
       ],
       "epc": 137,
+      "get": "optional",
       "id": "class_0000_epc_89",
       "name_en": "Fault description",
-      "name_ja": "異常内容"
+      "name_ja": "異常内容",
+      "set": "notApplicable"
     },
     {
       "enum_values": [
@@ -161,9 +173,11 @@
         }
       ],
       "epc": 143,
+      "get": "optional",
       "id": "class_0000_epc_8f",
       "name_en": "Power-saving operation setting",
-      "name_ja": "節電動作設定"
+      "name_ja": "節電動作設定",
+      "set": "optional"
     },
     {
       "enum_values": [
@@ -193,18 +207,22 @@
         }
       ],
       "epc": 147,
+      "get": "optional",
       "id": "class_0000_epc_93",
       "name_en": "Remote control setting",
-      "name_ja": "遠隔操作設定"
+      "name_ja": "遠隔操作設定",
+      "set": "optional"
     },
     {
       "epc": 153,
       "format": "uint16",
+      "get": "optional",
       "id": "class_0000_epc_99",
       "maximum": 65533.0,
       "minimum": 0.0,
       "name_en": "Power limit setting",
       "name_ja": "電力制限設定",
+      "set": "optional",
       "unit": "W"
     }
   ],
@@ -239,9 +257,11 @@
             }
           ],
           "epc": 198,
+          "get": "optional",
           "id": "class_05ff_epc_c6",
           "name_en": "Connection status",
-          "name_ja": "接続状態"
+          "name_ja": "接続状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -259,9 +279,11 @@
             }
           ],
           "epc": 205,
+          "get": "optional",
           "id": "class_05ff_epc_cd",
           "name_en": "Fault status of device to be controlled",
-          "name_ja": "管理対象機器異常発生状態"
+          "name_ja": "管理対象機器異常発生状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Controller",
@@ -285,9 +307,33 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_0602_epc_b0",
           "name_en": "Display control setting",
-          "name_ja": "表示制御設定"
+          "name_ja": "表示制御設定",
+          "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 48,
+              "key": "ready",
+              "name_en": "Ready",
+              "name_ja": "Ready"
+            },
+            {
+              "edt": 49,
+              "key": "busy",
+              "name_en": "Busy",
+              "name_ja": "Busy"
+            }
+          ],
+          "epc": 177,
+          "get": "required_o",
+          "id": "class_0602_epc_b1",
+          "name_en": "Character string setting acceptance status",
+          "name_ja": "文字列設定受付可能状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Television",
@@ -298,12 +344,14 @@
         {
           "epc": 224,
           "format": "int16",
+          "get": "required",
           "id": "class_0011_epc_e0",
           "maximum": 32766.0,
           "minimum": -2732.0,
           "multipleOf": 0.1,
           "name_en": "Measured temperature value",
           "name_ja": "温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         }
       ],
@@ -315,11 +363,13 @@
         {
           "epc": 224,
           "format": "uint8",
+          "get": "required",
           "id": "class_0012_epc_e0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of relative humidity",
           "name_ja": "相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         }
       ],
@@ -380,9 +430,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_0002_epc_b0",
           "name_en": "Detection threshold level",
-          "name_ja": "検知閾値レベル設定"
+          "name_ja": "検知閾値レベル設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -400,9 +452,11 @@
             }
           ],
           "epc": 177,
+          "get": "required",
           "id": "class_0002_epc_b1",
           "name_en": "Invasion occurrence status",
-          "name_ja": "侵入発生状態"
+          "name_ja": "侵入発生状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Crime prevention sensor",
@@ -413,21 +467,25 @@
         {
           "epc": 224,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_00d0_epc_e0",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured illuminance value 1",
           "name_ja": "照度計測値1",
+          "set": "notApplicable",
           "unit": "lux"
         },
         {
           "epc": 225,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_00d0_epc_e1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured illuminance value 2",
           "name_ja": "照度計測値2",
+          "set": "notApplicable",
           "unit": "klux"
         }
       ],
@@ -488,9 +546,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_0016_epc_b0",
           "name_en": "Detection threshold level",
-          "name_ja": "検知閾値レベル設定"
+          "name_ja": "検知閾値レベル設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -508,9 +568,11 @@
             }
           ],
           "epc": 177,
+          "get": "required",
           "id": "class_0016_epc_b1",
           "name_en": "Bath heating detection status",
-          "name_ja": "風呂沸き上がり検知状態"
+          "name_ja": "風呂沸き上がり検知状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Bath heating status sensor",
@@ -521,11 +583,13 @@
         {
           "epc": 224,
           "format": "uint16",
+          "get": "required",
           "id": "class_001b_epc_e0",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured value of CO2 concentration",
           "name_ja": "CO2濃度計測値",
+          "set": "notApplicable",
           "unit": "ppm"
         }
       ],
@@ -586,9 +650,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_001d_epc_b0",
           "name_en": "Detection threshold level",
-          "name_ja": "検知閾値レベル設定"
+          "name_ja": "検知閾値レベル設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -606,18 +672,22 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_001d_epc_b1",
           "name_en": "VOC detection status",
-          "name_ja": "VOC 検知状態"
+          "name_ja": "VOC 検知状態",
+          "set": "notApplicable"
         },
         {
           "epc": 224,
           "format": "uint16",
+          "get": "required",
           "id": "class_001d_epc_e0",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured value of VOC concentration",
           "name_ja": "VOC 濃度計測値",
+          "set": "notApplicable",
           "unit": "ppm"
         }
       ],
@@ -642,9 +712,11 @@
             }
           ],
           "epc": 177,
+          "get": "required",
           "id": "class_0003_epc_b1",
           "name_en": "Emergency occurrence status",
-          "name_ja": "非常発生状態"
+          "name_ja": "非常発生状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Emergency button",
@@ -680,9 +752,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0130_epc_90",
           "name_en": "ON timer-based reservation setting",
-          "name_ja": "ONタイマ予約設定"
+          "name_ja": "ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -712,9 +786,11 @@
             }
           ],
           "epc": 148,
+          "get": "optional",
           "id": "class_0130_epc_94",
           "name_en": "OFF timer-based reservation setting",
-          "name_ja": "OFFタイマ予約設定"
+          "name_ja": "OFFタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -774,9 +850,11 @@
             }
           ],
           "epc": 160,
+          "get": "required",
           "id": "class_0130_epc_a0",
           "name_en": "Air flow rate setting",
-          "name_ja": "風量設定"
+          "name_ja": "風量設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -806,9 +884,11 @@
             }
           ],
           "epc": 161,
+          "get": "optional",
           "id": "class_0130_epc_a1",
           "name_en": "Automatic control of air flow direction setting",
-          "name_ja": "風向自動設定"
+          "name_ja": "風向自動設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -838,9 +918,11 @@
             }
           ],
           "epc": 163,
+          "get": "optional",
           "id": "class_0130_epc_a3",
           "name_en": "Automatic swing of air flow setting",
-          "name_ja": "風向スイング設定"
+          "name_ja": "風向スイング設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -876,9 +958,11 @@
             }
           ],
           "epc": 164,
+          "get": "optional",
           "id": "class_0130_epc_a4",
           "name_en": "Air flow direction (vertical) setting",
-          "name_ja": "風向上下設定"
+          "name_ja": "風向上下設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1070,9 +1154,11 @@
             }
           ],
           "epc": 165,
+          "get": "optional",
           "id": "class_0130_epc_a5",
           "name_en": "Air flow direction (horizontal) setting",
-          "name_ja": "風向左右設定"
+          "name_ja": "風向左右設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1102,9 +1188,11 @@
             }
           ],
           "epc": 170,
+          "get": "optional",
           "id": "class_0130_epc_aa",
           "name_en": "Special state",
-          "name_ja": "特殊状態"
+          "name_ja": "特殊状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -1122,9 +1210,11 @@
             }
           ],
           "epc": 171,
+          "get": "optional",
           "id": "class_0130_epc_ab",
           "name_en": "Non-priority state",
-          "name_ja": "非優先状態"
+          "name_ja": "非優先状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -1166,9 +1256,11 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_0130_epc_b0",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -1186,9 +1278,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_0130_epc_b1",
           "name_en": "Automatic temperature control setting",
-          "name_ja": "温度自動設定"
+          "name_ja": "温度自動設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1212,130 +1306,156 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_0130_epc_b2",
           "name_en": "Normal/highspeed/silent operation setting",
-          "name_ja": "急速動作モード設定"
+          "name_ja": "急速動作モード設定",
+          "set": "optional"
         },
         {
           "epc": 179,
           "format": "uint8",
+          "get": "required",
           "id": "class_0130_epc_b3",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value",
           "name_ja": "温度設定値",
+          "set": "required",
           "unit": "Celsius"
         },
         {
           "epc": 180,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_b4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Set value of relative humidity in dehumidifying mode",
           "name_ja": "除湿モード時相対湿度設定値",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 181,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_b5",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value in cooling mode",
           "name_ja": "冷房モード時温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 182,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_b6",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value in heating mode",
           "name_ja": "暖房モード時温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 183,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_b7",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value in dehumidifying mode",
           "name_ja": "除湿モード時温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 185,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0130_epc_b9",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Measured value of current consumption",
           "name_ja": "消費電流計測値",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 186,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_ba",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of room relative humidity",
           "name_ja": "室内相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 187,
           "format": "int8",
+          "get": "required",
           "id": "class_0130_epc_bb",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured value of room temperature",
           "name_ja": "室内温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 188,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0130_epc_bc",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value of user remote control",
           "name_ja": "ユーザリモコン温度設定値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 189,
           "format": "int8",
+          "get": "optional",
           "id": "class_0130_epc_bd",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured cooled air temperature",
           "name_ja": "吹き出し温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 190,
           "format": "int8",
+          "get": "optional",
           "id": "class_0130_epc_be",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured outdoor air temperature",
           "name_ja": "外気温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 191,
           "format": "int8",
+          "get": "optional",
           "id": "class_0130_epc_bf",
           "maximum": 125.0,
           "minimum": -127.0,
           "multipleOf": 0.1,
           "name_en": "Relative temperature setting",
           "name_ja": "相対温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
@@ -1366,9 +1486,11 @@
             }
           ],
           "epc": 192,
+          "get": "optional",
           "id": "class_0130_epc_c0",
           "name_en": "Ventilation function setting",
-          "name_ja": "換気モード設定"
+          "name_ja": "換気モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1386,9 +1508,11 @@
             }
           ],
           "epc": 193,
+          "get": "optional",
           "id": "class_0130_epc_c1",
           "name_en": "Humidifier function setting",
-          "name_ja": "加湿モード設定"
+          "name_ja": "加湿モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1448,9 +1572,11 @@
             }
           ],
           "epc": 194,
+          "get": "optional",
           "id": "class_0130_epc_c2",
           "name_en": "Ventilation air flow rate setting",
-          "name_ja": "換気風量設定"
+          "name_ja": "換気風量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1510,9 +1636,11 @@
             }
           ],
           "epc": 196,
+          "get": "optional",
           "id": "class_0130_epc_c4",
           "name_en": "Degree of humidification setting",
-          "name_ja": "加湿量設定"
+          "name_ja": "加湿量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1548,9 +1676,11 @@
             }
           ],
           "epc": 204,
+          "get": "optional",
           "id": "class_0130_epc_cc",
           "name_en": "Special function setting",
-          "name_ja": "特別運転モード設定"
+          "name_ja": "特別運転モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1574,9 +1704,11 @@
             }
           ],
           "epc": 206,
+          "get": "optional",
           "id": "class_0130_epc_ce",
           "name_en": "Thermostat setting override function",
-          "name_ja": "強制サーモモード設定"
+          "name_ja": "強制サーモモード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1594,9 +1726,11 @@
             }
           ],
           "epc": 207,
+          "get": "optional",
           "id": "class_0130_epc_cf",
           "name_en": "Air purification mode setting",
-          "name_ja": "空気清浄モード設定"
+          "name_ja": "空気清浄モード設定",
+          "set": "optional"
         }
       ],
       "name_en": "Home air conditioner",
@@ -1662,9 +1796,11 @@
             }
           ],
           "epc": 160,
+          "get": "optional",
           "id": "class_0133_epc_a0",
           "name_en": "Set value of ventilation air flow rate",
-          "name_ja": "換気風量設定"
+          "name_ja": "換気風量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1682,9 +1818,11 @@
             }
           ],
           "epc": 191,
+          "get": "optional",
           "id": "class_0133_epc_bf",
           "name_en": "Ventilation Auto setting",
-          "name_ja": "換気自動設定"
+          "name_ja": "換気自動設定",
+          "set": "optional"
         }
       ],
       "name_en": "Ventilation fan",
@@ -1750,9 +1888,11 @@
             }
           ],
           "epc": 160,
+          "get": "optional",
           "id": "class_0134_epc_a0",
           "name_en": "Set value of ventilation air flow rate",
-          "name_ja": "換気風量設定"
+          "name_ja": "換気風量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1770,9 +1910,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_0134_epc_b0",
           "name_en": "Ventilation mode automatic setting",
-          "name_ja": "換気モード自動設定"
+          "name_ja": "換気モード自動設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1790,9 +1932,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_0134_epc_b1",
           "name_en": "Ventilation method setting",
-          "name_ja": "換気方式設定"
+          "name_ja": "換気方式設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1840,9 +1984,11 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_0134_epc_b2",
           "name_en": "Ventilation mode setting",
-          "name_ja": "換気モード設定"
+          "name_ja": "換気モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -1896,49 +2042,59 @@
             }
           ],
           "epc": 179,
+          "get": "optional",
           "id": "class_0134_epc_b3",
           "name_en": "Cooling / heating high-low setting",
-          "name_ja": "冷暖強弱設定"
+          "name_ja": "冷暖強弱設定",
+          "set": "optional"
         },
         {
           "epc": 180,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0134_epc_b4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Set value of room relative humidity",
           "name_ja": "室内相対湿度設定値",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 185,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0134_epc_b9",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Measured value of electric current consumption",
           "name_ja": "消費電流計測値",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 186,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0134_epc_ba",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of room relative humidity",
           "name_ja": "室内相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 190,
           "format": "int8",
+          "get": "optional",
           "id": "class_0134_epc_be",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured value of outdoor air temperature",
           "name_ja": "外気温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -1957,18 +2113,22 @@
             }
           ],
           "epc": 191,
+          "get": "optional",
           "id": "class_0134_epc_bf",
           "name_en": "Ventilation auto setting",
-          "name_ja": "換気自動設定"
+          "name_ja": "換気自動設定",
+          "set": "optional"
         },
         {
           "epc": 192,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0134_epc_c0",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured value of CO2 concentration",
           "name_ja": "CO2濃度計測値",
+          "set": "notApplicable",
           "unit": "ppm"
         },
         {
@@ -1987,9 +2147,11 @@
             }
           ],
           "epc": 193,
+          "get": "optional",
           "id": "class_0134_epc_c1",
           "name_en": "Smoke (cigarette) detection status",
-          "name_ja": "煙 (タバコ) 検知状態"
+          "name_ja": "煙 (タバコ) 検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2007,58 +2169,70 @@
             }
           ],
           "epc": 194,
+          "get": "optional",
           "id": "class_0134_epc_c2",
           "name_en": "Pollution detection status",
-          "name_ja": "汚れ検知状態"
+          "name_ja": "汚れ検知状態",
+          "set": "notApplicable"
         },
         {
           "epc": 202,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0134_epc_ca",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of outdoor relative humidity",
           "name_ja": "外気相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 210,
           "format": "int8",
+          "get": "optional",
           "id": "class_0134_epc_d2",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured value of charging air temperature",
           "name_ja": "給気温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 211,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0134_epc_d3",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of charging relative humidity",
           "name_ja": "給気相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 212,
           "format": "int8",
+          "get": "optional",
           "id": "class_0134_epc_d4",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured value of discharging air temperature",
           "name_ja": "排気温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 213,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0134_epc_d5",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of discharging air relative humidity",
           "name_ja": "排気相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
@@ -2077,9 +2251,11 @@
             }
           ],
           "epc": 224,
+          "get": "optional",
           "id": "class_0134_epc_e0",
           "name_en": "Heat exchanger operation setting",
-          "name_ja": "熱交換機動作設定"
+          "name_ja": "熱交換機動作設定",
+          "set": "optional"
         }
       ],
       "name_en": "Air conditioner ventilation fan",
@@ -2145,9 +2321,11 @@
             }
           ],
           "epc": 160,
+          "get": "optional",
           "id": "class_0135_epc_a0",
           "name_en": "Air flow rate setting",
-          "name_ja": "風量設定"
+          "name_ja": "風量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2165,9 +2343,11 @@
             }
           ],
           "epc": 192,
+          "get": "optional",
           "id": "class_0135_epc_c0",
           "name_en": "Air pollution detection status",
-          "name_ja": "空気汚れ検知状態"
+          "name_ja": "空気汚れ検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2185,9 +2365,11 @@
             }
           ],
           "epc": 193,
+          "get": "optional",
           "id": "class_0135_epc_c1",
           "name_en": "Smoke (cigarette) detection status",
-          "name_ja": "煙 (タバコ) 検知状態"
+          "name_ja": "煙 (タバコ) 検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2205,9 +2387,11 @@
             }
           ],
           "epc": 194,
+          "get": "optional",
           "id": "class_0135_epc_c2",
           "name_en": "Optical catalyst operation setting",
-          "name_ja": "光触媒動作設定"
+          "name_ja": "光触媒動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2225,44 +2409,52 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_0135_epc_e1",
           "name_en": "Filter change notice",
-          "name_ja": "フィルタ交換通知状態"
+          "name_ja": "フィルタ交換通知状態",
+          "set": "notApplicable"
         },
         {
           "byte_offset": 3,
           "epc": 241,
           "format": "int8",
+          "get": "notApplicable",
           "id": "class_0135_custom_000005_epc_f1_1",
           "manufacturer_code": 5,
           "maximum": 125,
           "minimum": -127,
           "name_en": "Temperature",
           "name_ja": "温度",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "byte_offset": 4,
           "epc": 241,
           "format": "uint8",
+          "get": "notApplicable",
           "id": "class_0135_custom_000005_epc_f1_2",
           "manufacturer_code": 5,
           "maximum": 100,
           "minimum": 0,
           "name_en": "Humidity",
           "name_ja": "湿度",
+          "set": "notApplicable",
           "unit": "%RH"
         },
         {
           "byte_offset": 28,
           "epc": 241,
           "format": "uint8",
+          "get": "notApplicable",
           "id": "class_0135_custom_000005_epc_f1_3",
           "manufacturer_code": 5,
           "maximum": 255,
           "minimum": 0,
           "name_en": "PM2.5",
           "name_ja": "PM2.5",
+          "set": "notApplicable",
           "unit": "µg/m³"
         }
       ],
@@ -2274,54 +2466,64 @@
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_0022_epc_e0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Cumulative amounts of electric energy",
           "name_ja": "積算電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 225,
           "format": "int32",
+          "get": "optional",
           "id": "class_0022_epc_e1",
           "maximum": 999999999.0,
           "minimum": -999999999.0,
           "name_en": "Medium-capacity sensor instantaneous electric energy",
           "name_ja": "中容量センサ瞬時電力値計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 226,
           "format": "int16",
+          "get": "optional",
           "id": "class_0022_epc_e2",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "multipleOf": 0.1,
           "name_en": "Small-capacity sensor instantaneous electric energy",
           "name_ja": "小容量センサ瞬時電力値計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 227,
           "format": "int16",
+          "get": "optional",
           "id": "class_0022_epc_e3",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "multipleOf": 0.1,
           "name_en": "Large-capacity sensor instantaneous electric energy",
           "name_ja": "大容量センサ瞬時電力値計測値",
+          "set": "notApplicable",
           "unit": "kW"
         },
         {
           "epc": 229,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0022_epc_e5",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Effective voltage value",
           "name_ja": "実効電圧値計測値",
+          "set": "notApplicable",
           "unit": "V"
         }
       ],
@@ -2346,9 +2548,11 @@
             }
           ],
           "epc": 172,
+          "get": "required",
           "id": "class_0156_epc_ac",
           "name_en": "Thermostat state",
-          "name_ja": "サーモ状態"
+          "name_ja": "サーモ状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2384,9 +2588,11 @@
             }
           ],
           "epc": 174,
+          "get": "required",
           "id": "class_0156_epc_ae",
           "name_en": "Current function (automatic operation mode)",
-          "name_ja": "自動運転時運転モード状態"
+          "name_ja": "自動運転時運転モード状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2422,28 +2628,34 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_0156_epc_b0",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "epc": 179,
           "format": "uint8",
+          "get": "required",
           "id": "class_0156_epc_b3",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Temperature setting",
           "name_ja": "温度設定値",
+          "set": "required",
           "unit": "Celsius"
         },
         {
           "epc": 187,
           "format": "int8",
+          "get": "optional",
           "id": "class_0156_epc_bb",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured indoor unit temperature",
           "name_ja": "室内機温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -2486,9 +2698,11 @@
             }
           ],
           "epc": 219,
+          "get": "optional",
           "id": "class_0156_epc_db",
           "name_en": "Power consumption range for indoor units",
-          "name_ja": "室内機消費電力範囲"
+          "name_ja": "室内機消費電力範囲",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Package-type commercial air conditioner (indoor unit) (except those for facilities)",
@@ -2512,58 +2726,70 @@
             }
           ],
           "epc": 171,
+          "get": "optional",
           "id": "class_0157_epc_ab",
           "name_en": "Special state",
-          "name_ja": "特殊状態"
+          "name_ja": "特殊状態",
+          "set": "notApplicable"
         },
         {
           "epc": 190,
           "format": "int8",
+          "get": "optional",
           "id": "class_0157_epc_be",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured outdoor unit temperature",
           "name_ja": "室外機温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 219,
           "format": "uint32",
+          "get": "required",
           "id": "class_0157_epc_db",
           "maximum": 4294967293.0,
           "minimum": 0.0,
           "name_en": "Measured power consumption of outdoor unit",
           "name_ja": "室外機消費電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 221,
           "format": "uint32",
+          "get": "required",
           "id": "class_0157_epc_dd",
           "maximum": 4294967293.0,
           "minimum": 0.0,
           "name_en": "Possible power savings for outdoor units",
           "name_ja": "室外機節電可能消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 222,
           "format": "uint32",
+          "get": "required",
           "id": "class_0157_epc_de",
           "maximum": 4294967293.0,
           "minimum": 1.0,
           "name_en": "Settings restricting power consumption of outdoor units",
           "name_ja": "室外機消費電力制限設定",
+          "set": "required",
           "unit": "W"
         },
         {
           "epc": 223,
           "format": "uint32",
+          "get": "optional",
           "id": "class_0157_epc_df",
           "maximum": 4294967293.0,
           "minimum": 0.0,
           "name_en": "Minimum power consumption for restricted outdoor unit",
           "name_ja": "室外機抑制最低消費電力",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -2575,31 +2801,37 @@
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required_c",
           "id": "class_0023_epc_e0",
           "maximum": 4294967293.0,
           "minimum": 0.0,
           "name_en": "Measured current value 1",
           "name_ja": "電流値計測値1",
+          "set": "notApplicable",
           "unit": "mA"
         },
         {
           "epc": 225,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0023_epc_e1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated voltage to be measured",
           "name_ja": "計測対象定格電圧値",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 226,
           "format": "int32",
+          "get": "required_c",
           "id": "class_0023_epc_e2",
           "maximum": 2147483646.0,
           "minimum": -2147483647.0,
           "name_en": "Measured current value 2",
           "name_ja": "電流値計測値2",
+          "set": "notApplicable",
           "unit": "mA"
         }
       ],
@@ -2624,9 +2856,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0260_epc_90",
           "name_en": "Timer operation setting",
-          "name_ja": "タイマ動作設定"
+          "name_ja": "タイマ動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2644,9 +2878,11 @@
             }
           ],
           "epc": 194,
+          "get": "optional",
           "id": "class_0260_epc_c2",
           "name_en": "Wind detection status",
-          "name_ja": "風検知状態"
+          "name_ja": "風検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2664,9 +2900,11 @@
             }
           ],
           "epc": 195,
+          "get": "optional",
           "id": "class_0260_epc_c3",
           "name_en": "Sunlight detection status",
-          "name_ja": "日差し検知状態"
+          "name_ja": "日差し検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2690,9 +2928,11 @@
             }
           ],
           "epc": 208,
+          "get": "optional",
           "id": "class_0260_epc_d0",
           "name_en": "Opening (extension) speed setting",
-          "name_ja": "開(張出し)速度設定"
+          "name_ja": "開(張出し)速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2716,18 +2956,22 @@
             }
           ],
           "epc": 209,
+          "get": "optional",
           "id": "class_0260_epc_d1",
           "name_en": "Closing (retraction) speed setting",
-          "name_ja": "閉(収納)速度設定"
+          "name_ja": "閉(収納)速度設定",
+          "set": "optional"
         },
         {
           "epc": 210,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0260_epc_d2",
           "maximum": 253.0,
           "minimum": 0.0,
           "name_en": "Operation time",
           "name_ja": "動作時間設定値",
+          "set": "optional",
           "unit": "second"
         },
         {
@@ -2746,9 +2990,11 @@
             }
           ],
           "epc": 212,
+          "get": "optional",
           "id": "class_0260_epc_d4",
           "name_en": "Automatic operation setting",
-          "name_ja": "自動動作設定"
+          "name_ja": "自動動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2772,28 +3018,34 @@
             }
           ],
           "epc": 224,
+          "get": "required",
           "id": "class_0260_epc_e0",
           "name_en": "Open/close (extension/retraction) setting",
-          "name_ja": "開閉(張出し/収納)動作設定"
+          "name_ja": "開閉(張出し/収納)動作設定",
+          "set": "required"
         },
         {
           "epc": 225,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0260_epc_e1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Degree-of-opening level",
           "name_ja": "開度レベル設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 226,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0260_epc_e2",
           "maximum": 180.0,
           "minimum": 0.0,
           "name_en": "Shade angle setting",
           "name_ja": "ブラインド角度設定値",
+          "set": "optional",
           "unit": "degree"
         },
         {
@@ -2818,9 +3070,11 @@
             }
           ],
           "epc": 227,
+          "get": "optional",
           "id": "class_0260_epc_e3",
           "name_en": "Open/close (extension/retraction) speed setting",
-          "name_ja": "開閉(張出し/収納)速度設定"
+          "name_ja": "開閉(張出し/収納)速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2838,9 +3092,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_0260_epc_e5",
           "name_en": "Electric lock setting",
-          "name_ja": "電気錠設定"
+          "name_ja": "電気錠設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2858,9 +3114,11 @@
             }
           ],
           "epc": 232,
+          "get": "optional",
           "id": "class_0260_epc_e8",
           "name_en": "Remote operation setting status",
-          "name_ja": "遠隔操作設定状態"
+          "name_ja": "遠隔操作設定状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2890,9 +3148,11 @@
             }
           ],
           "epc": 233,
+          "get": "optional",
           "id": "class_0260_epc_e9",
           "name_en": "Selective opening (extension) operation setting",
-          "name_ja": "選択開(張出し)度動作設定"
+          "name_ja": "選択開(張出し)度動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2928,9 +3188,11 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_0260_epc_ea",
           "name_en": "Open/closed (extended/retracted) status",
-          "name_ja": "開閉(張出し/収納)状態"
+          "name_ja": "開閉(張出し/収納)状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -2960,9 +3222,11 @@
             }
           ],
           "epc": 238,
+          "get": "optional",
           "id": "class_0260_epc_ee",
           "name_en": "One-time opening (extension) speed setting",
-          "name_ja": "ワンタイム開(張出し)速度設定"
+          "name_ja": "ワンタイム開(張出し)速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -2992,9 +3256,11 @@
             }
           ],
           "epc": 239,
+          "get": "optional",
           "id": "class_0260_epc_ef",
           "name_en": "One-time closing (retraction) speed setting",
-          "name_ja": "ワンタイム閉(収納)速度設定"
+          "name_ja": "ワンタイム閉(収納)速度設定",
+          "set": "optional"
         }
       ],
       "name_en": "Electrically operated blind/shade",
@@ -3018,9 +3284,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0263_epc_90",
           "name_en": "Timer operation setting",
-          "name_ja": "タイマ動作設定"
+          "name_ja": "タイマ動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3044,9 +3312,11 @@
             }
           ],
           "epc": 208,
+          "get": "optional",
           "id": "class_0263_epc_d0",
           "name_en": "Opening speed setting",
-          "name_ja": "開速度設定"
+          "name_ja": "開速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3070,18 +3340,22 @@
             }
           ],
           "epc": 209,
+          "get": "optional",
           "id": "class_0263_epc_d1",
           "name_en": "Closing speed setting",
-          "name_ja": "閉速度設定"
+          "name_ja": "閉速度設定",
+          "set": "optional"
         },
         {
           "epc": 210,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0263_epc_d2",
           "maximum": 253.0,
           "minimum": 0.0,
           "name_en": "Operation time",
           "name_ja": "動作時間設定値",
+          "set": "optional",
           "unit": "second"
         },
         {
@@ -3106,28 +3380,34 @@
             }
           ],
           "epc": 224,
+          "get": "required",
           "id": "class_0263_epc_e0",
           "name_en": "Open/close operation setting",
-          "name_ja": "開閉動作設定"
+          "name_ja": "開閉動作設定",
+          "set": "required"
         },
         {
           "epc": 225,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0263_epc_e1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Degree-of-opening setting",
           "name_ja": "開度レベル設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 226,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0263_epc_e2",
           "maximum": 180.0,
           "minimum": 0.0,
           "name_en": "Blind angle setting",
           "name_ja": "ブラインド角度設定値",
+          "set": "optional",
           "unit": "degree"
         },
         {
@@ -3152,9 +3432,11 @@
             }
           ],
           "epc": 227,
+          "get": "optional",
           "id": "class_0263_epc_e3",
           "name_en": "Opening/closing speed setting",
-          "name_ja": "開閉速度設定"
+          "name_ja": "開閉速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3172,9 +3454,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_0263_epc_e5",
           "name_en": "Electric lock setting",
-          "name_ja": "電気錠設定"
+          "name_ja": "電気錠設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3192,9 +3476,11 @@
             }
           ],
           "epc": 232,
+          "get": "optional",
           "id": "class_0263_epc_e8",
           "name_en": "Remote operation setting status",
-          "name_ja": "遠隔操作設定状態"
+          "name_ja": "遠隔操作設定状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -3230,9 +3516,11 @@
             }
           ],
           "epc": 233,
+          "get": "optional",
           "id": "class_0263_epc_e9",
           "name_en": "Selective degree-of-opening setting",
-          "name_ja": "選択開度動作設定"
+          "name_ja": "選択開度動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3268,9 +3556,11 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_0263_epc_ea",
           "name_en": "Open/closed status",
-          "name_ja": "開閉状態"
+          "name_ja": "開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -3324,9 +3614,11 @@
             }
           ],
           "epc": 237,
+          "get": "optional",
           "id": "class_0263_epc_ed",
           "name_en": "Slit degree-of-opening",
-          "name_ja": "スリット開度設定"
+          "name_ja": "スリット開度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3356,9 +3648,11 @@
             }
           ],
           "epc": 238,
+          "get": "optional",
           "id": "class_0263_epc_ee",
           "name_en": "One-time opening speed setting",
-          "name_ja": "ワンタイム開速度設定"
+          "name_ja": "ワンタイム開速度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3388,9 +3682,11 @@
             }
           ],
           "epc": 239,
+          "get": "optional",
           "id": "class_0263_epc_ef",
           "name_en": "One-time closing speed setting",
-          "name_ja": "ワンタイム閉速度設定"
+          "name_ja": "ワンタイム閉速度設定",
+          "set": "optional"
         }
       ],
       "name_en": "Electrically operated rain sliding door/shutter",
@@ -3414,9 +3710,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_026b_epc_90",
           "name_en": "ON timer setting",
-          "name_ja": "ONタイマ予約設定"
+          "name_ja": "ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3440,9 +3738,11 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_026b_epc_b0",
           "name_en": "Automatic water heating setting",
-          "name_ja": "沸き上げ自動設定"
+          "name_ja": "沸き上げ自動設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -3460,9 +3760,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_026b_epc_b1",
           "name_en": "Automatic water temperature control setting",
-          "name_ja": "沸き上げ湯温自動設定"
+          "name_ja": "沸き上げ湯温自動設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3480,28 +3782,34 @@
             }
           ],
           "epc": 178,
+          "get": "required",
           "id": "class_026b_epc_b2",
           "name_en": "Water heater status",
-          "name_ja": "沸き上げ中状態"
+          "name_ja": "沸き上げ中状態",
+          "set": "notApplicable"
         },
         {
           "epc": 179,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_b3",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Water heating temperature setting",
           "name_ja": "沸き上げ湯温設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 180,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_b4",
           "maximum": 252.0,
           "minimum": 0.0,
           "name_en": "Manual water heating stop days setting",
           "name_ja": "手動沸き上げ停止日数設定値",
+          "set": "optional",
           "unit": "days"
         },
         {
@@ -3526,9 +3834,11 @@
             }
           ],
           "epc": 182,
+          "get": "optional",
           "id": "class_026b_epc_b6",
           "name_en": "Tank operation mode setting",
-          "name_ja": "タンク運転モード設定"
+          "name_ja": "タンク運転モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3546,18 +3856,22 @@
             }
           ],
           "epc": 192,
+          "get": "required",
           "id": "class_026b_epc_c0",
           "name_en": "Daytime reheating permission setting",
-          "name_ja": "昼間沸き増し許可設定"
+          "name_ja": "昼間沸き増し許可設定",
+          "set": "required"
         },
         {
           "epc": 193,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_c1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured temperature of water in water heater",
           "name_ja": "温水器湯温計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -3576,9 +3890,11 @@
             }
           ],
           "epc": 195,
+          "get": "required",
           "id": "class_026b_epc_c3",
           "name_en": "Hot water supply status",
-          "name_ja": "給湯中状態"
+          "name_ja": "給湯中状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -3596,9 +3912,11 @@
             }
           ],
           "epc": 199,
+          "get": "required",
           "id": "class_026b_epc_c7",
           "name_en": "Participation in energy shift",
-          "name_ja": "エネルギーシフト参加状態"
+          "name_ja": "エネルギーシフト参加状態",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -3664,9 +3982,11 @@
             }
           ],
           "epc": 202,
+          "get": "required",
           "id": "class_026b_epc_ca",
           "name_en": "Daytime heating shift time 1",
-          "name_ja": "昼間沸き上げシフト時刻1"
+          "name_ja": "昼間沸き上げシフト時刻1",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -3726,38 +4046,46 @@
             }
           ],
           "epc": 205,
+          "get": "required",
           "id": "class_026b_epc_cd",
           "name_en": "Daytime heating shift time 2",
-          "name_ja": "昼間沸き上げシフト時刻2"
+          "name_ja": "昼間沸き上げシフト時刻2",
+          "set": "required"
         },
         {
           "epc": 209,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_d1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Temperature of supplied water setting",
           "name_ja": "給湯温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 211,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_d3",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Bath water temperature setting",
           "name_ja": "風呂温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 214,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_d6",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Volume setting",
           "name_ja": "音量設定値",
+          "set": "optional",
           "unit": "%"
         },
         {
@@ -3776,79 +4104,117 @@
             }
           ],
           "epc": 215,
+          "get": "optional",
           "id": "class_026b_epc_d7",
           "name_en": "Mute setting",
-          "name_ja": "ミュート設定"
+          "name_ja": "ミュート設定",
+          "set": "optional"
         },
         {
           "epc": 216,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_d8",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Remaining hot water volume",
           "name_ja": "給湯可能湯量値",
+          "set": "notApplicable",
           "unit": "L"
         },
         {
           "epc": 219,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_db",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power consumption of H/P unit in wintertime",
           "name_ja": "冬季H/Pユニット定格消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 220,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_dc",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power consumption of H/P unit in in-between seasons",
           "name_ja": "中間期H/Pユニット定格消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 221,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_dd",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power consumption of H/P unit in summertime",
           "name_ja": "夏季H/Pユニット定格消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 224,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_e0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Bath water volume setting",
           "name_ja": "沸き上げ湯量設定値",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 225,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_e1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured amount of water remaining in tank",
           "name_ja": "残湯量計測値",
+          "set": "notApplicable",
           "unit": "L"
         },
         {
           "epc": 226,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_e2",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Tank capacity",
           "name_ja": "タンク容量値",
+          "set": "notApplicable",
           "unit": "L"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "true",
+              "name_en": "Automatic bath water heating mode ON",
+              "name_ja": "自動入"
+            },
+            {
+              "edt": 66,
+              "key": "false",
+              "name_en": "Automatic bath water heating mode OFF",
+              "name_ja": "自動解除"
+            }
+          ],
+          "epc": 227,
+          "get": "required_o",
+          "id": "class_026b_epc_e3",
+          "name_en": "Automatic Bath Water Heating Mode Setting",
+          "name_ja": "風呂自動モード設定",
+          "set": "required_o"
         },
         {
           "enum_values": [
@@ -3866,9 +4232,11 @@
             }
           ],
           "epc": 228,
+          "get": "optional",
           "id": "class_026b_epc_e4",
           "name_en": "Manual bath reheating operation setting",
-          "name_ja": "手動風呂追い焚き動作設定"
+          "name_ja": "手動風呂追い焚き動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3886,9 +4254,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_026b_epc_e5",
           "name_en": "Manual bath hot water addition function setting",
-          "name_ja": "手動風呂足し湯動作設定"
+          "name_ja": "手動風呂足し湯動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3906,18 +4276,22 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_026b_epc_e6",
           "name_en": "Manual lukewarm water temperature lowering function setting.",
-          "name_ja": "手動風呂ぬるめ動作設定"
+          "name_ja": "手動風呂ぬるめ動作設定",
+          "set": "optional"
         },
         {
           "epc": 231,
           "format": "uint8",
+          "get": "optional",
           "id": "class_026b_epc_e7",
           "maximum": 253.0,
           "minimum": 0.0,
           "name_en": "Bath water volume setting 1",
           "name_ja": "風呂湯量設定1",
+          "set": "optional",
           "unit": "L"
         },
         {
@@ -3972,9 +4346,11 @@
             }
           ],
           "epc": 232,
+          "get": "optional",
           "id": "class_026b_epc_e8",
           "name_en": "Bath water volume setting 2",
-          "name_ja": "風呂湯量設定2"
+          "name_ja": "風呂湯量設定2",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -3992,9 +4368,11 @@
             }
           ],
           "epc": 233,
+          "get": "optional",
           "id": "class_026b_epc_e9",
           "name_en": "Bathroom priority setting",
-          "name_ja": "浴室優先設定"
+          "name_ja": "浴室優先設定",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4018,18 +4396,22 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_026b_epc_ea",
           "name_en": "Bath Operation Status Monitor",
-          "name_ja": "風呂動作状態監視"
+          "name_ja": "風呂動作状態監視",
+          "set": "notApplicable"
         },
         {
           "epc": 238,
           "format": "uint16",
+          "get": "optional",
           "id": "class_026b_epc_ee",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Bath water volume setting 3",
           "name_ja": "風呂湯量設定3",
+          "set": "optional",
           "unit": "L"
         }
       ],
@@ -4054,9 +4436,11 @@
             }
           ],
           "epc": 224,
+          "get": "required",
           "id": "class_026f_epc_e0",
           "name_en": "Lock setting1",
-          "name_ja": "施錠設定1"
+          "name_ja": "施錠設定1",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -4074,9 +4458,11 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_026f_epc_e1",
           "name_en": "Lock setting 2",
-          "name_ja": "施錠設定2"
+          "name_ja": "施錠設定2",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4094,9 +4480,11 @@
             }
           ],
           "epc": 226,
+          "get": "optional",
           "id": "class_026f_epc_e2",
           "name_en": "Lock status of door guard",
-          "name_ja": "ドアガード施錠状態"
+          "name_ja": "ドアガード施錠状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4114,9 +4502,11 @@
             }
           ],
           "epc": 227,
+          "get": "optional",
           "id": "class_026f_epc_e3",
           "name_en": "Door open/close status",
-          "name_ja": "扉開閉状態"
+          "name_ja": "扉開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4134,9 +4524,11 @@
             }
           ],
           "epc": 228,
+          "get": "optional",
           "id": "class_026f_epc_e4",
           "name_en": "Occupant/ non-occupant status",
-          "name_ja": "在室・不在状態"
+          "name_ja": "在室・不在状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4172,9 +4564,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_026f_epc_e5",
           "name_en": "Alarm status",
-          "name_ja": "警報状態"
+          "name_ja": "警報状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4192,9 +4586,11 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_026f_epc_e6",
           "name_en": "Auto lock mode setting",
-          "name_ja": "自動施錠モード設定"
+          "name_ja": "自動施錠モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4212,9 +4608,11 @@
             }
           ],
           "epc": 231,
+          "get": "optional",
           "id": "class_026f_epc_e7",
           "name_en": "Battery level",
-          "name_ja": "電池残量状態"
+          "name_ja": "電池残量状態",
+          "set": "optional"
         }
       ],
       "name_en": "Electric lock",
@@ -4238,9 +4636,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0272_epc_90",
           "name_en": "ON timer reservation setting",
-          "name_ja": "風呂自動ONタイマ予約設定"
+          "name_ja": "風呂自動ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4258,18 +4658,22 @@
             }
           ],
           "epc": 208,
+          "get": "required",
           "id": "class_0272_epc_d0",
           "name_en": "Hot water heating status",
-          "name_ja": "給湯器燃焼状態"
+          "name_ja": "給湯器燃焼状態",
+          "set": "notApplicable"
         },
         {
           "epc": 209,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0272_epc_d1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Set value of hot water temperature",
           "name_ja": "給湯温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
@@ -4288,18 +4692,22 @@
             }
           ],
           "epc": 210,
+          "get": "optional",
           "id": "class_0272_epc_d2",
           "name_en": "Hot water warmer setting",
-          "name_ja": "給湯保温設定"
+          "name_ja": "給湯保温設定",
+          "set": "optional"
         },
         {
           "epc": 214,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0272_epc_d6",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Volume setting",
           "name_ja": "音量設定値",
+          "set": "optional",
           "unit": "%"
         },
         {
@@ -4318,18 +4726,22 @@
             }
           ],
           "epc": 215,
+          "get": "optional",
           "id": "class_0272_epc_d7",
           "name_en": "Mute setting",
-          "name_ja": "ミュート設定"
+          "name_ja": "ミュート設定",
+          "set": "optional"
         },
         {
           "epc": 225,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0272_epc_e1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Set value of bath temperature",
           "name_ja": "風呂温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
@@ -4348,9 +4760,33 @@
             }
           ],
           "epc": 226,
+          "get": "required",
           "id": "class_0272_epc_e2",
           "name_en": "Bath water heater status",
-          "name_ja": "風呂給湯器燃焼状態"
+          "name_ja": "風呂給湯器燃焼状態",
+          "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "true",
+              "name_en": "Auto ON",
+              "name_ja": "自動入"
+            },
+            {
+              "edt": 66,
+              "key": "false",
+              "name_en": "Auto OFF",
+              "name_ja": "自動切"
+            }
+          ],
+          "epc": 227,
+          "get": "required_o",
+          "id": "class_0272_epc_e3",
+          "name_en": "Bath Auto mode setting",
+          "name_ja": "風呂自動モード設定",
+          "set": "required_o"
         },
         {
           "enum_values": [
@@ -4368,9 +4804,11 @@
             }
           ],
           "epc": 228,
+          "get": "optional",
           "id": "class_0272_epc_e4",
           "name_en": "Bath additional boil-up operation setting",
-          "name_ja": "風呂追い炊き動作設定"
+          "name_ja": "風呂追い炊き動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4388,9 +4826,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_0272_epc_e5",
           "name_en": "Bath hot water adding operation setting",
-          "name_ja": "風呂足し湯動作設定"
+          "name_ja": "風呂足し湯動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4408,18 +4848,22 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_0272_epc_e6",
           "name_en": "Bath water temperature lowering operation setting",
-          "name_ja": "風呂ぬるめ動作設定"
+          "name_ja": "風呂ぬるめ動作設定",
+          "set": "optional"
         },
         {
           "epc": 231,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0272_epc_e7",
           "maximum": 253.0,
           "minimum": 0.0,
           "name_en": "Bath hot water volume setting 1",
           "name_ja": "風呂湯量設定1",
+          "set": "optional",
           "unit": "L"
         },
         {
@@ -4474,9 +4918,11 @@
             }
           ],
           "epc": 232,
+          "get": "optional",
           "id": "class_0272_epc_e8",
           "name_en": "Bath hot water volume setting 2",
-          "name_ja": "風呂湯量設定2"
+          "name_ja": "風呂湯量設定2",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4494,9 +4940,11 @@
             }
           ],
           "epc": 233,
+          "get": "optional",
           "id": "class_0272_epc_e9",
           "name_en": "Bathroom priority setting",
-          "name_ja": "浴室優先設定"
+          "name_ja": "浴室優先設定",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4514,9 +4962,11 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_0272_epc_ea",
           "name_en": "Shower hot water supply status",
-          "name_ja": "シャワー給湯状態"
+          "name_ja": "シャワー給湯状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4534,9 +4984,11 @@
             }
           ],
           "epc": 235,
+          "get": "optional",
           "id": "class_0272_epc_eb",
           "name_en": "Kitchen hot water supply status",
-          "name_ja": "台所給湯状態"
+          "name_ja": "台所給湯状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -4554,18 +5006,22 @@
             }
           ],
           "epc": 236,
+          "get": "optional",
           "id": "class_0272_epc_ec",
           "name_en": "Hot water warmer ON timer reservation setting",
-          "name_ja": "給湯保温ONタイマ予約設定"
+          "name_ja": "給湯保温ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "epc": 238,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0272_epc_ee",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Bath hot water volume setting 3",
           "name_ja": "風呂湯量設定3",
+          "set": "optional",
           "unit": "L"
         },
         {
@@ -4590,9 +5046,11 @@
             }
           ],
           "epc": 239,
+          "get": "optional",
           "id": "class_0272_epc_ef",
           "name_en": "Bath operation status monitor",
-          "name_ja": "風呂動作状態監視"
+          "name_ja": "風呂動作状態監視",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Instantaneous water heater",
@@ -4616,9 +5074,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0273_epc_90",
           "name_en": "On timer reservation setting 1",
-          "name_ja": "ONタイマ予約設定1"
+          "name_ja": "ONタイマ予約設定1",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4636,9 +5096,11 @@
             }
           ],
           "epc": 148,
+          "get": "optional",
           "id": "class_0273_epc_94",
           "name_en": "Off timer reservation setting",
-          "name_ja": "OFFタイマ予約設定"
+          "name_ja": "OFFタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4692,9 +5154,11 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_0273_epc_b0",
           "name_en": "Operation setting",
-          "name_ja": "運転設定"
+          "name_ja": "運転設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -4760,9 +5224,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_0273_epc_b1",
           "name_en": "Ventilation operation setting",
-          "name_ja": "換気運転設定"
+          "name_ja": "換気運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4828,9 +5294,11 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_0273_epc_b2",
           "name_en": "Bathroom prewarming operation setting",
-          "name_ja": "入浴前予備暖房運転設定"
+          "name_ja": "入浴前予備暖房運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4896,9 +5364,11 @@
             }
           ],
           "epc": 179,
+          "get": "optional",
           "id": "class_0273_epc_b3",
           "name_en": "Bathroom heating operation setting",
-          "name_ja": "入浴中暖房運転設定"
+          "name_ja": "入浴中暖房運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -4964,9 +5434,11 @@
             }
           ],
           "epc": 180,
+          "get": "required",
           "id": "class_0273_epc_b4",
           "name_en": "Bathroom drying operation setting",
-          "name_ja": "乾燥運転設定"
+          "name_ja": "乾燥運転設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -5032,9 +5504,11 @@
             }
           ],
           "epc": 181,
+          "get": "optional",
           "id": "class_0273_epc_b5",
           "name_en": "Cool air circulation operation setting",
-          "name_ja": "涼風運転設定"
+          "name_ja": "涼風運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5100,9 +5574,11 @@
             }
           ],
           "epc": 182,
+          "get": "optional",
           "id": "class_0273_epc_b6",
           "name_en": "Mist sauna operation setting",
-          "name_ja": "ミストサウナ運転設定"
+          "name_ja": "ミストサウナ運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5168,28 +5644,34 @@
             }
           ],
           "epc": 183,
+          "get": "optional",
           "id": "class_0273_epc_b7",
           "name_en": "Water mist operation setting",
-          "name_ja": "水ミスト運転設定"
+          "name_ja": "水ミスト運転設定",
+          "set": "optional"
         },
         {
           "epc": 186,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0273_epc_ba",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured value of bathroom relative humidity",
           "name_ja": "浴室内相対湿度計測値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 187,
           "format": "int8",
+          "get": "optional",
           "id": "class_0273_epc_bb",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured value of bathroom temperature",
           "name_ja": "浴室内温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -5250,9 +5732,11 @@
             }
           ],
           "epc": 194,
+          "get": "optional",
           "id": "class_0273_epc_c2",
           "name_en": "Ventilation air flow rate setting",
-          "name_ja": "換気風量設定"
+          "name_ja": "換気風量設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5270,9 +5754,11 @@
             }
           ],
           "epc": 207,
+          "get": "optional",
           "id": "class_0273_epc_cf",
           "name_en": "Filter cleaning reminder sign setting",
-          "name_ja": "フィルタサイン設定"
+          "name_ja": "フィルタサイン設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5290,9 +5776,11 @@
             }
           ],
           "epc": 224,
+          "get": "optional",
           "id": "class_0273_epc_e0",
           "name_en": "Human body detection status",
-          "name_ja": "人体検知状態"
+          "name_ja": "人体検知状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -5346,9 +5834,11 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_0273_epc_e1",
           "name_en": "On timer reservation setting 2",
-          "name_ja": "ONタイマ予約設定2"
+          "name_ja": "ONタイマ予約設定2",
+          "set": "optional"
         }
       ],
       "name_en": "Bathroom heater dryer",
@@ -5359,21 +5849,25 @@
         {
           "epc": 160,
           "format": "uint8",
+          "get": "required_c",
           "id": "class_0279_epc_a0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Output power control setting 1",
           "name_ja": "出力制御設定1",
+          "set": "required_c",
           "unit": "%"
         },
         {
           "epc": 161,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_0279_epc_a1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Output power control setting 2",
           "name_ja": "出力制御設定2",
+          "set": "required_c",
           "unit": "W"
         },
         {
@@ -5392,9 +5886,11 @@
             }
           ],
           "epc": 162,
+          "get": "required_c",
           "id": "class_0279_epc_a2",
           "name_en": "Function to control purchase surplus electricity setting",
-          "name_ja": "余剰買取制御機能設定"
+          "name_ja": "余剰買取制御機能設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5412,38 +5908,46 @@
             }
           ],
           "epc": 178,
+          "get": "required_c",
           "id": "class_0279_epc_b2",
           "name_en": "Function to control the type of surplus electricity purchase",
-          "name_ja": "余剰買取制御機能タイプ"
+          "name_ja": "余剰買取制御機能タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 179,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0279_epc_b3",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Output power change time setting value",
           "name_ja": "出力変化時間設定値",
+          "set": "notApplicable",
           "unit": "second"
         },
         {
           "epc": 180,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_0279_epc_b4",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Upper limit clip setting value",
           "name_ja": "上限クリップ設定値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 192,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0279_epc_c0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Operation power factor setting value",
           "name_ja": "運転力率設定値",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
@@ -5468,9 +5972,11 @@
             }
           ],
           "epc": 193,
+          "get": "required",
           "id": "class_0279_epc_c1",
           "name_en": "FIT contract type",
-          "name_ja": "FIT契約タイプ"
+          "name_ja": "FIT契約タイプ",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -5494,28 +6000,34 @@
             }
           ],
           "epc": 194,
+          "get": "required",
           "id": "class_0279_epc_c2",
           "name_en": "Self-consumption type",
-          "name_ja": "自家消費タイプ"
+          "name_ja": "自家消費タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 195,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_0279_epc_c3",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Capacity approved by equipment",
           "name_ja": "設備認定容量",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 196,
           "format": "uint8",
+          "get": "required_c",
           "id": "class_0279_epc_c4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Conversion coefficient",
           "name_ja": "換算係数",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
@@ -5546,9 +6058,11 @@
             }
           ],
           "epc": 208,
+          "get": "required",
           "id": "class_0279_epc_d0",
           "name_en": "System-interconnected type",
-          "name_ja": "系統連系状態"
+          "name_ja": "系統連系状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -5584,90 +6098,108 @@
             }
           ],
           "epc": 209,
+          "get": "required",
           "id": "class_0279_epc_d1",
           "name_en": "Output power restraint status",
-          "name_ja": "出力抑制状態"
+          "name_ja": "出力抑制状態",
+          "set": "notApplicable"
         },
         {
           "epc": 224,
           "format": "uint16",
+          "get": "required",
           "id": "class_0279_epc_e0",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured instantaneous amount of electricity generated",
           "name_ja": "瞬時発電電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 225,
           "format": "uint32",
+          "get": "required",
           "id": "class_0279_epc_e1",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of electric energy generated",
           "name_ja": "積算発電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 227,
           "format": "uint32",
+          "get": "optional",
           "id": "class_0279_epc_e3",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of electric energy sold",
           "name_ja": "積算売電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 229,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0279_epc_e5",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Power generation output limit setting 1",
           "name_ja": "発電電力制限設定1",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 230,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0279_epc_e6",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Power generation output limit setting 2",
           "name_ja": "発電電力制限設定2",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 231,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0279_epc_e7",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Limit setting for the amount of electricity sold",
           "name_ja": "売電電力制限設定",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 232,
           "format": "uint16",
+          "get": "required",
           "id": "class_0279_epc_e8",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power generation output (System-interconnected)",
           "name_ja": "定格発電電力値(系統連系時)",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 233,
           "format": "uint16",
+          "get": "optional",
           "id": "class_0279_epc_e9",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power generation output (Independent)",
           "name_ja": "定格発電電力値(独立時)",
+          "set": "optional",
           "unit": "W"
         }
       ],
@@ -5692,9 +6224,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_027a_epc_90",
           "name_en": "ON timer reservation setting",
-          "name_ja": "ONタイマ予約設定"
+          "name_ja": "ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5712,9 +6246,11 @@
             }
           ],
           "epc": 148,
+          "get": "optional",
           "id": "class_027a_epc_94",
           "name_en": "OFF timer reservation setting",
-          "name_ja": "OFFタイマ予約設定"
+          "name_ja": "OFFタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -5732,18 +6268,22 @@
             }
           ],
           "epc": 224,
+          "get": "optional",
           "id": "class_027a_epc_e0",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "optional"
         },
         {
           "epc": 225,
           "format": "uint8",
+          "get": "required_c",
           "id": "class_027a_epc_e1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Water temperature setting 1",
           "name_ja": "水温設定1",
+          "set": "required_c",
           "unit": "Celsius"
         },
         {
@@ -5936,28 +6476,34 @@
             }
           ],
           "epc": 226,
+          "get": "required_c",
           "id": "class_027a_epc_e2",
           "name_en": "Water temperature setting 2",
-          "name_ja": "水温設定2"
+          "name_ja": "水温設定2",
+          "set": "required_c"
         },
         {
           "epc": 227,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027a_epc_e3",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured temperature of outward water (Exit water Temperature)",
           "name_ja": "往き水温計測値(出口水温)",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 228,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027a_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured temperature of inward water (Entrance water Temperature)",
           "name_ja": "戻り水温計測値(入口水温)",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -5982,9 +6528,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_027a_epc_e5",
           "name_en": "Special operation setting",
-          "name_ja": "特殊運転設定"
+          "name_ja": "特殊運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6008,9 +6556,11 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_027a_epc_e6",
           "name_en": "Daily timer setting",
-          "name_ja": "デイリータイマー設定"
+          "name_ja": "デイリータイマー設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6034,9 +6584,11 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_027a_epc_ea",
           "name_en": "Power consumption measurement method",
-          "name_ja": "消費電力計測方法"
+          "name_ja": "消費電力計測方法",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Cold or hot water heat source equipment",
@@ -6060,9 +6612,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_027b_epc_90",
           "name_en": "ON timer reservation setting",
-          "name_ja": "ON タイマ予約設定"
+          "name_ja": "ON タイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6080,18 +6634,22 @@
             }
           ],
           "epc": 148,
+          "get": "optional",
           "id": "class_027b_epc_94",
           "name_en": "OFF timer reservation setting",
-          "name_ja": "OFF タイマ予約設定"
+          "name_ja": "OFF タイマ予約設定",
+          "set": "optional"
         },
         {
           "epc": 224,
           "format": "uint8",
+          "get": "required_c",
           "id": "class_027b_epc_e0",
           "maximum": 50.0,
           "minimum": 0.0,
           "name_en": "Set temperature value",
           "name_ja": "温度設定1",
+          "set": "required_c",
           "unit": "Celsius"
         },
         {
@@ -6194,28 +6752,34 @@
             }
           ],
           "epc": 225,
+          "get": "required_c",
           "id": "class_027b_epc_e1",
           "name_en": "Set temperature level by 15 steps",
-          "name_ja": "温度設定2"
+          "name_ja": "温度設定2",
+          "set": "required_c"
         },
         {
           "epc": 226,
           "format": "int8",
+          "get": "optional",
           "id": "class_027b_epc_e2",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured room temperature",
           "name_ja": "室内温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 227,
           "format": "int8",
+          "get": "optional",
           "id": "class_027b_epc_e3",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Measured floor temperature",
           "name_ja": "床温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -6240,9 +6804,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_027b_epc_e5",
           "name_en": "Special operation setting",
-          "name_ja": "特殊運転設定"
+          "name_ja": "特殊運転設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6266,18 +6832,22 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_027b_epc_e6",
           "name_en": "Daily timer setting",
-          "name_ja": "デイリータイマー設定"
+          "name_ja": "デイリータイマー設定",
+          "set": "optional"
         },
         {
           "epc": 233,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027b_epc_e9",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power consumption",
           "name_ja": "定格消費電力値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
@@ -6302,9 +6872,11 @@
             }
           ],
           "epc": 234,
+          "get": "optional",
           "id": "class_027b_epc_ea",
           "name_en": "Power consumption measurement method",
-          "name_ja": "消費電力計測方法"
+          "name_ja": "消費電力計測方法",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Floor heater",
@@ -6315,74 +6887,88 @@
         {
           "epc": 193,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027c_epc_c1",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Measured temperature of water in water heater",
           "name_ja": "温水器湯温計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 194,
           "format": "uint16",
+          "get": "required",
           "id": "class_027c_epc_c2",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power generation output",
           "name_ja": "定格発電出力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 195,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027c_epc_c3",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Heating value of hot water storage tank",
           "name_ja": "貯湯槽熱量",
+          "set": "notApplicable",
           "unit": "MJ"
         },
         {
           "epc": 196,
           "format": "uint16",
+          "get": "required",
           "id": "class_027c_epc_c4",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured instantaneous power generation output",
           "name_ja": "瞬時発電電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 197,
           "format": "uint32",
+          "get": "required",
           "id": "class_027c_epc_c5",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative power generation output",
           "name_ja": "積算発電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 199,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027c_epc_c7",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured instantaneous gas consumption",
           "name_ja": "瞬時ガス消費量計測値",
+          "set": "notApplicable",
           "unit": "m3/h"
         },
         {
           "epc": 200,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027c_epc_c8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative gas consumption",
           "name_ja": "積算ガス消費量計測値",
+          "set": "notApplicable",
           "unit": "m3"
         },
         {
@@ -6401,9 +6987,11 @@
             }
           ],
           "epc": 202,
+          "get": "optional",
           "id": "class_027c_epc_ca",
           "name_en": "Power generation setting",
-          "name_ja": "発電動作設定"
+          "name_ja": "発電動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6439,29 +7027,35 @@
             }
           ],
           "epc": 203,
+          "get": "required",
           "id": "class_027c_epc_cb",
           "name_en": "Power generation status",
-          "name_ja": "発電動作状態"
+          "name_ja": "発電動作状態",
+          "set": "notApplicable"
         },
         {
           "epc": 204,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027c_epc_cc",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured in-house instantaneous power consumption",
           "name_ja": "宅内瞬時消費電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 205,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027c_epc_cd",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured in-house cumulative energy consumption",
           "name_ja": "宅内積算消費電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
@@ -6486,9 +7080,11 @@
             }
           ],
           "epc": 208,
+          "get": "required",
           "id": "class_027c_epc_d0",
           "name_en": "System interconnected type",
-          "name_ja": "系統連系状態"
+          "name_ja": "系統連系状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -6506,28 +7102,34 @@
             }
           ],
           "epc": 210,
+          "get": "required",
           "id": "class_027c_epc_d2",
           "name_en": "Designated power generation status",
-          "name_ja": "指定発電状態"
+          "name_ja": "指定発電状態",
+          "set": "required"
         },
         {
           "epc": 225,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027c_epc_e1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured remaining hot water amount",
           "name_ja": "残湯量計測値",
+          "set": "notApplicable",
           "unit": "L"
         },
         {
           "epc": 226,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027c_epc_e2",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Tank capacity",
           "name_ja": "タンク容量値",
+          "set": "notApplicable",
           "unit": "L"
         }
       ],
@@ -6539,123 +7141,147 @@
         {
           "epc": 160,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC effective capacity (charging)",
           "name_ja": "AC実効容量 (充電)",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 161,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a1",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC effective capacity (discharging)",
           "name_ja": "AC実効容量 (放電)",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 162,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC chargeable capacity",
           "name_ja": "AC充電可能容量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 163,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a3",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC dischargeable capacity",
           "name_ja": "AC放電可能容量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 164,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a4",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC chargeable electric energy",
           "name_ja": "AC充電可能量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 165,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a5",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC dischargeable electric energy",
           "name_ja": "AC放電可能量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 166,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027d_epc_a6",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "AC charge upper limit setting",
           "name_ja": "AC充電上限設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 167,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027d_epc_a7",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "AC discharge lower limit setting",
           "name_ja": "AC放電下限設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 168,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "AC measured cumulative charging electric energy",
           "name_ja": "AC積算充電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 169,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_a9",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "AC measured cumulative discharging electric energy",
           "name_ja": "AC積算放電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 170,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_aa",
           "maximum": 999999999.0,
           "minimum": 1.0,
           "name_en": "AC charge amount setting value",
           "name_ja": "AC充電量設定値",
+          "set": "required",
           "unit": "Wh"
         },
         {
           "epc": 171,
           "format": "uint32",
+          "get": "required",
           "id": "class_027d_epc_ab",
           "maximum": 999999999.0,
           "minimum": 1.0,
           "name_en": "AC discharge amount setting value",
           "name_ja": "AC放電量設定値",
+          "set": "required",
           "unit": "Wh"
         },
         {
@@ -6692,9 +7318,11 @@
             }
           ],
           "epc": 193,
+          "get": "required",
           "id": "class_027d_epc_c1",
           "name_en": "Charging method",
-          "name_ja": "充電方式"
+          "name_ja": "充電方式",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6730,18 +7358,22 @@
             }
           ],
           "epc": 194,
+          "get": "required",
           "id": "class_027d_epc_c2",
           "name_en": "Discharging method",
-          "name_ja": "放電方式"
+          "name_ja": "放電方式",
+          "set": "optional"
         },
         {
           "epc": 199,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_c7",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "AC rated electric energy",
           "name_ja": "AC定格電力量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
@@ -6760,9 +7392,11 @@
             }
           ],
           "epc": 204,
+          "get": "optional",
           "id": "class_027d_epc_cc",
           "name_en": "Re-interconnection permission setting",
-          "name_ja": "再連系許可設定"
+          "name_ja": "再連系許可設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6780,9 +7414,11 @@
             }
           ],
           "epc": 205,
+          "get": "optional",
           "id": "class_027d_epc_cd",
           "name_en": "Operation permission setting",
-          "name_ja": "運転許可設定"
+          "name_ja": "運転許可設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6800,9 +7436,11 @@
             }
           ],
           "epc": 206,
+          "get": "optional",
           "id": "class_027d_epc_ce",
           "name_en": "Independent operation permission setting",
-          "name_ja": "自立運転許可設定"
+          "name_ja": "自立運転許可設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6862,92 +7500,110 @@
             }
           ],
           "epc": 207,
+          "get": "required",
           "id": "class_027d_epc_cf",
           "name_en": "Working operation status",
-          "name_ja": "運転動作状態"
+          "name_ja": "運転動作状態",
+          "set": "notApplicable"
         },
         {
           "epc": 208,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_d0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Rated electric energy",
           "name_ja": "定格電力量",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 209,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_d1",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Rated capacity",
           "name_ja": "定格容量",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 210,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_d2",
           "maximum": 32766.0,
           "minimum": 0.0,
           "name_en": "Rated voltage",
           "name_ja": "定格電圧",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 211,
           "format": "int32",
+          "get": "optional",
           "id": "class_027d_epc_d3",
           "maximum": 999999999.0,
           "minimum": -999999999.0,
           "name_en": "Measured instantaneous charging/discharging electric energy",
           "name_ja": "瞬時充放電電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 212,
           "format": "int16",
+          "get": "optional",
           "id": "class_027d_epc_d4",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "multipleOf": 0.1,
           "name_en": "Measured instantaneous charging/discharging current",
           "name_ja": "瞬時充放電電流計測値",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 213,
           "format": "int16",
+          "get": "optional",
           "id": "class_027d_epc_d5",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "name_en": "Measured instantaneous charging/discharging voltage",
           "name_ja": "瞬時充放電電圧計測値",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 214,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_d6",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative discharging electric energy",
           "name_ja": "積算放電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 216,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_d8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative charging electric energy",
           "name_ja": "積算充電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
@@ -7008,9 +7664,11 @@
             }
           ],
           "epc": 218,
+          "get": "required",
           "id": "class_027d_epc_da",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -7034,70 +7692,84 @@
             }
           ],
           "epc": 219,
+          "get": "required",
           "id": "class_027d_epc_db",
           "name_en": "System-interconnected type",
-          "name_ja": "系統連系状態"
+          "name_ja": "系統連系状態",
+          "set": "notApplicable"
         },
         {
           "epc": 224,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_e0",
           "maximum": 999999999.0,
           "minimum": 1.0,
           "name_en": "Charging/discharging amount setting 1",
           "name_ja": "充放電量設定値1",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 225,
           "format": "int16",
+          "get": "optional",
           "id": "class_027d_epc_e1",
           "maximum": 32766.0,
           "minimum": 1.0,
           "multipleOf": 0.1,
           "name_en": "Charging/discharging amount setting 2",
           "name_ja": "充放電量設定値2",
+          "set": "optional",
           "unit": "Ah"
         },
         {
           "epc": 226,
           "format": "uint32",
+          "get": "required_c",
           "id": "class_027d_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity 1",
           "name_ja": "蓄電残量1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 227,
           "format": "uint16",
+          "get": "required_c",
           "id": "class_027d_epc_e3",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Remaining stored electricity 2",
           "name_ja": "蓄電残量2",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 228,
           "format": "uint8",
+          "get": "required_c",
           "id": "class_027d_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity 3",
           "name_ja": "蓄電残量3",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 229,
           "format": "uint8",
+          "get": "optional",
           "id": "class_027d_epc_e5",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Battery state of health",
           "name_ja": "劣化状態",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
@@ -7146,102 +7818,122 @@
             }
           ],
           "epc": 230,
+          "get": "required",
           "id": "class_027d_epc_e6",
           "name_en": "Battery type",
-          "name_ja": "蓄電池タイプ"
+          "name_ja": "蓄電池タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 231,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_e7",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging amount setting 1",
           "name_ja": "充電量設定値1",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 232,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_e8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Discharging amount setting 1",
           "name_ja": "放電量設定値1",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 233,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_e9",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Charging amount setting 2",
           "name_ja": "充電量設定値2",
+          "set": "optional",
           "unit": "Ah"
         },
         {
           "epc": 234,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_ea",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Discharging amount setting 2",
           "name_ja": "放電量設定値2",
+          "set": "optional",
           "unit": "Ah"
         },
         {
           "epc": 235,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_eb",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging electric energy setting",
           "name_ja": "充電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 236,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027d_epc_ec",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Discharging electric energy setting",
           "name_ja": "放電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 237,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_ed",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Charging current setting",
           "name_ja": "充電電流設定値",
+          "set": "optional",
           "unit": "A"
         },
         {
           "epc": 238,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_ee",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Discharging current setting",
           "name_ja": "放電電流設定値",
+          "set": "optional",
           "unit": "A"
         },
         {
           "epc": 239,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027d_epc_ef",
           "maximum": 32766.0,
           "minimum": 0.0,
           "name_en": "Rated voltage (Independent)",
           "name_ja": "定格電圧 (独立時)",
+          "set": "notApplicable",
           "unit": "V"
         }
       ],
@@ -7253,73 +7945,87 @@
         {
           "epc": 192,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_c0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Dischargeable capacity of vehicle mounted battery 1",
           "name_ja": "車載電池の放電可能容量値1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 193,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_c1",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Dischargeable capacity of vehicle mounted battery 2",
           "name_ja": "車載電池の放電可能容量値2",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 194,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_c2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining dischargeable capacity of vehicle mounted battery 1",
           "name_ja": "車載電池の放電可能残容量1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 195,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_c3",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Remaining dischargeable capacity of vehicle mounted battery 2",
           "name_ja": "車載電池の放電可能残容量2",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 196,
           "format": "uint8",
+          "get": "required",
           "id": "class_027e_epc_c4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Remaining dischargeable capacity of vehicle mounted battery 3",
           "name_ja": "車載電池の放電可能残容量3",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 197,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_c5",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Rated charge capacity",
           "name_ja": "定格充電能力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 198,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_c6",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Rated discharge capacity",
           "name_ja": "定格放電能力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
@@ -7368,9 +8074,11 @@
             }
           ],
           "epc": 199,
+          "get": "required",
           "id": "class_027e_epc_c7",
           "name_en": "Vehicle connection and chargeable/dischargeable status",
-          "name_ja": "車両接続・充放電可否状態"
+          "name_ja": "車両接続・充放電可否状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -7466,112 +8174,134 @@
             }
           ],
           "epc": 204,
+          "get": "required",
           "id": "class_027e_epc_cc",
           "name_en": "Charger/Discharger type",
-          "name_ja": "充放電器タイプ"
+          "name_ja": "充放電器タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 206,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_ce",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Chargeable capacity of vehicle mounted battery",
           "name_ja": "車載電池の充電可能容量値",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 207,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_cf",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining chargeable capacity of vehicle mounted battery",
           "name_ja": "車載電池の充電可能残容量値",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 208,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_d0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Used capacity of vehicle mounted battery 1",
           "name_ja": "車載電池の使用容量値1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 209,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_d1",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Used capacity of vehicle mounted battery 2",
           "name_ja": "車載電池の使用容量値2",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 210,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_d2",
           "maximum": 32766.0,
           "minimum": 0.0,
           "name_en": "Rated voltage",
           "name_ja": "定格電圧",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 211,
           "format": "int32",
+          "get": "optional",
           "id": "class_027e_epc_d3",
           "maximum": 999999999.0,
           "minimum": -999999999.0,
           "name_en": "Measured instantaneous charging/discharging electric energy",
           "name_ja": "瞬時充放電電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 212,
           "format": "int16",
+          "get": "optional",
           "id": "class_027e_epc_d4",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "multipleOf": 0.1,
           "name_en": "Measured instantaneous charging/discharging current",
           "name_ja": "瞬時充放電電流計測値",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 213,
           "format": "int16",
+          "get": "optional",
           "id": "class_027e_epc_d5",
           "maximum": 32766.0,
           "minimum": -32767.0,
           "name_en": "Measured instantaneous charging/discharging voltage",
           "name_ja": "瞬時充放電電圧計測値",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 214,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_d6",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of discharging electric energy",
           "name_ja": "積算放電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 216,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_d8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of charging electric energy",
           "name_ja": "積算充電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
@@ -7626,9 +8356,11 @@
             }
           ],
           "epc": 218,
+          "get": "required",
           "id": "class_027e_epc_da",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -7652,9 +8384,11 @@
             }
           ],
           "epc": 219,
+          "get": "optional",
           "id": "class_027e_epc_db",
           "name_en": "System interconnected type",
-          "name_ja": "系統連系状態"
+          "name_ja": "系統連系状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -7702,9 +8436,11 @@
             }
           ],
           "epc": 220,
+          "get": "required",
           "id": "class_027e_epc_dc",
           "name_en": "Charging method",
-          "name_ja": "充電方式"
+          "name_ja": "充電方式",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -7752,18 +8488,22 @@
             }
           ],
           "epc": 221,
+          "get": "required",
           "id": "class_027e_epc_dd",
           "name_en": "Discharging method",
-          "name_ja": "放電方式"
+          "name_ja": "放電方式",
+          "set": "optional"
         },
         {
           "epc": 222,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_de",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Purchasing electric power setting",
           "name_ja": "買電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
@@ -7782,18 +8522,22 @@
             }
           ],
           "epc": 223,
+          "get": "optional",
           "id": "class_027e_epc_df",
           "name_en": "Re-interconnection permission setting",
-          "name_ja": "再連系許可設定"
+          "name_ja": "再連系許可設定",
+          "set": "optional"
         },
         {
           "epc": 224,
           "format": "int32",
+          "get": "optional",
           "id": "class_027e_epc_e0",
           "maximum": 999999999.0,
           "minimum": -999999999.0,
           "name_en": "Charging/Discharging electric power setting",
           "name_ja": "充放電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
@@ -7836,39 +8580,47 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_027e_epc_e1",
           "name_en": "Actual operation mode",
-          "name_ja": "運転動作状態"
+          "name_ja": "運転動作状態",
+          "set": "notApplicable"
         },
         {
           "epc": 226,
           "format": "uint32",
+          "get": "required",
           "id": "class_027e_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity of vehicle mounted battery1",
           "name_ja": "車載電池の電池残容量1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 227,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_e3",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Remaining stored electricity of vehicle mounted battery2",
           "name_ja": "車載電池の電池残容量2",
+          "set": "notApplicable",
           "unit": "Ah"
         },
         {
           "epc": 228,
           "format": "uint8",
+          "get": "required",
           "id": "class_027e_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity of vehicle mounted battery3",
           "name_ja": "車載電池の電池残容量3",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
@@ -7887,91 +8639,109 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_027e_epc_e5",
           "name_en": "Maintenance status",
-          "name_ja": "メンテナンス状態"
+          "name_ja": "メンテナンス状態",
+          "set": "notApplicable"
         },
         {
           "epc": 231,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_e7",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging amount setting 1",
           "name_ja": "充電量設定値1",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 233,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_e9",
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Charging amount setting 2",
           "name_ja": "充電量設定値2",
+          "set": "optional",
           "unit": "Ah"
         },
         {
           "epc": 234,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_ea",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Discharging electric energy setting",
           "name_ja": "放電量設定値",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 235,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_eb",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging electric energy setting",
           "name_ja": "充電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 236,
           "format": "uint32",
+          "get": "optional",
           "id": "class_027e_epc_ec",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Discharging electric energy setting",
           "name_ja": "放電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 237,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_ed",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Charging current setting",
           "name_ja": "充電電流設定値",
+          "set": "optional",
           "unit": "A"
         },
         {
           "epc": 238,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_ee",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Discharging current setting",
           "name_ja": "放電電流設定値",
+          "set": "optional",
           "unit": "A"
         },
         {
           "epc": 239,
           "format": "uint16",
+          "get": "optional",
           "id": "class_027e_epc_ef",
           "maximum": 32766.0,
           "minimum": 0.0,
           "name_en": "Rated voltage (Independent)",
           "name_ja": "定格電圧 (独立時)",
+          "set": "notApplicable",
           "unit": "V"
         }
       ],
@@ -7983,11 +8753,13 @@
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_0280_epc_e0",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Cumulative amounts of electric energy measurement value",
           "name_ja": "積算電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         }
       ],
@@ -8024,9 +8796,11 @@
             }
           ],
           "epc": 208,
+          "get": "optional",
           "id": "class_0281_epc_d0",
           "name_en": "Water flowmeter classification",
-          "name_ja": "水流量メータ区分"
+          "name_ja": "水流量メータ区分",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8056,18 +8830,22 @@
             }
           ],
           "epc": 209,
+          "get": "optional",
           "id": "class_0281_epc_d1",
           "name_en": "Owner classification",
-          "name_ja": "所有者区分"
+          "name_ja": "所有者区分",
+          "set": "optional"
         },
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_0281_epc_e0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of flowing water",
           "name_ja": "積算水流量計測値",
+          "set": "notApplicable",
           "unit": "m3"
         },
         {
@@ -8086,9 +8864,11 @@
             }
           ],
           "epc": 227,
+          "get": "optional",
           "id": "class_0281_epc_e3",
           "name_en": "Detection of abnormal value in metering data",
-          "name_ja": "検針データ異常検知状態"
+          "name_ja": "検針データ異常検知状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Water flowmeter",
@@ -8099,12 +8879,14 @@
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_0282_epc_e0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Cumulative amount of gas consumption measurement value",
           "name_ja": "積算ガス消費量計測値",
+          "set": "notApplicable",
           "unit": "m3"
         }
       ],
@@ -8116,41 +8898,49 @@
         {
           "epc": 176,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0287_epc_b0",
           "maximum": 253.0,
           "minimum": 0.0,
           "name_en": "Master rated capacity",
           "name_ja": "主幹定格容量",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 192,
           "format": "uint32",
+          "get": "required",
           "id": "class_0287_epc_c0",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy (normal direction)",
           "name_ja": "積算電力量計測値 (正方向)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 193,
           "format": "uint32",
+          "get": "required",
           "id": "class_0287_epc_c1",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy (reverse direction)",
           "name_ja": "積算電力量計測値 (逆方向)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 198,
           "format": "int32",
+          "get": "optional",
           "id": "class_0287_epc_c6",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous amount of electric energy",
           "name_ja": "瞬時電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -8162,41 +8952,49 @@
         {
           "epc": 215,
           "format": "uint8",
+          "get": "required",
           "id": "class_0288_epc_d7",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for cumulative amounts of electric energy",
           "name_ja": "積算電力量有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_0288_epc_e0",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy (normal direction)",
           "name_ja": "積算電力量計測値 (正方向計測値)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 227,
           "format": "uint32",
+          "get": "required_c",
           "id": "class_0288_epc_e3",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy (reverse direction)",
           "name_ja": "積算電力量計測値 (逆方向計測値)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 231,
           "format": "int32",
+          "get": "required",
           "id": "class_0288_epc_e7",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric power",
           "name_ja": "瞬時電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -8208,51 +9006,61 @@
         {
           "epc": 193,
           "format": "uint32",
+          "get": "required",
           "id": "class_028a_epc_c1",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Monthly maximum electric power demand",
           "name_ja": "月間最大需要電力",
+          "set": "notApplicable",
           "unit": "kW"
         },
         {
           "epc": 194,
           "format": "uint32",
+          "get": "optional",
           "id": "class_028a_epc_c2",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Cumulative maximum electric power demand",
           "name_ja": "累積最大需要電力",
+          "set": "notApplicable",
           "unit": "kW"
         },
         {
           "epc": 196,
           "format": "uint8",
+          "get": "required",
           "id": "class_028a_epc_c4",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits of electric power demand",
           "name_ja": "需要電力有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 204,
           "format": "uint8",
+          "get": "optional",
           "id": "class_028a_epc_cc",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for measurement data of cumulative amount of reactive electric power consumption (lag) for power factor measurement",
           "name_ja": "力測積算無効電力量 (遅れ)有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 229,
           "format": "uint8",
+          "get": "required",
           "id": "class_028a_epc_e5",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for cumulative amount of active electric energy",
           "name_ja": "積算有効電力量有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         }
       ],
@@ -8264,41 +9072,49 @@
         {
           "epc": 215,
           "format": "uint8",
+          "get": "required",
           "id": "class_028d_epc_d7",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for cumulative amounts of electric energy",
           "name_ja": "積算電力量有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 225,
           "format": "uint32",
+          "get": "required",
           "id": "class_028d_epc_e1",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy(normal direction)",
           "name_ja": "積算電力量計測値（正方向計測値）",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 227,
           "format": "uint32",
+          "get": "required",
           "id": "class_028d_epc_e3",
           "maximum": 99999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amount of electric energy (reverse direction)",
           "name_ja": "積算電力量計測値（逆方向計測値）",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 231,
           "format": "int32",
+          "get": "required",
           "id": "class_028d_epc_e7",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric power",
           "name_ja": "瞬時電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -8359,9 +9175,11 @@
             }
           ],
           "epc": 210,
+          "get": "required",
           "id": "class_028e_epc_d2",
           "name_en": "Tolerance class",
-          "name_ja": "公差階級"
+          "name_ja": "公差階級",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -8391,58 +9209,70 @@
             }
           ],
           "epc": 219,
+          "get": "required",
           "id": "class_028e_epc_db",
           "name_en": "Time synchronization status",
-          "name_ja": "時刻同期状態"
+          "name_ja": "時刻同期状態",
+          "set": "notApplicable"
         },
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required_c",
           "id": "class_028e_epc_e0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amounts of electric energy (AC input)",
           "name_ja": "積算電力量計測値(交流入力)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 226,
           "format": "uint32",
+          "get": "required_c",
           "id": "class_028e_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amounts of electric energy (AC output)",
           "name_ja": "積算電力量計測値(交流出力)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 228,
           "format": "uint32",
+          "get": "optional",
           "id": "class_028e_epc_e4",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Measured cumulative amounts of electric energy (output during a power outage)",
           "name_ja": "積算電力量計測値(自立出力)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 233,
           "format": "int32",
+          "get": "optional",
           "id": "class_028e_epc_e9",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric power (AC input/output)",
           "name_ja": "瞬時電力計測値(交流入出力)",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 234,
           "format": "int32",
+          "get": "optional",
           "id": "class_028e_epc_ea",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric power (output during a power outage)",
           "name_ja": "瞬時電力計測値(自立出力)",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -8454,41 +9284,49 @@
         {
           "epc": 196,
           "format": "uint8",
+          "get": "required",
           "id": "class_028f_epc_c4",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits of electric power demand",
           "name_ja": "需要電力有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 204,
           "format": "uint8",
+          "get": "optional",
           "id": "class_028f_epc_cc",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for cumulative amount of reactive electric energy",
           "name_ja": "積算無効電力量有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 229,
           "format": "uint8",
+          "get": "required",
           "id": "class_028f_epc_e5",
           "maximum": 8.0,
           "minimum": 1.0,
           "name_en": "Number of effective digits for cumulative amount of active electric energy",
           "name_ja": "積算有効電力量有効桁数",
+          "set": "notApplicable",
           "unit": "digit"
         },
         {
           "epc": 234,
           "format": "int32",
+          "get": "required",
           "id": "class_028f_epc_ea",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric energy",
           "name_ja": "瞬時電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -8513,9 +9351,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_0290_epc_90",
           "name_en": "ON timer reservation setting",
-          "name_ja": "ONタイマ予約設定"
+          "name_ja": "ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8533,18 +9373,22 @@
             }
           ],
           "epc": 148,
+          "get": "optional",
           "id": "class_0290_epc_94",
           "name_en": "OFF timer reservation setting",
-          "name_ja": "OFFタイマ予約設定"
+          "name_ja": "OFFタイマ予約設定",
+          "set": "optional"
         },
         {
           "epc": 176,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0290_epc_b0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level",
           "name_ja": "照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         },
         {
@@ -8587,9 +9431,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_0290_epc_b1",
           "name_en": "Light color setting",
-          "name_ja": "光色設定"
+          "name_ja": "光色設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8619,28 +9465,34 @@
             }
           ],
           "epc": 182,
+          "get": "required",
           "id": "class_0290_epc_b6",
           "name_en": "Lighting mode setting",
-          "name_ja": "点灯モード設定"
+          "name_ja": "点灯モード設定",
+          "set": "required"
         },
         {
           "epc": 183,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0290_epc_b7",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level setting for main lighting",
           "name_ja": "通常灯モード時照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 185,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0290_epc_b9",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level setting for night lighting",
           "name_ja": "常夜灯モード時照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         },
         {
@@ -8677,9 +9529,11 @@
             }
           ],
           "epc": 187,
+          "get": "optional",
           "id": "class_0290_epc_bb",
           "name_en": "Light color setting for main lighting",
-          "name_ja": "通常灯モード時光色設定"
+          "name_ja": "通常灯モード時光色設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8715,9 +9569,11 @@
             }
           ],
           "epc": 189,
+          "get": "optional",
           "id": "class_0290_epc_bd",
           "name_en": "Light color setting for night lighting",
-          "name_ja": "常夜灯モード時光色設定"
+          "name_ja": "常夜灯モード時光色設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8747,9 +9603,11 @@
             }
           ],
           "epc": 191,
+          "get": "optional",
           "id": "class_0290_epc_bf",
           "name_en": "Lighting mode status in auto mode",
-          "name_ja": "自動モード時点灯モード状態"
+          "name_ja": "自動モード時点灯モード状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "General lighting",
@@ -8760,11 +9618,13 @@
         {
           "epc": 176,
           "format": "uint8",
+          "get": "optional",
           "id": "class_0291_epc_b0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level Setting",
           "name_ja": "照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         }
       ],
@@ -8776,11 +9636,13 @@
         {
           "epc": 197,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a1_epc_c5",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Rated charge capacity",
           "name_ja": "定格充電能力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
@@ -8817,9 +9679,11 @@
             }
           ],
           "epc": 199,
+          "get": "required",
           "id": "class_02a1_epc_c7",
           "name_en": "Vehicle connection and chargeable status",
-          "name_ja": "車両接続・充電可否状態"
+          "name_ja": "車両接続・充電可否状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -8867,69 +9731,83 @@
             }
           ],
           "epc": 204,
+          "get": "required",
           "id": "class_02a1_epc_cc",
           "name_en": "Charger type",
-          "name_ja": "充電器タイプ"
+          "name_ja": "充電器タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 206,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a1_epc_ce",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Chargeable capacity of vehicle mounted battery",
           "name_ja": "車載電池の充電可能容量値",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 207,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a1_epc_cf",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining chargeable capacity of vehicle mounted battery",
           "name_ja": "車載電池の充電可能残容量値",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 208,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a1_epc_d0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Used capacity of vehicle mounted battery 1",
           "name_ja": "車載電池の使用容量値1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 210,
           "format": "uint16",
+          "get": "optional",
           "id": "class_02a1_epc_d2",
           "maximum": 32766.0,
           "minimum": 0.0,
           "name_en": "Rated voltage",
           "name_ja": "定格電圧",
+          "set": "notApplicable",
           "unit": "V"
         },
         {
           "epc": 211,
           "format": "uint32",
+          "get": "optional",
           "id": "class_02a1_epc_d3",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Measured instantaneous charging electric energy",
           "name_ja": "瞬時充電電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 216,
           "format": "uint32",
+          "get": "optional",
           "id": "class_02a1_epc_d8",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of charging electric energy",
           "name_ja": "積算充電電力量計測値",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
@@ -8960,59 +9838,71 @@
             }
           ],
           "epc": 218,
+          "get": "required",
           "id": "class_02a1_epc_da",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "epc": 226,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a1_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity of vehicle mounted battery1",
           "name_ja": "車載電池の電池残容量1",
+          "set": "notApplicable",
           "unit": "Wh"
         },
         {
           "epc": 228,
           "format": "uint8",
+          "get": "required",
           "id": "class_02a1_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Remaining stored electricity of vehicle mounted battery3",
           "name_ja": "車載電池の電池残容量3",
+          "set": "notApplicable",
           "unit": "%"
         },
         {
           "epc": 231,
           "format": "uint32",
+          "get": "optional",
           "id": "class_02a1_epc_e7",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging amount setting",
           "name_ja": "充電量設定値",
+          "set": "optional",
           "unit": "Wh"
         },
         {
           "epc": 235,
           "format": "uint32",
+          "get": "optional",
           "id": "class_02a1_epc_eb",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Charging electric energy setting",
           "name_ja": "充電電力設定値",
+          "set": "optional",
           "unit": "W"
         },
         {
           "epc": 237,
           "format": "uint16",
+          "get": "optional",
           "id": "class_02a1_epc_ed",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Charging current setting",
           "name_ja": "充電電流設定値",
+          "set": "optional",
           "unit": "A"
         }
       ],
@@ -9024,11 +9914,13 @@
         {
           "epc": 176,
           "format": "uint8",
+          "get": "optional",
           "id": "class_02a3_epc_b0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level setting",
           "name_ja": "照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         }
       ],
@@ -9040,31 +9932,37 @@
         {
           "epc": 176,
           "format": "uint8",
+          "get": "optional",
           "id": "class_02a4_epc_b0",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Light level setting",
           "name_ja": "照明の明るさ設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 195,
           "format": "uint16",
+          "get": "required",
           "id": "class_02a4_epc_c3",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Power consumption when fully lighted",
           "name_ja": "全灯時消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 196,
           "format": "uint16",
+          "get": "required",
           "id": "class_02a4_epc_c4",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Possible power savings",
           "name_ja": "節電可能消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
@@ -9078,11 +9976,13 @@
           ],
           "epc": 197,
           "format": "uint16",
+          "get": "required",
           "id": "class_02a4_epc_c5",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Power consumption limit setting",
           "name_ja": "消費電力制限設定",
+          "set": "required",
           "unit": "W"
         },
         {
@@ -9101,18 +10001,22 @@
             }
           ],
           "epc": 198,
+          "get": "optional",
           "id": "class_02a4_epc_c6",
           "name_en": "Automatic operation controlling setting",
-          "name_ja": "自動動作制御設定"
+          "name_ja": "自動動作制御設定",
+          "set": "optional"
         },
         {
           "epc": 199,
           "format": "uint16",
+          "get": "optional",
           "id": "class_02a4_epc_c7",
           "maximum": 3600.0,
           "minimum": 0.0,
           "name_en": "Fading control change time setting",
           "name_ja": "フェード制御変化時間設定",
+          "set": "optional",
           "unit": "second"
         }
       ],
@@ -9143,40 +10047,48 @@
             }
           ],
           "epc": 208,
+          "get": "required",
           "id": "class_02a5_epc_d0",
           "name_en": "System interconnection status",
-          "name_ja": "系統連系状態"
+          "name_ja": "系統連系状態",
+          "set": "notApplicable"
         },
         {
           "epc": 224,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a5_epc_e0",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of electric energy (normal direction)",
           "name_ja": "積算電力量計測値(正方向)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 227,
           "format": "uint32",
+          "get": "required",
           "id": "class_02a5_epc_e3",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "multipleOf": 0.001,
           "name_en": "Measured cumulative amount of electric energy (reverse direction)",
           "name_ja": "積算電力量計測値(逆方向)",
+          "set": "notApplicable",
           "unit": "kWh"
         },
         {
           "epc": 231,
           "format": "int32",
+          "get": "required",
           "id": "class_02a5_epc_e7",
           "maximum": 2147483645.0,
           "minimum": -2147483647.0,
           "name_en": "Measured instantaneous electric power",
           "name_ja": "瞬時電力計測値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -9207,9 +10119,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_02a6_epc_b0",
           "name_en": "Automatic water heating setting",
-          "name_ja": "沸き上げ自動設定"
+          "name_ja": "沸き上げ自動設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9227,9 +10141,11 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_02a6_epc_b2",
           "name_en": "Water heating status",
-          "name_ja": "給湯沸き上げ中状態"
+          "name_ja": "給湯沸き上げ中状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9247,9 +10163,11 @@
             }
           ],
           "epc": 179,
+          "get": "optional",
           "id": "class_02a6_epc_b3",
           "name_en": "Heater status",
-          "name_ja": "暖房沸き上げ中状態"
+          "name_ja": "暖房沸き上げ中状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9267,9 +10185,11 @@
             }
           ],
           "epc": 182,
+          "get": "optional",
           "id": "class_02a6_epc_b6",
           "name_en": "Hot water supply mode setting for auxiliary heat source machine",
-          "name_ja": "補助熱源機給湯モード設定"
+          "name_ja": "補助熱源機給湯モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9287,9 +10207,11 @@
             }
           ],
           "epc": 183,
+          "get": "optional",
           "id": "class_02a6_epc_b7",
           "name_en": "Heater mode setting for auxiliary heat source machine.",
-          "name_ja": "補助熱源機暖房モード設定"
+          "name_ja": "補助熱源機暖房モード設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9319,9 +10241,11 @@
             }
           ],
           "epc": 184,
+          "get": "required",
           "id": "class_02a6_epc_b8",
           "name_en": "Linkage mode setting for solar power generation",
-          "name_ja": "太陽光発電連携モード設定"
+          "name_ja": "太陽光発電連携モード設定",
+          "set": "required"
         },
         {
           "enum_values": [
@@ -9339,28 +10263,34 @@
             }
           ],
           "epc": 195,
+          "get": "optional",
           "id": "class_02a6_epc_c3",
           "name_en": "Hot water supply status",
-          "name_ja": "給湯中状態"
+          "name_ja": "給湯中状態",
+          "set": "notApplicable"
         },
         {
           "epc": 225,
           "format": "uint16",
+          "get": "optional",
           "id": "class_02a6_epc_e1",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Measured amount of hot water remaining in tank",
           "name_ja": "残湯量計測値",
+          "set": "notApplicable",
           "unit": "L"
         },
         {
           "epc": 226,
           "format": "uint16",
+          "get": "optional",
           "id": "class_02a6_epc_e2",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Tank capacity",
           "name_ja": "タンク容量値",
+          "set": "notApplicable",
           "unit": "L"
         }
       ],
@@ -9385,49 +10315,59 @@
             }
           ],
           "epc": 192,
+          "get": "required",
           "id": "class_02a7_epc_c0",
           "name_en": "Control point",
-          "name_ja": "制御ポイント"
+          "name_ja": "制御ポイント",
+          "set": "optional"
         },
         {
           "epc": 194,
           "format": "int32",
+          "get": "required",
           "id": "class_02a7_epc_c2",
           "maximum": 999999999.0,
           "minimum": -999999999.0,
           "name_en": "EM target power value",
           "name_ja": "EM電力目標値",
+          "set": "required",
           "unit": "W"
         },
         {
           "epc": 199,
           "format": "int16",
+          "get": "optional",
           "id": "class_02a7_epc_c7",
           "maximum": 100.0,
           "minimum": -100.0,
           "name_en": "Correction value for reference frequency",
           "name_ja": "基準周波数補正値",
+          "set": "optional",
           "unit": "mHz"
         },
         {
           "epc": 208,
           "format": "uint16",
+          "get": "required",
           "id": "class_02a7_epc_d0",
           "maximum": 65535.0,
           "minimum": 0.0,
           "multipleOf": 10.0,
           "name_en": "Transmittable/receivable cycle",
           "name_ja": "送受信可能周期",
+          "set": "notApplicable",
           "unit": "ms"
         },
         {
           "epc": 211,
           "format": "uint32",
+          "get": "optional",
           "id": "class_02a7_epc_d3",
           "maximum": 999999999.0,
           "minimum": 0.0,
           "name_en": "Value of contract power",
           "name_ja": "契約電力値",
+          "set": "notApplicable",
           "unit": "W"
         }
       ],
@@ -9488,9 +10428,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_0007_epc_b0",
           "name_en": "Detection threshold level",
-          "name_ja": "検知閾値レベル設定"
+          "name_ja": "検知閾値レベル設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9508,9 +10450,11 @@
             }
           ],
           "epc": 177,
+          "get": "required",
           "id": "class_0007_epc_b1",
           "name_en": "Human detection status",
-          "name_ja": "人体検知状態"
+          "name_ja": "人体検知状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Human detection sensor",
@@ -9540,9 +10484,11 @@
             }
           ],
           "epc": 160,
+          "get": "optional",
           "id": "class_03b7_epc_a0",
           "name_en": "Quick freeze function setting",
-          "name_ja": "急速冷凍動作設定"
+          "name_ja": "急速冷凍動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9566,9 +10512,11 @@
             }
           ],
           "epc": 161,
+          "get": "optional",
           "id": "class_03b7_epc_a1",
           "name_en": "Quick refrigeration function setting",
-          "name_ja": "急速冷蔵動作設定"
+          "name_ja": "急速冷蔵動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9592,9 +10540,11 @@
             }
           ],
           "epc": 164,
+          "get": "optional",
           "id": "class_03b7_epc_a4",
           "name_en": "Icemaker setting",
-          "name_ja": "製氷許可設定"
+          "name_ja": "製氷許可設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9612,9 +10562,11 @@
             }
           ],
           "epc": 165,
+          "get": "optional",
           "id": "class_03b7_epc_a5",
           "name_en": "Icemaker operation status",
-          "name_ja": "製氷動作状態"
+          "name_ja": "製氷動作状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9632,9 +10584,11 @@
             }
           ],
           "epc": 166,
+          "get": "optional",
           "id": "class_03b7_epc_a6",
           "name_en": "Icemaker tank status",
-          "name_ja": "製氷用給水タンク状態"
+          "name_ja": "製氷用給水タンク状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9652,9 +10606,11 @@
             }
           ],
           "epc": 168,
+          "get": "optional",
           "id": "class_03b7_epc_a8",
           "name_en": "Refrigerator compartment humidification function setting",
-          "name_ja": "冷蔵室加湿動作設定"
+          "name_ja": "冷蔵室加湿動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9672,9 +10628,11 @@
             }
           ],
           "epc": 169,
+          "get": "optional",
           "id": "class_03b7_epc_a9",
           "name_en": "Vegetable compartment humidification function setting",
-          "name_ja": "野菜室加湿動作設定"
+          "name_ja": "野菜室加湿動作設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9692,9 +10650,33 @@
             }
           ],
           "epc": 173,
+          "get": "optional",
           "id": "class_03b7_epc_ad",
           "name_en": "Deodorization function setting",
-          "name_ja": "脱臭動作設定"
+          "name_ja": "脱臭動作設定",
+          "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "anyOpen",
+              "name_en": "Door open",
+              "name_ja": "ドア開"
+            },
+            {
+              "edt": 66,
+              "key": "allClose",
+              "name_en": "Door close",
+              "name_ja": "ドア閉"
+            }
+          ],
+          "epc": 176,
+          "get": "required_o",
+          "id": "class_03b7_epc_b0",
+          "name_en": "Door open/close status",
+          "name_ja": "ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9712,9 +10694,11 @@
             }
           ],
           "epc": 177,
+          "get": "optional",
           "id": "class_03b7_epc_b1",
           "name_en": "Door open warning",
-          "name_ja": "ドア開放警告状態"
+          "name_ja": "ドア開放警告状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9732,9 +10716,11 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_03b7_epc_b2",
           "name_en": "Refrigerator compartment door status",
-          "name_ja": "冷蔵室ドア開閉状態"
+          "name_ja": "冷蔵室ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9752,9 +10738,11 @@
             }
           ],
           "epc": 179,
+          "get": "optional",
           "id": "class_03b7_epc_b3",
           "name_en": "Freezer compartment door status",
-          "name_ja": "冷凍室ドア開閉状態"
+          "name_ja": "冷凍室ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9772,9 +10760,11 @@
             }
           ],
           "epc": 180,
+          "get": "optional",
           "id": "class_03b7_epc_b4",
           "name_en": "Ice compartment door status",
-          "name_ja": "氷温室ドア開閉状態"
+          "name_ja": "氷温室ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9792,9 +10782,11 @@
             }
           ],
           "epc": 181,
+          "get": "optional",
           "id": "class_03b7_epc_b5",
           "name_en": "Vegetable compartment door status",
-          "name_ja": "野菜室ドア開閉状態"
+          "name_ja": "野菜室ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -9812,129 +10804,155 @@
             }
           ],
           "epc": 182,
+          "get": "optional",
           "id": "class_03b7_epc_b6",
           "name_en": "Multi-refrigerating mode compartment door status",
-          "name_ja": "切換室ドア開閉状態"
+          "name_ja": "切換室ドア開閉状態",
+          "set": "notApplicable"
         },
         {
           "epc": 209,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_d1",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Measured refrigerator compartment temperature",
           "name_ja": "冷蔵室温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 210,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_d2",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Measured freezer compartment temperature",
           "name_ja": "冷凍室温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 211,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_d3",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Measured subzero-fresh compartment temperature",
           "name_ja": "氷温室温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 212,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_d4",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Measured vegetable compartment temperature",
           "name_ja": "野菜室温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 213,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_d5",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Measured multi-refrigerating mode compartment temperature",
           "name_ja": "切換室温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 218,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03b7_epc_da",
           "maximum": 65533.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
           "name_en": "Measured electric current consumption",
           "name_ja": "消費電流計測値",
+          "set": "notApplicable",
           "unit": "A"
         },
         {
           "epc": 220,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03b7_epc_dc",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Rated power consumption",
           "name_ja": "定格消費電力値",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 226,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_e2",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Refrigerator compartment temperature setting",
           "name_ja": "冷蔵室温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 227,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_e3",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Freezer compartment temperature setting",
           "name_ja": "冷凍室温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 228,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_e4",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Ice compartment temperature setting",
           "name_ja": "氷温室温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 229,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_e5",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Vegetable compartment temperature setting",
           "name_ja": "野菜室温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
           "epc": 230,
           "format": "int8",
+          "get": "optional",
           "id": "class_03b7_epc_e6",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Multi-refrigerating mode compartment temperature setting",
           "name_ja": "切換室温度設定値",
+          "set": "optional",
           "unit": "Celsius"
         }
       ],
@@ -9959,9 +10977,11 @@
             }
           ],
           "epc": 161,
+          "get": "optional",
           "id": "class_03b9_epc_a1",
           "name_en": "Child lock setting",
-          "name_ja": "チャイルドロック設定"
+          "name_ja": "チャイルドロック設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9979,9 +10999,11 @@
             }
           ],
           "epc": 162,
+          "get": "optional",
           "id": "class_03b9_epc_a2",
           "name_en": "Radiant heater lock setting",
-          "name_ja": "ラジエントヒータロック設定"
+          "name_ja": "ラジエントヒータロック設定",
+          "set": "optional"
         }
       ],
       "name_en": "Cooking heater",
@@ -10005,9 +11027,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_03bb_epc_90",
           "name_en": "Rice cooking reservation setting",
-          "name_ja": "炊飯予約設定"
+          "name_ja": "炊飯予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10025,9 +11049,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_03bb_epc_b0",
           "name_en": "Cover closure status",
-          "name_ja": "蓋開閉状態"
+          "name_ja": "蓋開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10063,9 +11089,33 @@
             }
           ],
           "epc": 177,
+          "get": "required",
           "id": "class_03bb_epc_b1",
           "name_en": "Rice cooking status",
-          "name_ja": "炊飯状態"
+          "name_ja": "炊飯状態",
+          "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "running",
+              "name_en": "Rice cooking start/restart",
+              "name_ja": "炊飯開始・炊飯再開"
+            },
+            {
+              "edt": 66,
+              "key": "suspension",
+              "name_en": "Rice cooking suspension",
+              "name_ja": "炊飯一時停止"
+            }
+          ],
+          "epc": 178,
+          "get": "required_o",
+          "id": "class_03bb_epc_b2",
+          "name_en": "Rice cooking control setting",
+          "name_ja": "炊飯制御設定",
+          "set": "required_o"
         },
         {
           "enum_values": [
@@ -10083,9 +11133,11 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_03bb_epc_e1",
           "name_en": "Warmer setting",
-          "name_ja": "保温設定"
+          "name_ja": "保温設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10103,9 +11155,11 @@
             }
           ],
           "epc": 229,
+          "get": "optional",
           "id": "class_03bb_epc_e5",
           "name_en": "Inner pot removal status",
-          "name_ja": "内なべ取り外し状態"
+          "name_ja": "内なべ取り外し状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10123,9 +11177,11 @@
             }
           ],
           "epc": 230,
+          "get": "optional",
           "id": "class_03bb_epc_e6",
           "name_en": "Cover removal status",
-          "name_ja": "蓋取り外し状態"
+          "name_ja": "蓋取り外し状態",
+          "set": "notApplicable"
         }
       ],
       "name_en": "Rice cooker",
@@ -10161,18 +11217,22 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_03ce_epc_b0",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "epc": 189,
           "format": "int8",
+          "get": "optional",
           "id": "class_03ce_epc_bd",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Used to acquire measurements of discharge temperature.",
           "name_ja": "吐出温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -10197,9 +11257,11 @@
             }
           ],
           "epc": 208,
+          "get": "required",
           "id": "class_03ce_epc_d0",
           "name_en": "This property indicates the type of the showcase.",
-          "name_ja": "ショーケースタイプ情報"
+          "name_ja": "ショーケースタイプ情報",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10217,9 +11279,11 @@
             }
           ],
           "epc": 209,
+          "get": "required",
           "id": "class_03ce_epc_d1",
           "name_en": "This property indicates the type of the showcase door.",
-          "name_ja": "ドアタイプ情報"
+          "name_ja": "ドアタイプ情報",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10237,9 +11301,11 @@
             }
           ],
           "epc": 210,
+          "get": "required",
           "id": "class_03ce_epc_d2",
           "name_en": "This property indicates refrigerator type, such as built-in or separate.",
-          "name_ja": "冷凍機内蔵型か冷凍機別置型かを示すショーケース構成情報"
+          "name_ja": "冷凍機内蔵型か冷凍機別置型かを示すショーケース構成情報",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10311,9 +11377,11 @@
             }
           ],
           "epc": 211,
+          "get": "required",
           "id": "class_03ce_epc_d3",
           "name_en": "This property indicates the shape of the showcase.",
-          "name_ja": "ショーケース形状情報"
+          "name_ja": "ショーケース形状情報",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10331,9 +11399,11 @@
             }
           ],
           "epc": 212,
+          "get": "required",
           "id": "class_03ce_epc_d4",
           "name_en": "This property indicates the purpose of the showcase, either refrigeration or freezing.",
-          "name_ja": "冷蔵用途か冷凍用途かを示す庫内温度帯情報"
+          "name_ja": "冷蔵用途か冷凍用途かを示す庫内温度帯情報",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10351,9 +11421,11 @@
             }
           ],
           "epc": 224,
+          "get": "required",
           "id": "class_03ce_epc_e0",
           "name_en": "Indicates on/off status of lighting installed inside the showcase.",
-          "name_ja": "庫内照明動作状態"
+          "name_ja": "庫内照明動作状態",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10371,9 +11443,11 @@
             }
           ],
           "epc": 225,
+          "get": "optional",
           "id": "class_03ce_epc_e1",
           "name_en": "Indicates ON/OFF status of lighting installed outside the showcase.",
-          "name_ja": "庫外照明動作状態"
+          "name_ja": "庫外照明動作状態",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10391,48 +11465,58 @@
             }
           ],
           "epc": 226,
+          "get": "optional",
           "id": "class_03ce_epc_e2",
           "name_en": "Indicates on/off status of compressor when showcase and compressor are a single unit.",
-          "name_ja": "コンプレッサ動作状態"
+          "name_ja": "コンプレッサ動作状態",
+          "set": "optional"
         },
         {
           "epc": 227,
           "format": "int8",
+          "get": "required",
           "id": "class_03ce_epc_e3",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Used to acquire internal temperature measurements inside the showcase.",
           "name_ja": "庫内温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
           "epc": 228,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03ce_epc_e4",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Indicates rated power consumption necessary when showcase is cooling.",
           "name_ja": "冷却時に要する定格消費電力 (冷凍能力値)",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 229,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03ce_epc_e5",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Indicates rated power consumption when heater is operating during showcase defrosting.",
           "name_ja": "霜取りヒータ稼働時の定格消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
           "epc": 230,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03ce_epc_e6",
           "maximum": 65533.0,
           "minimum": 0.0,
           "name_en": "Indicates rated power consumption when showcase is operating fan motor.",
           "name_ja": "ファンモータ稼働時の定格消費電力",
+          "set": "notApplicable",
           "unit": "W"
         },
         {
@@ -10451,9 +11535,11 @@
             }
           ],
           "epc": 231,
+          "get": "required",
           "id": "class_03ce_epc_e7",
           "name_en": "Indicates on/off status of showcases with heater for hot function.",
-          "name_ja": "ホット用ヒーター動作状態 (ヒーターモード)"
+          "name_ja": "ホット用ヒーター動作状態 (ヒーターモード)",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10483,9 +11569,11 @@
             }
           ],
           "epc": 235,
+          "get": "optional",
           "id": "class_03ce_epc_eb",
           "name_en": "Indicates type of lighting installed inside the showcase.",
-          "name_ja": "庫内照明タイプ"
+          "name_ja": "庫内照明タイプ",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10515,38 +11603,46 @@
             }
           ],
           "epc": 236,
+          "get": "optional",
           "id": "class_03ce_epc_ec",
           "name_en": "Indicates type of lighting installed outside the showcase.",
-          "name_ja": "庫外照明タイプ"
+          "name_ja": "庫外照明タイプ",
+          "set": "notApplicable"
         },
         {
           "epc": 237,
           "format": "uint8",
+          "get": "optional",
           "id": "class_03ce_epc_ed",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Indicates lighting level in % installed inside of the showcase.",
           "name_ja": "庫内照明照度レベル設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 238,
           "format": "uint8",
+          "get": "optional",
           "id": "class_03ce_epc_ee",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Indicates lighting level in % installed outside of the showcase.",
           "name_ja": "庫外照明照度レベル設定",
+          "set": "optional",
           "unit": "%"
         },
         {
           "epc": 239,
           "format": "int8",
+          "get": "required",
           "id": "class_03ce_epc_ef",
           "maximum": 126.0,
           "minimum": -127.0,
           "name_en": "Set temperature setting of inside the case and acquire the current setting.",
           "name_ja": "庫内温度設定値",
+          "set": "required",
           "unit": "Celsius"
         }
       ],
@@ -10571,9 +11667,11 @@
             }
           ],
           "epc": 144,
+          "get": "optional",
           "id": "class_03d3_epc_90",
           "name_en": "On timer reservation setting",
-          "name_ja": "ONタイマ予約設定"
+          "name_ja": "ONタイマ予約設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10591,9 +11689,11 @@
             }
           ],
           "epc": 176,
+          "get": "optional",
           "id": "class_03d3_epc_b0",
           "name_en": "Door/cover open/close status",
-          "name_ja": "扉・蓋開閉状態"
+          "name_ja": "扉・蓋開閉状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -10617,9 +11717,11 @@
             }
           ],
           "epc": 178,
+          "get": "optional",
           "id": "class_03d3_epc_b2",
           "name_en": "Washer and dryer setting",
-          "name_ja": "洗濯・乾燥設定"
+          "name_ja": "洗濯・乾燥設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10913,9 +12015,11 @@
             }
           ],
           "epc": 208,
+          "get": "optional",
           "id": "class_03d3_epc_d0",
           "name_en": "Washer and dryer cycle setting 1",
-          "name_ja": "洗濯乾燥コース設定1"
+          "name_ja": "洗濯乾燥コース設定1",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -11023,9 +12127,11 @@
             }
           ],
           "epc": 209,
+          "get": "optional",
           "id": "class_03d3_epc_d1",
           "name_en": "Washer and dryer cycle setting 2",
-          "name_ja": "洗濯乾燥コース設定2"
+          "name_ja": "洗濯乾燥コース設定2",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -11127,9 +12233,11 @@
             }
           ],
           "epc": 210,
+          "get": "optional",
           "id": "class_03d3_epc_d2",
           "name_en": "Drying cycle setting",
-          "name_ja": "乾燥方法設定"
+          "name_ja": "乾燥方法設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -11333,18 +12441,22 @@
             }
           ],
           "epc": 214,
+          "get": "optional",
           "id": "class_03d3_epc_d6",
           "name_en": "Water flow rate setting",
-          "name_ja": "水流設定"
+          "name_ja": "水流設定",
+          "set": "optional"
         },
         {
           "epc": 215,
           "format": "uint16",
+          "get": "optional",
           "id": "class_03d3_epc_d7",
           "maximum": 4095.0,
           "minimum": 0.0,
           "name_en": "Rotation speed for spin drying setting",
           "name_ja": "脱水回転数設定値",
+          "set": "optional",
           "unit": "r/min"
         },
         {
@@ -11549,9 +12661,11 @@
             }
           ],
           "epc": 216,
+          "get": "optional",
           "id": "class_03d3_epc_d8",
           "name_en": "Degree of drying setting",
-          "name_ja": "乾燥度設定"
+          "name_ja": "乾燥度設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -11719,9 +12833,11 @@
             }
           ],
           "epc": 226,
+          "get": "optional",
           "id": "class_03d3_epc_e2",
           "name_en": "Current stage of washer and dryer cycle",
-          "name_ja": "洗濯乾燥遷移状態"
+          "name_ja": "洗濯乾燥遷移状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -12117,9 +13233,11 @@
             }
           ],
           "epc": 227,
+          "get": "optional",
           "id": "class_03d3_epc_e3",
           "name_en": "Water volume setting 1",
-          "name_ja": "水量設定1"
+          "name_ja": "水量設定1",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -12323,9 +13441,11 @@
             }
           ],
           "epc": 228,
+          "get": "optional",
           "id": "class_03d3_epc_e4",
           "name_en": "Water volume setting 2",
-          "name_ja": "水量設定2"
+          "name_ja": "水量設定2",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -12721,18 +13841,22 @@
             }
           ],
           "epc": 232,
+          "get": "optional",
           "id": "class_03d3_epc_e8",
           "name_en": "Spin drying time setting",
-          "name_ja": "脱水時間設定値"
+          "name_ja": "脱水時間設定値",
+          "set": "optional"
         },
         {
           "epc": 234,
           "format": "uint8",
+          "get": "optional",
           "id": "class_03d3_epc_ea",
           "maximum": 100.0,
           "minimum": 0.0,
           "name_en": "Warm water setting",
           "name_ja": "洗い温水設定値",
+          "set": "optional",
           "unit": "Celsius"
         },
         {
@@ -12775,9 +13899,11 @@
             }
           ],
           "epc": 235,
+          "get": "optional",
           "id": "class_03d3_epc_eb",
           "name_en": "Bathtub water recycle setting",
-          "name_ja": "風呂水設定"
+          "name_ja": "風呂水設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -12795,9 +13921,11 @@
             }
           ],
           "epc": 236,
+          "get": "optional",
           "id": "class_03d3_epc_ec",
           "name_en": "Wrinkling minimization setting",
-          "name_ja": "ソフトキープ設定"
+          "name_ja": "ソフトキープ設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -12815,9 +13943,11 @@
             }
           ],
           "epc": 238,
+          "get": "optional",
           "id": "class_03d3_epc_ee",
           "name_en": "Door/cover lock setting",
-          "name_ja": "運転中扉・蓋ロック設定"
+          "name_ja": "運転中扉・蓋ロック設定",
+          "set": "optional"
         }
       ],
       "name_en": "Washer and dryer",
@@ -12841,9 +13971,11 @@
             }
           ],
           "epc": 170,
+          "get": "optional",
           "id": "class_03d4_epc_aa",
           "name_en": "Indicates that the showcase freezer is in an exceptional status.",
-          "name_ja": "特殊状態"
+          "name_ja": "特殊状態",
+          "set": "notApplicable"
         },
         {
           "enum_values": [
@@ -12861,18 +13993,22 @@
             }
           ],
           "epc": 176,
+          "get": "required",
           "id": "class_03d4_epc_b0",
           "name_en": "Operation mode setting",
-          "name_ja": "運転モード設定"
+          "name_ja": "運転モード設定",
+          "set": "required"
         },
         {
           "epc": 190,
           "format": "int8",
+          "get": "optional",
           "id": "class_03d4_epc_be",
           "maximum": 125.0,
           "minimum": -127.0,
           "name_en": "Used to acquire measurements of outdoor air temperature.",
           "name_ja": "外気温度計測値",
+          "set": "notApplicable",
           "unit": "Celsius"
         },
         {
@@ -12891,9 +14027,11 @@
             }
           ],
           "epc": 226,
+          "get": "optional",
           "id": "class_03d4_epc_e2",
           "name_en": "Indicates compressor ON/OFF status.",
-          "name_ja": "コンプレッサ動作状態"
+          "name_ja": "コンプレッサ動作状態",
+          "set": "optional"
         }
       ],
       "name_en": "Commercial show case outdoor unit",
