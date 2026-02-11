@@ -250,9 +250,13 @@ def _build_entity_from_property(
     Output schema is platform-agnostic with MRA data only.
     HA integration infers platform and device_class from these fields.
     """
-    # Early return if property is not readable
-    if prop.get not in ("required", "required_c", "required_o", "optional"):
-        return None
+    # Properties must be readable or writable; neither is valid
+    is_readable = prop.get in ("required", "required_c", "required_o", "optional")
+    is_writable = prop.set in ("required", "required_c", "required_o", "optional")
+    assert is_readable or is_writable, (
+        f"Property for class 0x{class_code:04X} EPC 0x{prop.epc:02X} "
+        "is neither readable nor writable"
+    )
 
     # Determine entity type using inline conditions
     # Sensor: number type with unit

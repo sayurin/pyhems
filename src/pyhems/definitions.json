@@ -457,6 +457,22 @@
           "name_en": "Invasion occurrence status",
           "name_ja": "侵入発生状態",
           "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 191,
+          "get": "notApplicable",
+          "id": "class_0002_epc_bf",
+          "name_en": "Invasion occurrence status resetting",
+          "name_ja": "侵入発生状態リセット設定",
+          "set": "optional"
         }
       ],
       "name_en": "Crime prevention sensor",
@@ -717,6 +733,22 @@
           "name_en": "Emergency occurrence status",
           "name_ja": "非常発生状態",
           "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 191,
+          "get": "notApplicable",
+          "id": "class_0003_epc_bf",
+          "name_en": "Emergency occurrence status resetting",
+          "name_ja": "非常発生状態リセット設定",
+          "set": "optional"
         }
       ],
       "name_en": "Emergency button",
@@ -1730,6 +1762,22 @@
           "id": "class_0130_epc_cf",
           "name_en": "Air purification mode setting",
           "name_ja": "空気清浄モード設定",
+          "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "buzzer",
+              "name_en": "Buzzer sound generation",
+              "name_ja": "ブザー音発生"
+            }
+          ],
+          "epc": 208,
+          "get": "notApplicable",
+          "id": "class_0130_epc_d0",
+          "name_en": "Buzzer",
+          "name_ja": "ブザー",
           "set": "optional"
         }
       ],
@@ -6130,6 +6178,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 226,
+          "get": "notApplicable",
+          "id": "class_0279_epc_e2",
+          "name_en": "Resetting cumulative amount of electric energy generated",
+          "name_ja": "積算発電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 227,
           "format": "uint32",
           "get": "optional",
@@ -6141,6 +6205,22 @@
           "name_ja": "積算売電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 228,
+          "get": "notApplicable",
+          "id": "class_0279_epc_e4",
+          "name_en": "Resetting cumulative amount of electric energy sold",
+          "name_ja": "積算売電電力量リセット設定",
+          "set": "optional"
         },
         {
           "epc": 229,
@@ -6750,6 +6830,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 198,
+          "get": "notApplicable",
+          "id": "class_027c_epc_c6",
+          "name_en": "Cumulative energy generation output reset setting",
+          "name_ja": "積算発電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 199,
           "format": "uint16",
           "get": "optional",
@@ -6774,6 +6870,22 @@
           "name_ja": "積算ガス消費量計測値",
           "set": "notApplicable",
           "unit": "m3"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 201,
+          "get": "notApplicable",
+          "id": "class_027c_epc_c9",
+          "name_en": "Cumulative gas consumption reset setting",
+          "name_ja": "積算ガス消費量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -6861,6 +6973,22 @@
           "name_ja": "宅内積算消費電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 206,
+          "get": "notApplicable",
+          "id": "class_027c_epc_ce",
+          "name_en": "In-house cumulative energy consumption reset",
+          "name_ja": "宅内積算消費電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -7398,6 +7526,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 215,
+          "get": "notApplicable",
+          "id": "class_027d_epc_d7",
+          "name_en": "Measured cumulative discharging electric energy reset setting",
+          "name_ja": "積算放電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 216,
           "format": "uint32",
           "get": "optional",
@@ -7409,6 +7553,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_027d_epc_d9",
+          "name_en": "Measured cumulative charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -7985,6 +8145,22 @@
           "set": "notApplicable"
         },
         {
+          "enum_values": [
+            {
+              "edt": 16,
+              "key": "confirmation",
+              "name_en": "Connection confirmation",
+              "name_ja": "接続確認"
+            }
+          ],
+          "epc": 205,
+          "get": "notApplicable",
+          "id": "class_027e_epc_cd",
+          "name_en": "Vehicle connection confirmation",
+          "name_ja": "車両接続確認",
+          "set": "required"
+        },
+        {
           "epc": 206,
           "format": "uint32",
           "get": "required",
@@ -8096,6 +8272,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 215,
+          "get": "notApplicable",
+          "id": "class_027e_epc_d7",
+          "name_en": "Cumulative amount of discharging electric energy reset setting",
+          "name_ja": "積算放電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 216,
           "format": "uint32",
           "get": "optional",
@@ -8107,6 +8299,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_027e_epc_d9",
+          "name_en": "Cumulative amount of charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9542,6 +9750,22 @@
           "set": "notApplicable"
         },
         {
+          "enum_values": [
+            {
+              "edt": 16,
+              "key": "connection",
+              "name_en": "Connection confirmation",
+              "name_ja": "接続確認"
+            }
+          ],
+          "epc": 205,
+          "get": "notApplicable",
+          "id": "class_02a1_epc_cd",
+          "name_en": "Vehicle connection confirmation",
+          "name_ja": "車両接続確認",
+          "set": "required"
+        },
+        {
           "epc": 206,
           "format": "uint32",
           "get": "required",
@@ -9613,6 +9837,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_02a1_epc_d9",
+          "name_en": "Cumulative amount of charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -10808,6 +11048,22 @@
           "name_en": "Radiant heater lock setting",
           "name_ja": "ラジエントヒータロック設定",
           "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 64,
+              "key": "allStop",
+              "name_en": "Stop the heating on all of the left stove, right stove, far-side stove and roaster.",
+              "name_ja": "一括加熱停止"
+            }
+          ],
+          "epc": 179,
+          "get": "notApplicable",
+          "id": "class_03b9_epc_b3",
+          "name_en": "All stop setting",
+          "name_ja": "一括停止設定",
+          "set": "required_o"
         }
       ],
       "name_en": "Cooking heater",
