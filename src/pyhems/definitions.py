@@ -153,6 +153,10 @@ class EntityDefinition:
         epc: ECHONET Lite Property Code
         name_en: English name
         name_ja: Japanese name
+        get: Access rule for GET (one of "required", "required_c", "required_o",
+          "optional", or "notApplicable")
+        set: Access rule for SET (one of "required", "required_c", "required_o",
+          "optional", or "notApplicable")
         format: MRA format string for numeric values ("uint8", "int16", etc.)
         unit: MRA unit of measurement ("W", "Celsius", "%RH", etc.)
         minimum: MRA minimum valid value (before scale)
@@ -167,6 +171,8 @@ class EntityDefinition:
     epc: int
     name_en: str
     name_ja: str
+    get: str
+    set: str
     format: str | None = None
     unit: str | None = None
     minimum: float | None = None
@@ -333,6 +339,8 @@ def _parse_entity(entity_data: dict[str, Any]) -> EntityDefinition:
         epc=epc,
         name_en=entity_data["name_en"],
         name_ja=entity_data["name_ja"],
+        get=entity_data["get"],
+        set=entity_data["set"],
         format=mra_format,
         unit=unit,
         minimum=minimum,

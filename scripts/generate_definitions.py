@@ -65,7 +65,8 @@ class MRAProperty(BaseModel):
     epc: int
     name_en: str
     name_ja: str
-    get: bool
+    get: str
+    set: str
     data_type: str | None
     mra_format: str | None  # e.g., "uint16", "int8"
     mra_unit: str | None  # e.g., "W", "Wh", "Celsius"
@@ -126,7 +127,7 @@ def _parse_mra_property(
     # Parse access rules
     access = prop_data["accessRule"]
     get_val = access["get"]
-    get_access = get_val in ("required", "required_c", "optional")
+    set_val = access["set"]
 
     # Parse data specification
     data_spec = prop_data["data"]
@@ -219,7 +220,8 @@ def _parse_mra_property(
         epc=epc,
         name_en=name_en,
         name_ja=name_ja,
-        get=get_access,
+        get=get_val,
+        set=set_val,
         data_type=data_type,
         mra_format=mra_format,
         mra_unit=mra_unit,
@@ -245,7 +247,7 @@ def _build_entity_from_property(
     HA integration infers platform and device_class from these fields.
     """
     # Early return if property is not readable
-    if not prop.get:
+    if prop.get not in ("required", "required_c", "required_o", "optional"):
         return None
 
     # Determine entity type using inline conditions
@@ -276,6 +278,9 @@ def _build_entity_from_property(
         "epc": prop.epc,
         "name_en": name_en,
         "name_ja": prop.name_ja,
+        # preserve original access values
+        "get": prop.get,
+        "set": prop.set,
     }
 
     # Add sensor-specific MRA fields
@@ -302,6 +307,10 @@ def _build_entity_from_property(
             ]
         if filtered_enums:
             entity["enum_values"] = [ev.model_dump() for ev in filtered_enums]
+
+    # Ensure original access strings are always present
+    entity.setdefault("get", prop.get)
+    entity.setdefault("set", prop.set)
 
     return entity
 
@@ -501,6 +510,9 @@ def _build_custom_entity(
         "epc": epc,
         "name_en": entity.get("name_en", ""),
         "name_ja": entity.get("name_ja", ""),
+        # preserve access info if provided, else default to notApplicable
+        "get": entity.get("get", "notApplicable"),
+        "set": entity.get("set", "notApplicable"),
     }
 
     # State entity: enum_values takes precedence
