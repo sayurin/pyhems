@@ -107,5 +107,13 @@ def test_sample_entities_have_expected_get_set() -> None:
                     break
 
 
+def test_load_definitions_registry_succeeds() -> None:
+    """Loading the registry validates all entities via asserts."""
+    from pyhems.definitions import load_definitions_registry
+
+    registry = load_definitions_registry()
+    assert registry.entities
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
