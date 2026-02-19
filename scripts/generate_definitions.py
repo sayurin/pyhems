@@ -74,6 +74,7 @@ class MRAProperty(BaseModel):
     mra_maximum: float | None
     mra_multiple_of: float | None  # scale factor, e.g., 0.1 for tenths
     enum_values: list[EnumValue]
+    has_level_enums: bool = False  # True if any level type was processed
 
 
 # ============================================================================
@@ -174,6 +175,7 @@ def _parse_mra_property(
 
     # Parse enum values from all specs
     enum_values: list[EnumValue] = []
+    has_level_enums = False
 
     for spec in resolved_specs:
         spec_type = spec.get("type")
@@ -197,6 +199,7 @@ def _parse_mra_property(
                     )
                 )
             data_type = "state"
+            has_level_enums = True
 
         # Handle state type with enum
         elif spec_type == "state":
@@ -229,6 +232,7 @@ def _parse_mra_property(
         mra_maximum=mra_maximum,
         mra_multiple_of=mra_multiple_of,
         enum_values=enum_values,
+        has_level_enums=has_level_enums,
     )
 
 
@@ -246,9 +250,13 @@ def _build_entity_from_property(
     Output schema is platform-agnostic with MRA data only.
     HA integration infers platform and device_class from these fields.
     """
-    # Early return if property is not readable
-    if prop.get not in ("required", "required_c", "required_o", "optional"):
-        return None
+    # Properties must be readable or writable; neither is valid
+    is_readable = prop.get in ("required", "required_c", "required_o", "optional")
+    is_writable = prop.set in ("required", "required_c", "required_o", "optional")
+    assert is_readable or is_writable, (
+        f"Property for class 0x{class_code:04X} EPC 0x{prop.epc:02X} "
+        "is neither readable nor writable"
+    )
 
     # Determine entity type using inline conditions
     # Sensor: number type with unit
@@ -257,6 +265,11 @@ def _build_entity_from_property(
     is_state = prop.data_type == "state"
 
     if not is_sensor and not is_state:
+        return None
+
+    # Filter out level-based properties with too many enum values (>16)
+    # Pure state enums (e.g., washing machine courses) are kept regardless of count
+    if is_state and prop.has_level_enums and len(prop.enum_values) > 16:
         return None
 
     name_en = prop.name_en

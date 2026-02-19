@@ -457,6 +457,22 @@
           "name_en": "Invasion occurrence status",
           "name_ja": "侵入発生状態",
           "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 191,
+          "get": "notApplicable",
+          "id": "class_0002_epc_bf",
+          "name_en": "Invasion occurrence status resetting",
+          "name_ja": "侵入発生状態リセット設定",
+          "set": "optional"
         }
       ],
       "name_en": "Crime prevention sensor",
@@ -717,6 +733,22 @@
           "name_en": "Emergency occurrence status",
           "name_ja": "非常発生状態",
           "set": "notApplicable"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 191,
+          "get": "notApplicable",
+          "id": "class_0003_epc_bf",
+          "name_en": "Emergency occurrence status resetting",
+          "name_ja": "非常発生状態リセット設定",
+          "set": "optional"
         }
       ],
       "name_en": "Emergency button",
@@ -1731,6 +1763,22 @@
           "name_en": "Air purification mode setting",
           "name_ja": "空気清浄モード設定",
           "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 65,
+              "key": "buzzer",
+              "name_en": "Buzzer sound generation",
+              "name_ja": "ブザー音発生"
+            }
+          ],
+          "epc": 208,
+          "get": "notApplicable",
+          "id": "class_0130_epc_d0",
+          "name_en": "Buzzer",
+          "name_ja": "ブザー",
+          "set": "optional"
         }
       ],
       "name_en": "Home air conditioner",
@@ -2419,7 +2467,7 @@
           "byte_offset": 3,
           "epc": 241,
           "format": "int8",
-          "get": "notApplicable",
+          "get": "optional",
           "id": "class_0135_custom_000005_epc_f1_1",
           "manufacturer_code": 5,
           "maximum": 125,
@@ -2433,7 +2481,7 @@
           "byte_offset": 4,
           "epc": 241,
           "format": "uint8",
-          "get": "notApplicable",
+          "get": "optional",
           "id": "class_0135_custom_000005_epc_f1_2",
           "manufacturer_code": 5,
           "maximum": 100,
@@ -2447,7 +2495,7 @@
           "byte_offset": 28,
           "epc": 241,
           "format": "uint8",
-          "get": "notApplicable",
+          "get": "optional",
           "id": "class_0135_custom_000005_epc_f1_3",
           "manufacturer_code": 5,
           "maximum": 255,
@@ -6130,6 +6178,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 226,
+          "get": "notApplicable",
+          "id": "class_0279_epc_e2",
+          "name_en": "Resetting cumulative amount of electric energy generated",
+          "name_ja": "積算発電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 227,
           "format": "uint32",
           "get": "optional",
@@ -6141,6 +6205,22 @@
           "name_ja": "積算売電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 228,
+          "get": "notApplicable",
+          "id": "class_0279_epc_e4",
+          "name_en": "Resetting cumulative amount of electric energy sold",
+          "name_ja": "積算売電電力量リセット設定",
+          "set": "optional"
         },
         {
           "epc": 229,
@@ -6285,202 +6365,6 @@
           "name_ja": "水温設定1",
           "set": "required_c",
           "unit": "Celsius"
-        },
-        {
-          "enum_values": [
-            {
-              "edt": 33,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 34,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 35,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 36,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 37,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 38,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 39,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 40,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 41,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 42,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 43,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 44,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 45,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 46,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 47,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 49,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 50,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 51,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 52,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 53,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 54,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 55,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 56,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 57,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 58,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 59,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 60,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 61,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 62,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 63,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 65,
-              "key": "auto",
-              "name_en": "Auto",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 226,
-          "get": "required_c",
-          "id": "class_027a_epc_e2",
-          "name_en": "Water temperature setting 2",
-          "name_ja": "水温設定2",
-          "set": "required_c"
         },
         {
           "epc": 227,
@@ -6946,6 +6830,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 198,
+          "get": "notApplicable",
+          "id": "class_027c_epc_c6",
+          "name_en": "Cumulative energy generation output reset setting",
+          "name_ja": "積算発電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 199,
           "format": "uint16",
           "get": "optional",
@@ -6970,6 +6870,22 @@
           "name_ja": "積算ガス消費量計測値",
           "set": "notApplicable",
           "unit": "m3"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 201,
+          "get": "notApplicable",
+          "id": "class_027c_epc_c9",
+          "name_en": "Cumulative gas consumption reset setting",
+          "name_ja": "積算ガス消費量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -7057,6 +6973,22 @@
           "name_ja": "宅内積算消費電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 206,
+          "get": "notApplicable",
+          "id": "class_027c_epc_ce",
+          "name_en": "In-house cumulative energy consumption reset",
+          "name_ja": "宅内積算消費電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -7594,6 +7526,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 215,
+          "get": "notApplicable",
+          "id": "class_027d_epc_d7",
+          "name_en": "Measured cumulative discharging electric energy reset setting",
+          "name_ja": "積算放電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 216,
           "format": "uint32",
           "get": "optional",
@@ -7605,6 +7553,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_027d_epc_d9",
+          "name_en": "Measured cumulative charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -8181,6 +8145,22 @@
           "set": "notApplicable"
         },
         {
+          "enum_values": [
+            {
+              "edt": 16,
+              "key": "confirmation",
+              "name_en": "Connection confirmation",
+              "name_ja": "接続確認"
+            }
+          ],
+          "epc": 205,
+          "get": "notApplicable",
+          "id": "class_027e_epc_cd",
+          "name_en": "Vehicle connection confirmation",
+          "name_ja": "車両接続確認",
+          "set": "required"
+        },
+        {
           "epc": 206,
           "format": "uint32",
           "get": "required",
@@ -8292,6 +8272,22 @@
           "unit": "kWh"
         },
         {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 215,
+          "get": "notApplicable",
+          "id": "class_027e_epc_d7",
+          "name_en": "Cumulative amount of discharging electric energy reset setting",
+          "name_ja": "積算放電電力量リセット設定",
+          "set": "optional"
+        },
+        {
           "epc": 216,
           "format": "uint32",
           "get": "optional",
@@ -8303,6 +8299,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_027e_epc_d9",
+          "name_en": "Cumulative amount of charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -9738,6 +9750,22 @@
           "set": "notApplicable"
         },
         {
+          "enum_values": [
+            {
+              "edt": 16,
+              "key": "connection",
+              "name_en": "Connection confirmation",
+              "name_ja": "接続確認"
+            }
+          ],
+          "epc": 205,
+          "get": "notApplicable",
+          "id": "class_02a1_epc_cd",
+          "name_en": "Vehicle connection confirmation",
+          "name_ja": "車両接続確認",
+          "set": "required"
+        },
+        {
           "epc": 206,
           "format": "uint32",
           "get": "required",
@@ -9809,6 +9837,22 @@
           "name_ja": "積算充電電力量計測値",
           "set": "notApplicable",
           "unit": "kWh"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 0,
+              "key": "reset",
+              "name_en": "Reset",
+              "name_ja": "リセット"
+            }
+          ],
+          "epc": 217,
+          "get": "notApplicable",
+          "id": "class_02a1_epc_d9",
+          "name_en": "Cumulative amount of charging electric energy reset setting",
+          "name_ja": "積算充電電力量リセット設定",
+          "set": "optional"
         },
         {
           "enum_values": [
@@ -11004,6 +11048,22 @@
           "name_en": "Radiant heater lock setting",
           "name_ja": "ラジエントヒータロック設定",
           "set": "optional"
+        },
+        {
+          "enum_values": [
+            {
+              "edt": 64,
+              "key": "allStop",
+              "name_en": "Stop the heating on all of the left stove, right stove, far-side stove and roaster.",
+              "name_ja": "一括加熱停止"
+            }
+          ],
+          "epc": 179,
+          "get": "notApplicable",
+          "id": "class_03b9_epc_b3",
+          "name_en": "All stop setting",
+          "name_ja": "一括停止設定",
+          "set": "required_o"
         }
       ],
       "name_en": "Cooking heater",
@@ -12240,214 +12300,6 @@
           "set": "optional"
         },
         {
-          "enum_values": [
-            {
-              "edt": 49,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 50,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 51,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 52,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 53,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 54,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 55,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 56,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 57,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 58,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 59,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 60,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 61,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 62,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 63,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 64,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 160,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 161,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 162,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 163,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 164,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 165,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 166,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 167,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 192,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 193,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 194,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 195,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 196,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 197,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 198,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 199,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 255,
-              "key": "auto",
-              "name_en": "Automatic",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 214,
-          "get": "optional",
-          "id": "class_03d3_epc_d6",
-          "name_en": "Water flow rate setting",
-          "name_ja": "水流設定",
-          "set": "optional"
-        },
-        {
           "epc": 215,
           "format": "uint16",
           "get": "optional",
@@ -12458,214 +12310,6 @@
           "name_ja": "脱水回転数設定値",
           "set": "optional",
           "unit": "r/min"
-        },
-        {
-          "enum_values": [
-            {
-              "edt": 49,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 50,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 51,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 52,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 53,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 54,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 55,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 56,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 57,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 58,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 59,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 60,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 61,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 62,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 63,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 64,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 160,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 161,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 162,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 163,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 164,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 165,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 166,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 167,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 192,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 193,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 194,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 195,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 196,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 197,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 198,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 199,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 255,
-              "key": "auto",
-              "name_en": "Automatic",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 216,
-          "get": "optional",
-          "id": "class_03d3_epc_d8",
-          "name_en": "Degree of drying setting",
-          "name_ja": "乾燥度設定",
-          "set": "optional"
         },
         {
           "enum_values": [
@@ -12838,1014 +12482,6 @@
           "name_en": "Current stage of washer and dryer cycle",
           "name_ja": "洗濯乾燥遷移状態",
           "set": "notApplicable"
-        },
-        {
-          "enum_values": [
-            {
-              "edt": 160,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 161,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 162,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 163,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 164,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 165,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 166,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 167,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 168,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 169,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 170,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 171,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 172,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 173,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 174,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 175,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 176,
-              "key": "level_17",
-              "name_en": "Level 17",
-              "name_ja": "レベル17"
-            },
-            {
-              "edt": 177,
-              "key": "level_18",
-              "name_en": "Level 18",
-              "name_ja": "レベル18"
-            },
-            {
-              "edt": 178,
-              "key": "level_19",
-              "name_en": "Level 19",
-              "name_ja": "レベル19"
-            },
-            {
-              "edt": 179,
-              "key": "level_20",
-              "name_en": "Level 20",
-              "name_ja": "レベル20"
-            },
-            {
-              "edt": 180,
-              "key": "level_21",
-              "name_en": "Level 21",
-              "name_ja": "レベル21"
-            },
-            {
-              "edt": 181,
-              "key": "level_22",
-              "name_en": "Level 22",
-              "name_ja": "レベル22"
-            },
-            {
-              "edt": 182,
-              "key": "level_23",
-              "name_en": "Level 23",
-              "name_ja": "レベル23"
-            },
-            {
-              "edt": 183,
-              "key": "level_24",
-              "name_en": "Level 24",
-              "name_ja": "レベル24"
-            },
-            {
-              "edt": 184,
-              "key": "level_25",
-              "name_en": "Level 25",
-              "name_ja": "レベル25"
-            },
-            {
-              "edt": 185,
-              "key": "level_26",
-              "name_en": "Level 26",
-              "name_ja": "レベル26"
-            },
-            {
-              "edt": 186,
-              "key": "level_27",
-              "name_en": "Level 27",
-              "name_ja": "レベル27"
-            },
-            {
-              "edt": 187,
-              "key": "level_28",
-              "name_en": "Level 28",
-              "name_ja": "レベル28"
-            },
-            {
-              "edt": 188,
-              "key": "level_29",
-              "name_en": "Level 29",
-              "name_ja": "レベル29"
-            },
-            {
-              "edt": 189,
-              "key": "level_30",
-              "name_en": "Level 30",
-              "name_ja": "レベル30"
-            },
-            {
-              "edt": 190,
-              "key": "level_31",
-              "name_en": "Level 31",
-              "name_ja": "レベル31"
-            },
-            {
-              "edt": 191,
-              "key": "level_32",
-              "name_en": "Level 32",
-              "name_ja": "レベル32"
-            },
-            {
-              "edt": 192,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 193,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 194,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 195,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 196,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 197,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 198,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 199,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 200,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 201,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 202,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 203,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 204,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 205,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 206,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 207,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 208,
-              "key": "level_17",
-              "name_en": "Level 17",
-              "name_ja": "レベル17"
-            },
-            {
-              "edt": 209,
-              "key": "level_18",
-              "name_en": "Level 18",
-              "name_ja": "レベル18"
-            },
-            {
-              "edt": 210,
-              "key": "level_19",
-              "name_en": "Level 19",
-              "name_ja": "レベル19"
-            },
-            {
-              "edt": 211,
-              "key": "level_20",
-              "name_en": "Level 20",
-              "name_ja": "レベル20"
-            },
-            {
-              "edt": 212,
-              "key": "level_21",
-              "name_en": "Level 21",
-              "name_ja": "レベル21"
-            },
-            {
-              "edt": 213,
-              "key": "level_22",
-              "name_en": "Level 22",
-              "name_ja": "レベル22"
-            },
-            {
-              "edt": 214,
-              "key": "level_23",
-              "name_en": "Level 23",
-              "name_ja": "レベル23"
-            },
-            {
-              "edt": 215,
-              "key": "level_24",
-              "name_en": "Level 24",
-              "name_ja": "レベル24"
-            },
-            {
-              "edt": 216,
-              "key": "level_25",
-              "name_en": "Level 25",
-              "name_ja": "レベル25"
-            },
-            {
-              "edt": 217,
-              "key": "level_26",
-              "name_en": "Level 26",
-              "name_ja": "レベル26"
-            },
-            {
-              "edt": 218,
-              "key": "level_27",
-              "name_en": "Level 27",
-              "name_ja": "レベル27"
-            },
-            {
-              "edt": 219,
-              "key": "level_28",
-              "name_en": "Level 28",
-              "name_ja": "レベル28"
-            },
-            {
-              "edt": 220,
-              "key": "level_29",
-              "name_en": "Level 29",
-              "name_ja": "レベル29"
-            },
-            {
-              "edt": 221,
-              "key": "level_30",
-              "name_en": "Level 30",
-              "name_ja": "レベル30"
-            },
-            {
-              "edt": 222,
-              "key": "level_31",
-              "name_en": "Level 31",
-              "name_ja": "レベル31"
-            },
-            {
-              "edt": 223,
-              "key": "level_32",
-              "name_en": "Level 32",
-              "name_ja": "レベル32"
-            },
-            {
-              "edt": 255,
-              "key": "auto",
-              "name_en": "Automatic",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 227,
-          "get": "optional",
-          "id": "class_03d3_epc_e3",
-          "name_en": "Water volume setting 1",
-          "name_ja": "水量設定1",
-          "set": "optional"
-        },
-        {
-          "enum_values": [
-            {
-              "edt": 49,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 50,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 51,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 52,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 53,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 54,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 55,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 56,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 57,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 58,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 59,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 60,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 61,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 62,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 63,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 64,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 160,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 161,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 162,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 163,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 164,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 165,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 166,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 167,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 192,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 193,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 194,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 195,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 196,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 197,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 198,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 199,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 255,
-              "key": "auto",
-              "name_en": "Automatic",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 228,
-          "get": "optional",
-          "id": "class_03d3_epc_e4",
-          "name_en": "Water volume setting 2",
-          "name_ja": "水量設定2",
-          "set": "optional"
-        },
-        {
-          "enum_values": [
-            {
-              "edt": 160,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 161,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 162,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 163,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 164,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 165,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 166,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 167,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 168,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 169,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 170,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 171,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 172,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 173,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 174,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 175,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 176,
-              "key": "level_17",
-              "name_en": "Level 17",
-              "name_ja": "レベル17"
-            },
-            {
-              "edt": 177,
-              "key": "level_18",
-              "name_en": "Level 18",
-              "name_ja": "レベル18"
-            },
-            {
-              "edt": 178,
-              "key": "level_19",
-              "name_en": "Level 19",
-              "name_ja": "レベル19"
-            },
-            {
-              "edt": 179,
-              "key": "level_20",
-              "name_en": "Level 20",
-              "name_ja": "レベル20"
-            },
-            {
-              "edt": 180,
-              "key": "level_21",
-              "name_en": "Level 21",
-              "name_ja": "レベル21"
-            },
-            {
-              "edt": 181,
-              "key": "level_22",
-              "name_en": "Level 22",
-              "name_ja": "レベル22"
-            },
-            {
-              "edt": 182,
-              "key": "level_23",
-              "name_en": "Level 23",
-              "name_ja": "レベル23"
-            },
-            {
-              "edt": 183,
-              "key": "level_24",
-              "name_en": "Level 24",
-              "name_ja": "レベル24"
-            },
-            {
-              "edt": 184,
-              "key": "level_25",
-              "name_en": "Level 25",
-              "name_ja": "レベル25"
-            },
-            {
-              "edt": 185,
-              "key": "level_26",
-              "name_en": "Level 26",
-              "name_ja": "レベル26"
-            },
-            {
-              "edt": 186,
-              "key": "level_27",
-              "name_en": "Level 27",
-              "name_ja": "レベル27"
-            },
-            {
-              "edt": 187,
-              "key": "level_28",
-              "name_en": "Level 28",
-              "name_ja": "レベル28"
-            },
-            {
-              "edt": 188,
-              "key": "level_29",
-              "name_en": "Level 29",
-              "name_ja": "レベル29"
-            },
-            {
-              "edt": 189,
-              "key": "level_30",
-              "name_en": "Level 30",
-              "name_ja": "レベル30"
-            },
-            {
-              "edt": 190,
-              "key": "level_31",
-              "name_en": "Level 31",
-              "name_ja": "レベル31"
-            },
-            {
-              "edt": 191,
-              "key": "level_32",
-              "name_en": "Level 32",
-              "name_ja": "レベル32"
-            },
-            {
-              "edt": 192,
-              "key": "level_1",
-              "name_en": "Level 1",
-              "name_ja": "レベル1"
-            },
-            {
-              "edt": 193,
-              "key": "level_2",
-              "name_en": "Level 2",
-              "name_ja": "レベル2"
-            },
-            {
-              "edt": 194,
-              "key": "level_3",
-              "name_en": "Level 3",
-              "name_ja": "レベル3"
-            },
-            {
-              "edt": 195,
-              "key": "level_4",
-              "name_en": "Level 4",
-              "name_ja": "レベル4"
-            },
-            {
-              "edt": 196,
-              "key": "level_5",
-              "name_en": "Level 5",
-              "name_ja": "レベル5"
-            },
-            {
-              "edt": 197,
-              "key": "level_6",
-              "name_en": "Level 6",
-              "name_ja": "レベル6"
-            },
-            {
-              "edt": 198,
-              "key": "level_7",
-              "name_en": "Level 7",
-              "name_ja": "レベル7"
-            },
-            {
-              "edt": 199,
-              "key": "level_8",
-              "name_en": "Level 8",
-              "name_ja": "レベル8"
-            },
-            {
-              "edt": 200,
-              "key": "level_9",
-              "name_en": "Level 9",
-              "name_ja": "レベル9"
-            },
-            {
-              "edt": 201,
-              "key": "level_10",
-              "name_en": "Level 10",
-              "name_ja": "レベル10"
-            },
-            {
-              "edt": 202,
-              "key": "level_11",
-              "name_en": "Level 11",
-              "name_ja": "レベル11"
-            },
-            {
-              "edt": 203,
-              "key": "level_12",
-              "name_en": "Level 12",
-              "name_ja": "レベル12"
-            },
-            {
-              "edt": 204,
-              "key": "level_13",
-              "name_en": "Level 13",
-              "name_ja": "レベル13"
-            },
-            {
-              "edt": 205,
-              "key": "level_14",
-              "name_en": "Level 14",
-              "name_ja": "レベル14"
-            },
-            {
-              "edt": 206,
-              "key": "level_15",
-              "name_en": "Level 15",
-              "name_ja": "レベル15"
-            },
-            {
-              "edt": 207,
-              "key": "level_16",
-              "name_en": "Level 16",
-              "name_ja": "レベル16"
-            },
-            {
-              "edt": 208,
-              "key": "level_17",
-              "name_en": "Level 17",
-              "name_ja": "レベル17"
-            },
-            {
-              "edt": 209,
-              "key": "level_18",
-              "name_en": "Level 18",
-              "name_ja": "レベル18"
-            },
-            {
-              "edt": 210,
-              "key": "level_19",
-              "name_en": "Level 19",
-              "name_ja": "レベル19"
-            },
-            {
-              "edt": 211,
-              "key": "level_20",
-              "name_en": "Level 20",
-              "name_ja": "レベル20"
-            },
-            {
-              "edt": 212,
-              "key": "level_21",
-              "name_en": "Level 21",
-              "name_ja": "レベル21"
-            },
-            {
-              "edt": 213,
-              "key": "level_22",
-              "name_en": "Level 22",
-              "name_ja": "レベル22"
-            },
-            {
-              "edt": 214,
-              "key": "level_23",
-              "name_en": "Level 23",
-              "name_ja": "レベル23"
-            },
-            {
-              "edt": 215,
-              "key": "level_24",
-              "name_en": "Level 24",
-              "name_ja": "レベル24"
-            },
-            {
-              "edt": 216,
-              "key": "level_25",
-              "name_en": "Level 25",
-              "name_ja": "レベル25"
-            },
-            {
-              "edt": 217,
-              "key": "level_26",
-              "name_en": "Level 26",
-              "name_ja": "レベル26"
-            },
-            {
-              "edt": 218,
-              "key": "level_27",
-              "name_en": "Level 27",
-              "name_ja": "レベル27"
-            },
-            {
-              "edt": 219,
-              "key": "level_28",
-              "name_en": "Level 28",
-              "name_ja": "レベル28"
-            },
-            {
-              "edt": 220,
-              "key": "level_29",
-              "name_en": "Level 29",
-              "name_ja": "レベル29"
-            },
-            {
-              "edt": 221,
-              "key": "level_30",
-              "name_en": "Level 30",
-              "name_ja": "レベル30"
-            },
-            {
-              "edt": 222,
-              "key": "level_31",
-              "name_en": "Level 31",
-              "name_ja": "レベル31"
-            },
-            {
-              "edt": 223,
-              "key": "level_32",
-              "name_en": "Level 32",
-              "name_ja": "レベル32"
-            },
-            {
-              "edt": 255,
-              "key": "auto",
-              "name_en": "Automatic",
-              "name_ja": "自動"
-            }
-          ],
-          "epc": 232,
-          "get": "optional",
-          "id": "class_03d3_epc_e8",
-          "name_en": "Spin drying time setting",
-          "name_ja": "脱水時間設定値",
-          "set": "optional"
         },
         {
           "epc": 234,

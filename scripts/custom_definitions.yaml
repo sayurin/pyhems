@@ -52,6 +52,7 @@ devices:
             unit: Celsius
             minimum: -127
             maximum: 125
+            get: optional
             name_en: "Temperature"
             name_ja: "温度"
           - epc: 0xF1
@@ -60,6 +61,7 @@ devices:
             unit: "%RH"
             minimum: 0
             maximum: 100
+            get: optional
             name_en: "Humidity"
             name_ja: "湿度"
           - epc: 0xF1
@@ -68,5 +70,6 @@ devices:
             unit: "µg/m³"
             minimum: 0
             maximum: 255
+            get: optional
             name_en: "PM2.5"
             name_ja: "PM2.5"

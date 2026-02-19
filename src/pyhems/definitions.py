@@ -389,35 +389,33 @@ def _load_devices(
     return devices
 
 
-def _validate_entity(entity: EntityDefinition, class_code: int) -> bool:
+def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
     """Validate that an entity definition is complete.
 
     Args:
         entity: Entity definition to validate.
         class_code: Device class code for logging.
 
-    Returns:
-        True if valid, False otherwise.
+    Raises:
+        AssertionError: If the entity definition is invalid.
     """
-    # Sensor entities (no enum_values) need format
-    if not entity.enum_values and not entity.format:
-        _LOGGER.warning(
-            "Entity EPC 0x%02X for class 0x%04X missing format",
-            entity.epc,
-            class_code,
-        )
-        return False
+    # Must have format or enum_values (or both)
+    assert entity.enum_values or entity.format, (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
+    )
 
-    # Binary entities (2 enum_values) need at least 2 values
-    if entity.enum_values and len(entity.enum_values) == 1:
-        _LOGGER.warning(
-            "Entity EPC 0x%02X for class 0x%04X has only 1 enum_value",
-            entity.epc,
-            class_code,
-        )
-        return False
-
-    return True
+    # Enum-only entities with 1 value are only valid as:
+    # - write-only buttons (get == notApplicable)
+    # - hybrid entities with format (numeric primary, enum as special value)
+    assert (
+        not entity.enum_values
+        or len(entity.enum_values) != 1
+        or entity.get == "notApplicable"
+        or entity.format is not None
+    ), (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
+        " has only 1 enum_value"
+    )
 
 
 def _build_entities(
@@ -431,10 +429,10 @@ def _build_entities(
     Returns:
         Mapping of class_code to tuples of EntityDefinition.
     """
-    return {
-        cc: tuple(entity for entity in device.entities if _validate_entity(entity, cc))
-        for cc, device in devices.items()
-    }
+    for cc, device in devices.items():
+        for entity in device.entities:
+            _validate_entity(entity, cc)
+    return {cc: device.entities for cc, device in devices.items()}
 
 
 def load_definitions_registry(
