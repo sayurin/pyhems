@@ -117,6 +117,44 @@ class TestHemsClient:
         unknown = "fe00000000000000000000000000000002"
         assert client._device_addresses.inverse.get(unknown) is None
 
+    @pytest.mark.asyncio
+    async def test_async_set_property_sends_setc_frame(self) -> None:
+        """Test set_property builds and sends a SetC frame."""
+        original_tid = Frame._tid_counter
+        client = HemsClient()
+        mock_protocol = MagicMock()
+        client._protocol = mock_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.100", node_id)
+
+        sent = await client.set_property(
+            node_id=node_id,
+            deoj=EOJ(0x013001),
+            epc=0x80,
+            edt=b"\x30",
+        )
+
+        assert sent is True
+        mock_protocol.send.assert_called_once()
+        payload, address = mock_protocol.send.call_args.args
+        assert address == "192.168.1.100"
+        frame = Frame.decode(payload)
+        assert frame.esv == 0x61
+        assert frame.deoj == EOJ(0x013001)
+        assert frame.properties == [Property(epc=0x80, edt=b"\x30")]
+        Frame._tid_counter = original_tid
+
+    @pytest.mark.asyncio
+    async def test_async_set_properties_without_properties_returns_false(self) -> None:
+        """Test set_properties returns False when nothing is requested."""
+        client = HemsClient()
+        result = await client.set_properties(
+            node_id="fe00000000000000000000000000000001",
+            deoj=EOJ(0x013001),
+            properties=[],
+        )
+        assert result is False
+
 
 class TestNodeProbe:
     """Tests for node probe functionality."""
@@ -145,7 +183,7 @@ class TestNodeProbe:
     async def test_async_probe_nodes_not_running(self) -> None:
         """Test probe fails when not running."""
         client = HemsClient()
-        result = await client.async_probe_nodes()
+        result = await client.probe_nodes()
         assert result is False
 
     @pytest.mark.asyncio
@@ -157,7 +195,7 @@ class TestNodeProbe:
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
 
-        result = await client.async_probe_nodes()
+        result = await client.probe_nodes()
         assert result is True
 
         # Verify send was called
@@ -190,7 +228,7 @@ class TestNodeProbe:
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
 
-        result = await client.async_probe_nodes()
+        result = await client.probe_nodes()
         assert result is True
 
         # Verify send was called
@@ -391,7 +429,7 @@ class TestNodeProbe:
 
 
 class TestAsyncGet:
-    """Tests for async_get method with retry support."""
+    """Tests for get method with retry support."""
 
     @staticmethod
     def _simulate_receive(client: HemsClient, frame: Frame, address: str) -> None:
@@ -409,14 +447,14 @@ class TestAsyncGet:
 
     @pytest.mark.asyncio
     async def test_async_get_success(self, client_with_protocol: HemsClient) -> None:
-        """Test async_get with successful 0x72 response."""
+        """Test get with successful 0x72 response."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         # Start the get request
         get_task = asyncio.create_task(
-            client.async_get(node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0)
+            client.get(node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0)
         )
 
         # Give time for request to be registered
@@ -447,13 +485,13 @@ class TestAsyncGet:
     async def test_async_get_partial_missing_epc_retry(
         self, client_with_protocol: HemsClient
     ) -> None:
-        """Test async_get retries when some EPCs are missing from response."""
+        """Test get retries when some EPCs are missing from response."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         async def run_test() -> list[Property]:
-            return await client.async_get(
+            return await client.get(
                 node_id, EOJ(0x013001), [0x80, 0xB0, 0xBB], request_timeout=1.0
             )
 
@@ -505,13 +543,13 @@ class TestAsyncGet:
     async def test_async_get_sna_no_retry(
         self, client_with_protocol: HemsClient
     ) -> None:
-        """Test async_get does NOT retry for SNA (empty value) properties."""
+        """Test get does NOT retry for SNA (empty value) properties."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         async def run_test() -> list[Property]:
-            return await client.async_get(
+            return await client.get(
                 node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
             )
 
@@ -543,12 +581,12 @@ class TestAsyncGet:
 
     @pytest.mark.asyncio
     async def test_async_get_timeout(self, client_with_protocol: HemsClient) -> None:
-        """Test async_get times out and returns empty properties."""
+        """Test get times out and returns empty properties."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
 
-        result = await client.async_get(
+        result = await client.get(
             node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=0.1, max_retries=0
         )
 
@@ -561,19 +599,19 @@ class TestAsyncGet:
 
     @pytest.mark.asyncio
     async def test_async_get_empty_epcs(self, client_with_protocol: HemsClient) -> None:
-        """Test async_get with empty EPC list returns empty."""
+        """Test get with empty EPC list returns empty."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
-        result = await client.async_get(node_id, EOJ(0x013001), [])
+        result = await client.get(node_id, EOJ(0x013001), [])
         assert result == []
 
     @pytest.mark.asyncio
     async def test_async_get_no_protocol(self) -> None:
-        """Test async_get without protocol returns empty."""
+        """Test get without protocol returns empty."""
         client = HemsClient()
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
         # client._protocol is None
-        result = await client.async_get(node_id, EOJ(0x013001), [0x80])
+        result = await client.get(node_id, EOJ(0x013001), [0x80])
         assert result == []

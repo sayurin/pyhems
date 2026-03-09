@@ -16,6 +16,7 @@ from .const import (
     ESV_GET,
     ESV_GET_RES,
     ESV_GET_SNA,
+    ESV_SETC,
     GET_MAX_RETRIES,
     GET_TIMEOUT,
     NODE_PROFILE_CLASS,
@@ -163,7 +164,7 @@ class HemsClient:
         self._protocol = None
         _LOGGER.debug("HEMS runtime client stopped")
 
-    async def async_probe_nodes(self) -> bool:
+    async def probe_nodes(self) -> bool:
         """Send node probe request to discover devices.
 
         Sends a multicast Get request to node profile for EPCs configured
@@ -184,9 +185,9 @@ class HemsClient:
             esv=ESV_GET,
             properties=[Property(epc=epc) for epc in self._discovery_epcs],
         )
-        return await self._async_send_to_address(frame, ECHONET_MULTICAST)
+        return await self._send_to_address(frame, ECHONET_MULTICAST)
 
-    async def async_get(
+    async def get(
         self,
         node_id: str,
         deoj: EOJ,
@@ -255,7 +256,7 @@ class HemsClient:
 
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
 
-    async def async_send(self, node_id: str, frame: Frame) -> bool:
+    async def send(self, node_id: str, frame: Frame) -> bool:
         """Send a frame to a device by node ID.
 
         Args:
@@ -270,7 +271,63 @@ class HemsClient:
         if not address:
             _LOGGER.warning("No address known for device %s", node_id)
             return False
-        return await self._async_send_to_address(frame, address)
+        return await self._send_to_address(frame, address)
+
+    async def set_property(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        epc: int,
+        edt: bytes,
+        seoj: EOJ = CONTROLLER_INSTANCE,
+    ) -> bool:
+        """Send a SetC request with a single EPC/EDT pair.
+
+        Args:
+            node_id: Device node ID (hex string from EPC 0x83).
+            deoj: Destination EOJ.
+            epc: Property code.
+            edt: Property value.
+            seoj: Source EOJ (default: controller).
+
+        Returns:
+            True if sent successfully.
+        """
+        return await self.set_properties(
+            node_id=node_id,
+            deoj=deoj,
+            properties=[Property(epc=epc, edt=edt)],
+            seoj=seoj,
+        )
+
+    async def set_properties(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        properties: list[Property],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+    ) -> bool:
+        """Send a SetC request with multiple properties.
+
+        Args:
+            node_id: Device node ID (hex string from EPC 0x83).
+            deoj: Destination EOJ.
+            properties: List of properties to write.
+            seoj: Source EOJ (default: controller).
+
+        Returns:
+            True if sent successfully.
+        """
+        if not properties:
+            return False
+
+        frame = Frame(
+            seoj=seoj,
+            deoj=deoj,
+            esv=ESV_SETC,
+            properties=properties,
+        )
+        return await self.send(node_id, frame)
 
     def _on_receive(self, data: bytes, addr: tuple[str, int]) -> None:
         """Handle received UDP data."""
@@ -282,7 +339,7 @@ class HemsClient:
             if 0x60 <= frame.esv <= 0x6F:
                 return
 
-            # Check if this is a response to a pending async_get request
+            # Check if this is a response to a pending get request
             if (
                 frame.esv in (ESV_GET_RES, ESV_GET_SNA)
                 and frame.tid in self._pending_gets
@@ -311,7 +368,7 @@ class HemsClient:
                 pending_frames = self._pending_frames.setdefault(address, [])
                 pending_frames.append((frame, frame.seoj, time.monotonic()))
                 # Trigger node probe to discover the device
-                task = asyncio.create_task(self.async_probe_nodes())
+                task = asyncio.create_task(self.probe_nodes())
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
                 return
@@ -385,7 +442,7 @@ class HemsClient:
         """Periodic polling loop for node probe."""
         while self._protocol:
             try:
-                await self.async_probe_nodes()
+                await self.probe_nodes()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -424,7 +481,7 @@ class HemsClient:
                 " ".join(f"{epc:02X}" for epc in epcs),
             )
 
-        if not await self._async_send_to_address(frame, address):
+        if not await self._send_to_address(frame, address):
             self._pending_gets.pop(tid, None)
             return epcs
 
@@ -458,7 +515,7 @@ class HemsClient:
         received_or_sna = {p.epc for p in response_props}
         return [epc for epc in epcs if epc not in received_or_sna]
 
-    async def _async_send_to_address(self, frame: Frame, address: str) -> bool:
+    async def _send_to_address(self, frame: Frame, address: str) -> bool:
         """Send a frame to a specific address.
 
         Args:

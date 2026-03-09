@@ -1,17 +1,24 @@
 """pyhems - ECHONET Lite library for HEMS."""
 
 from .const import (
+    CLASS_CODE_AIR_CLEANER,
+    CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN,
+    CLASS_CODE_HOME_AIR_CONDITIONER,
+    CLASS_CODE_VENTILATION_FAN,
     CONTROLLER_CLASS,
     CONTROLLER_INSTANCE,
     DISCOVERY_DEFAULT_EPCS,
     ECHONET_MULTICAST,
     ECHONET_PORT,
+    EPC_GET_PROPERTY_MAP,
     EPC_IDENTIFICATION_NUMBER,
+    EPC_INF_PROPERTY_MAP,
     EPC_INSTANCE_LIST,
     EPC_MANUFACTURER_CODE,
     EPC_PRODUCT_CODE,
     EPC_SELF_NODE_INSTANCE_LIST,
     EPC_SERIAL_NUMBER,
+    EPC_SET_PROPERTY_MAP,
     ESV_GET,
     ESV_GET_RES,
     ESV_GET_SNA,
@@ -31,28 +38,36 @@ from .definitions import (
     create_binary_decoder,
     create_enum_decoder,
     create_numeric_decoder,
+    create_numeric_encoder,
     load_definitions_registry,
 )
+from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
 from .frame import Frame, Property
 from .transport import EchonetLiteProtocol, create_multicast_socket
-from .utils import decode_ascii_property, parse_property_map
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "CLASS_CODE_AIR_CLEANER",
+    "CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN",
+    "CLASS_CODE_HOME_AIR_CONDITIONER",
+    "CLASS_CODE_VENTILATION_FAN",
     "CONTROLLER_CLASS",
     "CONTROLLER_INSTANCE",
     "DISCOVERY_DEFAULT_EPCS",
     "ECHONET_MULTICAST",
     "ECHONET_PORT",
     "EOJ",
+    "EPC_GET_PROPERTY_MAP",
     "EPC_IDENTIFICATION_NUMBER",
+    "EPC_INF_PROPERTY_MAP",
     "EPC_INSTANCE_LIST",
     "EPC_MANUFACTURER_CODE",
     "EPC_PRODUCT_CODE",
     "EPC_SELF_NODE_INSTANCE_LIST",
     "EPC_SERIAL_NUMBER",
+    "EPC_SET_PROPERTY_MAP",
     "ESV_GET",
     "ESV_GET_RES",
     "ESV_GET_SNA",
@@ -65,16 +80,17 @@ __all__ = [
     "NODE_PROFILE_INSTANCE",
     "DefinitionsLoadError",
     "DefinitionsRegistry",
+    "DeviceManager",
     "EchonetLiteProtocol",
     "EntityDefinition",
     "EnumValue",
     "Frame",
+    "NodeState",
     "Property",
     "create_binary_decoder",
     "create_enum_decoder",
     "create_multicast_socket",
     "create_numeric_decoder",
-    "decode_ascii_property",
+    "create_numeric_encoder",
     "load_definitions_registry",
-    "parse_property_map",
 ]

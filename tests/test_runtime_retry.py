@@ -31,15 +31,13 @@ class TestRuntimeRetry:
     async def test_async_get_late_response_retry(
         self, client_with_protocol: HemsClient
     ) -> None:
-        """Test async_get accepts late response to initial request after retry sent."""
+        """Test get accepts late response to initial request after retry sent."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         async def run_test() -> list[Property]:
-            return await client.async_get(
-                node_id, EOJ(0x013001), [0x80], request_timeout=0.1
-            )
+            return await client.get(node_id, EOJ(0x013001), [0x80], request_timeout=0.1)
 
         get_task = asyncio.create_task(run_test())
 
