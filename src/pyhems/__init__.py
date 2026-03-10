@@ -45,6 +45,13 @@ from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
 from .frame import Frame, Property
 from .poller import PropertyPoller
+from .runtime import (
+    HemsClient,
+    HemsErrorEvent,
+    HemsFrameEvent,
+    HemsInstanceListEvent,
+    RuntimeEvent,
+)
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 __version__ = "0.1.0"
@@ -86,9 +93,14 @@ __all__ = [
     "EntityDefinition",
     "EnumValue",
     "Frame",
+    "HemsClient",
+    "HemsErrorEvent",
+    "HemsFrameEvent",
+    "HemsInstanceListEvent",
     "NodeState",
     "Property",
     "PropertyPoller",
+    "RuntimeEvent",
     "create_binary_decoder",
     "create_enum_decoder",
     "create_multicast_socket",
