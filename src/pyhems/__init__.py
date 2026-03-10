@@ -44,6 +44,7 @@ from .definitions import (
 from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
 from .frame import Frame, Property
+from .poller import PropertyPoller
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 __version__ = "0.1.0"
@@ -87,6 +88,7 @@ __all__ = [
     "Frame",
     "NodeState",
     "Property",
+    "PropertyPoller",
     "create_binary_decoder",
     "create_enum_decoder",
     "create_multicast_socket",
