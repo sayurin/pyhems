@@ -5,6 +5,8 @@
 
 HEMS（Home Energy Management System）向け ECHONET Lite 通信ライブラリ。
 
+**[🇺🇸 English README](README.md)**
+
 ## 概要
 
 pyhems は ECHONET Lite 機器との通信を行うための Python ライブラリです。
@@ -23,8 +25,9 @@ pyhems は ECHONET Lite 機器との通信を行うための Python ライブラ
 - **フレーム処理**: ECHONET Lite フレームのエンコード・デコード
 - **デバイス検出**: UDP マルチキャストによる機器自動検出
 - **イベント駆動**: コールバックによるイベント購読
-- **IP 非依存**: IP アドレス変更を自動追跡
-- **エンティティ定義**: MRA ベースのデバイス・エンティティ定義
+- **デバイス管理**: `DeviceManager` によるノード状態管理
+- **定期ポーリング**: `PropertyPoller` による通知非対応 EPC の補完
+- **エンティティ定義**: MRA ベースのデバイス/エンティティ定義
 - **型ヒント完備**: `py.typed` 対応
 
 ## 動作要件
@@ -48,10 +51,10 @@ pip install pyhems
 
 ```python
 import asyncio
-from pyhems.runtime import HemsClient, HemsInstanceListEvent, HemsFrameEvent
+from pyhems import HemsClient, HemsFrameEvent, HemsInstanceListEvent
 
 async def main():
-    # クライアント作成（インターフェースは実際のIPに変更）
+    # クライアント作成（interface は利用環境に合わせて指定）
     client = HemsClient(interface="0.0.0.0")
     await client.start()
 
@@ -75,11 +78,10 @@ async def main():
 asyncio.run(main())
 ```
 
-### プロパティの読み取り（async_get）
+### プロパティの読み取り（get）
 
 ```python
-from pyhems.runtime import HemsClient
-from pyhems.eoj import EOJ
+from pyhems import EOJ, HemsClient
 
 async def read_properties():
     client = HemsClient(interface="0.0.0.0")
@@ -89,7 +91,7 @@ async def read_properties():
     node_id = "fe..."  # 検出されたノードID
 
     # エアコン（0x013001）の動作状態（0x80）と設定温度（0xB3）を取得
-    properties = await client.async_get(
+    properties = await client.get(
         node_id=node_id,
         deoj=EOJ(0x013001),  # 家庭用エアコン インスタンス1
         epcs=[0x80, 0xB3],
@@ -101,11 +103,40 @@ async def read_properties():
     await client.stop()
 ```
 
+### プロパティの書き込み（set_property / set_properties）
+
+```python
+from pyhems import EOJ, HemsClient, Property
+
+async def write_properties(node_id: str):
+    client = HemsClient(interface="0.0.0.0")
+    await client.start()
+
+    # 単一プロパティの書き込み（例: 動作状態 ON）
+    await client.set_property(
+        node_id=node_id,
+        deoj=EOJ(0x013001),
+        epc=0x80,
+        edt=b"\x30",
+    )
+
+    # 複数プロパティの書き込み
+    await client.set_properties(
+        node_id=node_id,
+        deoj=EOJ(0x013001),
+        properties=[
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB3, edt=b"\x19"),
+        ],
+    )
+
+    await client.stop()
+```
+
 ### フレームの直接操作
 
 ```python
-from pyhems.frame import Frame, Property
-from pyhems.eoj import EOJ
+from pyhems import EOJ, Frame, Property
 
 # フレーム作成
 frame = Frame(
@@ -199,6 +230,41 @@ client = HemsClient(
 - `poll_interval`: 定期的なノード検出の間隔
 - `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
 
+## DeviceManager と PropertyPoller
+
+`DeviceManager` は `HemsInstanceListEvent` / `HemsFrameEvent` を処理して、ノードごとの状態を保持します。
+
+```python
+from pyhems import DeviceManager, PropertyPoller
+
+# class_code -> 監視するEPC集合
+monitored_epcs = {
+    0x0130: frozenset({0x80, 0xB3}),
+}
+
+device_manager = DeviceManager(client, monitored_epcs)
+poller = PropertyPoller(device_manager, poll_interval=30.0)
+
+poller.start()
+
+def handle_event(event):
+    if isinstance(event, HemsInstanceListEvent):
+        # 新規デバイスセットアップ
+        asyncio.create_task(device_manager.process_instance_list_event(event))
+    elif isinstance(event, HemsFrameEvent):
+        # プロパティ更新反映
+        device_manager.process_frame_event(event)
+
+unsubscribe = client.subscribe(handle_event)
+```
+
+`NodeState`（`device_manager.data[device_key]`）には以下の情報が保持されます。
+
+- `properties`: 取得済み EPC 値（`dict[int, bytes]`）
+- `get_epcs` / `set_epcs` / `inf_epcs`: 機器のプロパティマップ解析結果
+- `poll_epcs`: 通知で取得できないため定期取得が必要な EPC
+- `manufacturer_code` / `product_code` / `serial_number`
+
 ## エンティティ定義
 
 pyhems は MRA（Machine Readable Appendix）データに基づいたエンティティ定義を提供します。
@@ -213,7 +279,7 @@ from pyhems import load_definitions_registry
 registry = load_definitions_registry()
 
 # 特定のデバイスクラスのエンティティ定義を取得
-entities = registry.get_entities(0x0130)  # 家庭用エアコン
+entities = registry.entities.get(0x0130, ())  # 家庭用エアコン
 for entity in entities:
     print(f"{entity.name_ja}: EPC=0x{entity.epc:02X}")
 ```
@@ -227,6 +293,8 @@ class EntityDefinition:
     epc: int                # プロパティコード
     name_en: str            # 英語名
     name_ja: str            # 日本語名
+    get: str                # GETアクセスルール
+    set: str                # SETアクセスルール
     format: str | None      # 数値フォーマット（"uint8", "int16" など）
     unit: str | None        # 単位（"W", "Celsius", "%RH" など）
     minimum: float | None   # 最小有効値
@@ -242,11 +310,7 @@ class EntityDefinition:
 EDT データを解釈するためのデコーダ関数を生成できます。
 
 ```python
-from pyhems import (
-    create_numeric_decoder,
-    create_binary_decoder,
-    create_enum_decoder,
-)
+from pyhems import create_binary_decoder, create_enum_decoder, create_numeric_decoder
 
 # 数値デコーダ（温度: uint8, 0〜50℃）
 temp_decoder = create_numeric_decoder(
@@ -267,16 +331,17 @@ mode = mode_decoder(b"\x42")  # 0x42
 
 ## モジュール構成
 
-| モジュール    | 説明                            |
-| ------------- | ------------------------------- |
-| `runtime`     | 高レベル通信クライアント        |
-| `frame`       | フレームのエンコード・デコード  |
-| `eoj`         | EOJ（オブジェクト識別子）クラス |
-| `transport`   | UDP 通信層                      |
-| `discovery`   | デバイス検出ユーティリティ      |
-| `definitions` | エンティティ定義とデコーダ      |
-| `const`       | 定数定義                        |
-| `utils`       | ユーティリティ関数              |
+| モジュール       | 説明                            |
+| ---------------- | ------------------------------- |
+| `runtime`        | 高レベル通信クライアント        |
+| `frame`          | フレームのエンコード・デコード  |
+| `eoj`            | EOJ（オブジェクト識別子）クラス |
+| `transport`      | UDP 通信層                      |
+| `discovery`      | デバイス検出ユーティリティ      |
+| `device_manager` | デバイス状態管理                |
+| `poller`         | プロパティポーリング制御        |
+| `definitions`    | エンティティ定義とデコーダ      |
+| `const`          | 定数定義                        |
 
 ## 参考リンク
 
