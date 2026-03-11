@@ -54,7 +54,7 @@ from .runtime import (
 )
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "CLASS_CODE_AIR_CLEANER",
