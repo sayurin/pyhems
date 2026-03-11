@@ -1,0 +1,476 @@
+"""Device management for ECHONET Lite nodes."""
+
+from __future__ import annotations
+
+import logging
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+
+from .const import (
+    CONTROLLER_INSTANCE,
+    EPC_GET_PROPERTY_MAP,
+    EPC_INF_PROPERTY_MAP,
+    EPC_MANUFACTURER_CODE,
+    EPC_PRODUCT_CODE,
+    EPC_SERIAL_NUMBER,
+    EPC_SET_PROPERTY_MAP,
+    ESV_GET,
+    ESV_INF_REQ,
+    ESV_SET_RES,
+    ESV_SET_SNA,
+)
+from .eoj import EOJ
+from .frame import Frame, Property
+from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
+
+_LOGGER = logging.getLogger(__name__)
+
+DeviceCallback = Callable[[str], None]
+
+
+def _parse_property_map(edt: bytes) -> frozenset[int]:
+    """Parse an ECHONET Lite property map EDT (0x9D/0x9E/0x9F).
+
+    Property maps have two formats:
+    - List format (count <= 15): [count, epc1, epc2, ...]
+    - Bitmap format (count >= 16): [count, 16 bytes for EPCs 0x80-0xFF]
+
+    In bitmap format, each bit represents whether an EPC is present.
+    The mapping follows the ECHONET Lite specification:
+    - Byte index (0-15) = EPC low nibble (0x80, 0x81, ..., 0x8F)
+    - Bit index (0-7) = EPC high nibble offset (bit0=0x8x, bit1=0x9x, ..., bit7=0xFx)
+    """
+    if not edt:
+        return frozenset()
+
+    count = edt[0]
+
+    if count <= 15:
+        # List format: EPCs are enumerated directly
+        if len(edt) < count + 1:
+            _LOGGER.debug(
+                "Property map list too short: expected %d EPCs, got %d bytes",
+                count,
+                len(edt) - 1,
+            )
+            return frozenset()
+        return frozenset(edt[1 : count + 1])
+
+    # Bitmap format: 16 bytes representing EPCs 0x80-0xFF
+    if len(edt) < 17:
+        _LOGGER.debug(
+            "Property map bitmap too short: expected 17 bytes, got %d", len(edt)
+        )
+        return frozenset()
+
+    epcs: set[int] = set()
+    for byte_idx in range(16):
+        byte_val = edt[1 + byte_idx]
+        for bit_idx in range(8):
+            if byte_val & (1 << bit_idx):
+                # byte_idx = low nibble, bit_idx = high nibble offset
+                epc = 0x80 + (bit_idx * 0x10) + byte_idx
+                epcs.add(epc)
+
+    return frozenset(epcs)
+
+
+def _decode_ascii_property(edt: bytes) -> str | None:
+    """Decode an ASCII string property from EDT.
+
+    Per ECHONET Lite specification, string properties (e.g., product code 0x8C,
+    serial number 0x8D) are stored left-justified with NULL or space padding.
+
+    Args:
+        edt: Raw EDT bytes.
+
+    Returns:
+        Decoded string with padding removed, or None if decoding fails.
+
+    """
+    if not edt:
+        return None
+    try:
+        return edt.rstrip(b"\x00 ").decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+def _extract_property_maps(
+    properties: Mapping[int, bytes],
+) -> tuple[frozenset[int], frozenset[int], frozenset[int]]:
+    """Extract and parse Get/Set/Inf property maps from property values."""
+    get_epcs = _parse_property_map(properties.get(EPC_GET_PROPERTY_MAP, b""))
+    set_epcs = _parse_property_map(properties.get(EPC_SET_PROPERTY_MAP, b""))
+    inf_epcs = _parse_property_map(properties.get(EPC_INF_PROPERTY_MAP, b""))
+    return get_epcs, set_epcs, inf_epcs
+
+
+def _extract_node_profile_info(
+    properties: Mapping[int, bytes],
+) -> tuple[int | None, str | None, str | None]:
+    """Extract manufacturer code, product code, and serial number."""
+    manufacturer_code: int | None = None
+    if (edt := properties.get(EPC_MANUFACTURER_CODE)) and len(edt) >= 3:
+        manufacturer_code = int.from_bytes(edt[:3], "big")
+
+    product_code = _decode_ascii_property(properties.get(EPC_PRODUCT_CODE, b""))
+    serial_number = _decode_ascii_property(properties.get(EPC_SERIAL_NUMBER, b""))
+    return manufacturer_code, product_code, serial_number
+
+
+@dataclass(slots=True)
+class NodeState:
+    """State for a discovered ECHONET Lite node."""
+
+    eoj: EOJ
+    properties: dict[int, bytes]
+    last_seen: float
+    node_id: str
+    manufacturer_code: int
+    get_epcs: frozenset[int]
+    set_epcs: frozenset[int]
+    inf_epcs: frozenset[int]
+    poll_epcs: frozenset[int]
+    product_code: str | None
+    serial_number: str | None
+
+    @property
+    def device_key(self) -> str:
+        """Return the unique device key."""
+        return f"{self.node_id}-{self.eoj:06x}"
+
+
+class DeviceManager:
+    """Manage discovered ECHONET Lite devices.
+
+    Handles device discovery, property tracking, and frame processing.
+    This is a protocol-level manager that does not depend on Home Assistant.
+    """
+
+    def __init__(
+        self,
+        client: HemsClient,
+        monitored_epcs: Mapping[int, frozenset[int]],
+        class_code_filter: frozenset[int] | None = None,
+    ) -> None:
+        """Initialize the device manager.
+
+        Args:
+            client: HEMS runtime client for communication.
+            monitored_epcs: Mapping of class_code -> EPCs to monitor.
+            class_code_filter: If set, only these class codes are accepted.
+                If None, all class codes are accepted.
+        """
+        self._client = client
+        self._monitored_epcs = monitored_epcs
+        self._class_code_filter = class_code_filter
+
+        self.data: dict[str, NodeState] = {}
+        self.last_frame_received_at: float | None = None
+
+        self._pending_setups: set[str] = set()
+        self._node_profile_info: dict[str, tuple[str | None, str | None]] = {}
+
+        self._on_device_added: list[DeviceCallback] = []
+        self._on_device_updated: list[DeviceCallback] = []
+
+    def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
+        """Register a callback for when a new device is added.
+
+        Args:
+            callback: Called with device_key when a new device is set up.
+
+        Returns:
+            Unsubscribe function.
+        """
+        self._on_device_added.append(callback)
+
+        def unsub() -> None:
+            if callback in self._on_device_added:
+                self._on_device_added.remove(callback)
+
+        return unsub
+
+    def on_device_updated(self, callback: DeviceCallback) -> Callable[[], None]:
+        """Register a callback for when an existing device's properties change.
+
+        Args:
+            callback: Called with device_key when properties are updated.
+
+        Returns:
+            Unsubscribe function.
+        """
+        self._on_device_updated.append(callback)
+
+        def unsub() -> None:
+            if callback in self._on_device_updated:
+                self._on_device_updated.remove(callback)
+
+        return unsub
+
+    def process_frame_event(self, event: HemsFrameEvent) -> bool:
+        """Process a received frame and update device state.
+
+        Args:
+            event: Frame event from the runtime client.
+
+        Returns:
+            True if any device state was updated.
+        """
+        frame = event.frame
+        eoj = event.eoj
+        node_id = event.node_id
+
+        if not frame.is_response_frame():
+            return False
+
+        device_key = f"{node_id}-{eoj:06x}"
+        existing = self.data.get(device_key)
+
+        if existing is None:
+            _LOGGER.debug(
+                "Ignoring frame for unknown node %s %r (setup handled elsewhere)",
+                device_key,
+                eoj,
+            )
+            return False
+
+        self.last_frame_received_at = event.received_at
+
+        _LOGGER.debug(
+            "Received frame for %s (ESV=0x%02X): %r",
+            device_key,
+            frame.esv,
+            frame.properties,
+        )
+
+        # Set responses do not carry current property values
+        if frame.esv in (ESV_SET_RES, ESV_SET_SNA):
+            return False
+
+        updated = False
+        for prop in frame.properties:
+            current = existing.properties.get(prop.epc)
+            if current is None or current != prop.edt:
+                existing.properties[prop.epc] = prop.edt
+                updated = True
+
+        if updated:
+            for cb in self._on_device_updated:
+                cb(device_key)
+
+        return updated
+
+    async def process_instance_list_event(
+        self, event: HemsInstanceListEvent
+    ) -> list[str]:
+        """Process instance list and set up newly discovered devices.
+
+        Args:
+            event: Instance list event from the runtime client.
+
+        Returns:
+            List of device_keys for newly set up devices.
+        """
+        node_id = event.node_id
+
+        _, product_code, serial_number = _extract_node_profile_info(event.properties)
+
+        if product_code or serial_number:
+            self._node_profile_info[node_id] = (product_code, serial_number)
+
+        new_device_keys: list[str] = []
+        for eoj in event.instances:
+            device_key = f"{node_id}-{eoj:06x}"
+            if device_key in self.data or device_key in self._pending_setups:
+                continue
+
+            if (
+                self._class_code_filter is not None
+                and eoj.class_code not in self._class_code_filter
+            ):
+                _LOGGER.debug(
+                    "Skipping device class 0x%04X from node %s (not in filter)",
+                    eoj.class_code,
+                    node_id,
+                )
+                continue
+
+            self._pending_setups.add(device_key)
+            _LOGGER.debug("Discovered new %r from node %s", eoj, node_id)
+            result = await self.setup_device(node_id, eoj)
+            if result:
+                new_device_keys.append(device_key)
+
+        return new_device_keys
+
+    async def setup_device(self, node_id: str, eoj: EOJ) -> bool:
+        """Set up a device by requesting its properties.
+
+        Args:
+            node_id: Device node ID.
+            eoj: ECHONET object instance.
+
+        Returns:
+            True if setup was successful.
+        """
+        device_key = f"{node_id}-{eoj:06x}"
+        try:
+            base_epcs = [
+                EPC_INF_PROPERTY_MAP,
+                EPC_SET_PROPERTY_MAP,
+                EPC_GET_PROPERTY_MAP,
+                EPC_MANUFACTURER_CODE,
+                EPC_PRODUCT_CODE,
+                EPC_SERIAL_NUMBER,
+            ]
+
+            initial_epcs = self._monitored_epcs.get(eoj.class_code, frozenset())
+            monitored_epcs = initial_epcs - set(base_epcs)
+            all_epcs = base_epcs + list(monitored_epcs)
+
+            _LOGGER.debug(
+                "Requesting property maps for node %s %r: base=[%s], monitored=[%s]",
+                node_id,
+                eoj,
+                " ".join(f"{epc:02X}" for epc in base_epcs),
+                " ".join(f"{epc:02X}" for epc in sorted(monitored_epcs)),
+            )
+
+            response_props = await self._client.get(node_id, eoj, all_epcs)
+            properties: dict[int, bytes] = {
+                prop.epc: prop.edt for prop in response_props if prop.edt
+            }
+
+            timestamp = time.monotonic()
+            get_epcs, set_epcs, inf_epcs = _extract_property_maps(properties)
+            manufacturer_code, product_code, serial_number = _extract_node_profile_info(
+                properties
+            )
+
+            if manufacturer_code is None:
+                _LOGGER.warning(
+                    "Device %s has no manufacturer code (EPC 0x8A), skipping",
+                    device_key,
+                )
+                self._pending_setups.discard(device_key)
+                return False
+
+            np_info = self._node_profile_info.get(node_id)
+            if np_info:
+                np_product_code, np_serial_number = np_info
+                if not product_code and np_product_code:
+                    product_code = np_product_code
+                if not serial_number and np_serial_number:
+                    serial_number = np_serial_number
+
+            poll_epcs = frozenset((initial_epcs & get_epcs) - inf_epcs)
+
+            node = NodeState(
+                eoj=eoj,
+                properties=properties,
+                last_seen=timestamp,
+                node_id=node_id,
+                get_epcs=get_epcs,
+                set_epcs=set_epcs,
+                inf_epcs=inf_epcs,
+                poll_epcs=poll_epcs,
+                manufacturer_code=manufacturer_code,
+                product_code=product_code,
+                serial_number=serial_number,
+            )
+
+            self.last_frame_received_at = timestamp
+            self.data[device_key] = node
+
+            await self._send_initial_notification(device_key, node)
+
+            self._pending_setups.discard(device_key)
+            _LOGGER.info(
+                "Created new node %s with %d properties, get=[%s] set=[%s] inf=[%s]",
+                device_key,
+                len(properties),
+                bytes(sorted(get_epcs)).hex(),
+                bytes(sorted(set_epcs)).hex(),
+                bytes(sorted(inf_epcs)).hex(),
+            )
+
+            for cb in self._on_device_added:
+                cb(device_key)
+
+            return True
+
+        except Exception:
+            self._pending_setups.discard(device_key)
+            _LOGGER.exception("Failed to request property maps for %r", eoj)
+            return False
+
+    async def _send_initial_notification(
+        self, device_key: str, node: NodeState
+    ) -> None:
+        """Send a one-time INF_REQ for monitored EPCs that support notifications."""
+        epcs = set(self._monitored_epcs.get(node.eoj.class_code, frozenset()))
+        epcs &= node.inf_epcs
+
+        if not epcs:
+            return
+
+        frame = Frame(
+            seoj=CONTROLLER_INSTANCE,
+            deoj=node.eoj,
+            esv=ESV_INF_REQ,
+            properties=[Property(epc=epc, edt=b"") for epc in epcs],
+        )
+
+        _LOGGER.debug(
+            "Sending initial 0x63 notification request to node %s for EPCs: [%s]",
+            device_key,
+            " ".join(f"{epc:02X}" for epc in sorted(epcs)),
+        )
+
+        try:
+            await self._client.send(node.node_id, frame)
+        except OSError as err:
+            _LOGGER.debug(
+                "Failed to send initial notifications for node %s: %s",
+                device_key,
+                err,
+            )
+
+    async def poll_device(self, device_key: str) -> bool:
+        """Send a GET request for a device's poll EPCs.
+
+        Args:
+            device_key: The device key to poll.
+
+        Returns:
+            True if the poll request was sent successfully.
+        """
+        node = self.data.get(device_key)
+        if not node or not node.poll_epcs:
+            return False
+
+        properties = [Property(epc=epc, edt=b"") for epc in node.poll_epcs]
+        frame = Frame(
+            seoj=CONTROLLER_INSTANCE,
+            deoj=node.eoj,
+            esv=ESV_GET,
+            properties=properties,
+        )
+        _LOGGER.debug(
+            "Sending 0x62 poll to node %s for EPCs: [%s]",
+            device_key,
+            " ".join(f"{epc:02X}" for epc in sorted(node.poll_epcs)),
+        )
+        try:
+            return await self._client.send(node.node_id, frame)
+        except OSError as err:
+            _LOGGER.debug(
+                "Failed to request properties for node %s: %s", device_key, err
+            )
+            return False
+
+
+__all__ = ["DeviceManager", "NodeState"]

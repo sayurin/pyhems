@@ -90,6 +90,40 @@ def create_numeric_decoder(
     return numeric_decoder
 
 
+def create_numeric_encoder(
+    mra_format: str,
+    scale: float = 1.0,
+) -> Callable[[float | int], bytes]:
+    """Create a numeric encoder function for EDT data.
+
+    Args:
+        mra_format: MRA format string (e.g., "uint8", "int16", "uint32")
+        scale: Scale factor to reverse during encoding (default 1.0)
+
+    Returns:
+        A function that encodes a numeric value to EDT bytes.
+
+    Raises:
+        ValueError: If mra_format is not recognized.
+    """
+    format_info = _FORMAT_INFO.get(mra_format)
+    if not format_info:
+        raise ValueError(f"Unknown MRA format: {mra_format}")
+
+    signed, byte_count = format_info
+
+    def numeric_encoder(value: float | int) -> bytes:
+        raw = round(value / scale) if scale != 1.0 else round(value)
+        try:
+            return int(raw).to_bytes(byte_count, "big", signed=signed)
+        except OverflowError as ex:
+            raise ValueError(
+                f"Value {value} out of range for format {mra_format}"
+            ) from ex
+
+    return numeric_encoder
+
+
 def create_binary_decoder(on_value: bytes) -> Callable[[bytes], bool | None]:
     r"""Create a binary decoder function for EDT data.
 
