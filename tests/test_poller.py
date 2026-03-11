@@ -89,7 +89,7 @@ class TestPropertyPollerLifecycle:
 
 
 class TestSchedulePolls:
-    """Tests for _schedule_polls logic."""
+    """Tests for schedule_polls logic."""
 
     @pytest.mark.asyncio
     async def test_schedule_polls_fires_for_devices_with_poll_epcs(self) -> None:
@@ -99,7 +99,7 @@ class TestSchedulePolls:
         dm.poll_device = AsyncMock(return_value=True)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._schedule_polls()
+        poller.schedule_polls()
 
         assert "k1" in poller._pending
         # Let the fire-and-forget task run
@@ -114,7 +114,7 @@ class TestSchedulePolls:
         dm.poll_device = AsyncMock()
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._schedule_polls()
+        poller.schedule_polls()
 
         assert "k1" not in poller._pending
         dm.poll_device.assert_not_called()
@@ -128,7 +128,7 @@ class TestSchedulePolls:
         poller = PropertyPoller(dm, poll_interval=60)
         poller._pending.add("k1")
 
-        poller._schedule_polls()
+        poller.schedule_polls()
 
         dm.poll_device.assert_not_called()
 
@@ -143,7 +143,7 @@ class TestSchedulePolls:
             100, lambda: None
         )
 
-        poller._schedule_polls()
+        poller.schedule_polls()
 
         dm.poll_device.assert_not_called()
         # cleanup

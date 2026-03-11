@@ -93,7 +93,7 @@ class PropertyPoller:
         while True:
             await asyncio.sleep(self._poll_interval)
             self._cleanup_stale()
-            self._schedule_polls()
+            self.schedule_polls()
 
     def _cleanup_stale(self) -> None:
         """Remove pending/scheduled entries for devices no longer present."""
@@ -105,7 +105,7 @@ class PropertyPoller:
             if device_key not in current:
                 self._scheduled.pop(device_key).cancel()
 
-    def _schedule_polls(self) -> None:
+    def schedule_polls(self) -> None:
         """Enqueue poll requests for devices that need polling."""
         for device_key, node in self._device_manager.data.items():
             if not node.poll_epcs:

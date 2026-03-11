@@ -300,13 +300,13 @@ class DeviceManager:
 
             self._pending_setups.add(device_key)
             _LOGGER.debug("Discovered new %r from node %s", eoj, node_id)
-            result = await self._setup_device(node_id, eoj)
+            result = await self.setup_device(node_id, eoj)
             if result:
                 new_device_keys.append(device_key)
 
         return new_device_keys
 
-    async def _setup_device(self, node_id: str, eoj: EOJ) -> bool:
+    async def setup_device(self, node_id: str, eoj: EOJ) -> bool:
         """Set up a device by requesting its properties.
 
         Args:
