@@ -66,6 +66,28 @@ def _find_entity(
     return None
 
 
+def test_enum_values_are_unique() -> None:
+    data = load_definitions()
+
+    for ent in data.get("common", []) + [
+        e for d in data.get("devices", {}).values() for e in d.get("entities", [])
+    ]:
+        enum_values = ent.get("enum_values")
+        if not enum_values:
+            continue
+        eid = ent.get("id") or ent.get("name_en")
+
+        names_en = [v["name_en"] for v in enum_values]
+        assert len(names_en) == len(set(names_en)), (
+            f"Duplicate 'name_en' in enum_values of {eid}: {names_en}"
+        )
+
+        names_ja = [v["name_ja"] for v in enum_values]
+        assert len(names_ja) == len(set(names_ja)), (
+            f"Duplicate 'name_ja' in enum_values of {eid}: {names_ja}"
+        )
+
+
 def test_sample_entities_have_expected_get_set() -> None:
     data = load_definitions()
 

@@ -446,15 +446,109 @@ def _load_custom_definitions(custom_path: Path) -> dict[str, Any]:
     return data if data else {}
 
 
-def _merge_custom_definitions(
+def _apply_overrides(
     definitions: dict[str, Any],
     custom: dict[str, Any],
+    mra_epcs_by_class: dict[int, frozenset[int]],
 ) -> dict[str, Any]:
-    """Merge custom definitions into MRA definitions.
+    """Apply overrides to existing MRA-generated entities.
+
+    For each entry whose EPC already exists in the MRA definitions,
+    patch the matching entity in-place. Any field except ``epc`` and
+    ``manufacturer_code`` is applied as an override.  ``enum_values`` uses
+    key-based merge (matched by ``key``, updating ``name_en``/``name_ja``).
 
     Args:
         definitions: Generated MRA definitions.
         custom: Custom definitions from YAML.
+        mra_epcs_by_class: Pre-computed MRA EPCs per class code.
+
+    Returns:
+        Definitions with overrides applied.
+    """
+    devices = definitions.get("devices", {})
+    override_count = 0
+
+    for class_code, entries in custom.get("devices", {}).items():
+        if class_code not in devices:
+            continue
+
+        mra_entities = devices[class_code]["entities"]
+        mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
+
+        for entry in entries:
+            epc: int = entry["epc"]
+            if epc not in mra_epcs:
+                continue  # Not an override — handled by _merge_custom_definitions
+
+            manufacturer_code = entry.get("manufacturer_code")
+
+            # Find matching entities by EPC (and optionally manufacturer)
+            matching = [e for e in mra_entities if e["epc"] == epc]
+            if manufacturer_code is not None:
+                matching = [
+                    e
+                    for e in matching
+                    if e.get("manufacturer_code") == manufacturer_code
+                ]
+            if not matching:
+                print(
+                    f"  Warning: override target EPC 0x{epc:02X} not found "
+                    f"in class 0x{class_code:04X}"
+                )
+                continue
+
+            # Fields that are used for matching, not for overriding
+            match_keys = {"epc", "manufacturer_code"}
+
+            for entity in matching:
+                for field, value in entry.items():
+                    if field in match_keys:
+                        continue
+                    if field == "enum_values":
+                        # Key-based merge for enum_values
+                        current_evs = entity.get("enum_values", [])
+                        for ev_override in value:
+                            key = ev_override["key"]
+                            matched_evs = [ev for ev in current_evs if ev["key"] == key]
+                            if not matched_evs:
+                                print(
+                                    f"  Warning: override enum key '{key}' "
+                                    f"not found in EPC 0x{epc:02X} of "
+                                    f"class 0x{class_code:04X}"
+                                )
+                                continue
+                            for ev in matched_evs:
+                                if "name_en" in ev_override:
+                                    ev["name_en"] = ev_override["name_en"]
+                                if "name_ja" in ev_override:
+                                    ev["name_ja"] = ev_override["name_ja"]
+                                override_count += 1
+                    else:
+                        # Direct field replacement
+                        entity[field] = value
+                        override_count += 1
+
+    if override_count:
+        print(f"  Applied {override_count} override(s)")
+
+    return definitions
+
+
+def _merge_custom_definitions(
+    definitions: dict[str, Any],
+    custom: dict[str, Any],
+    mra_epcs_by_class: dict[int, frozenset[int]],
+) -> dict[str, Any]:
+    """Merge custom definitions into MRA definitions.
+
+    For each entry whose EPC does NOT exist in the MRA definitions,
+    create a new custom entity and append it.
+
+    Args:
+        definitions: Generated MRA definitions.
+        custom: Custom definitions from YAML.
+        mra_epcs_by_class: Pre-computed MRA EPCs per class code.
 
     Returns:
         Merged definitions.
@@ -462,37 +556,37 @@ def _merge_custom_definitions(
     devices = definitions.get("devices", {})
     custom_entity_count = 0
 
-    for class_code, class_data in custom.get("devices", {}).items():
-        for mfr_code, mfr_data in class_data.get("manufacturers", {}).items():
-            mfr_name = mfr_data.get("name", f"Manufacturer {mfr_code:#06x}")
-            entities = mfr_data.get("entities", [])
+    for class_code, entries in custom.get("devices", {}).items():
+        if class_code not in devices:
+            print(f"  Warning: custom target class 0x{class_code:04X} not found")
+            continue
 
-            # Group entities by EPC to generate sequential indices
-            epc_counts: dict[int, int] = {}
+        mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
 
-            for entity in entities:
-                entity_result = _build_custom_entity(
-                    class_code,
-                    mfr_code,
-                    entity,
-                    epc_counts,
-                )
-                devices[class_code]["entities"].append(entity_result)
-                custom_entity_count += 1
+        # Group entities by EPC to generate sequential indices
+        epc_counts: dict[int, int] = {}
 
-            if entities:
-                print(
-                    f"  Loaded {len(entities)} entities for {mfr_name} (0x{mfr_code:06X})"
-                )
+        for entry in entries:
+            epc: int = entry["epc"]
+            if epc in mra_epcs:
+                continue  # Override — handled by _apply_overrides
 
-    print(f"  Total custom entities: {custom_entity_count}")
+            entity_result = _build_custom_entity(
+                class_code,
+                entry,
+                epc_counts,
+            )
+            devices[class_code]["entities"].append(entity_result)
+            custom_entity_count += 1
+
+    if custom_entity_count:
+        print(f"  Total custom entities: {custom_entity_count}")
 
     return definitions
 
 
 def _build_custom_entity(
     class_code: int,
-    mfr_code: int,
     entity: dict[str, Any],
     epc_counts: dict[int, int],
 ) -> dict[str, Any]:
@@ -500,7 +594,6 @@ def _build_custom_entity(
 
     Args:
         class_code: Device class code.
-        mfr_code: Manufacturer code.
         entity: Entity definition from YAML.
         epc_counts: Counter for EPCs to generate unique indices.
 
@@ -508,6 +601,7 @@ def _build_custom_entity(
         Entity definition dict.
     """
     epc: int = entity["epc"]
+    mfr_code: int | None = entity.get("manufacturer_code")
     enum_values = entity.get("enum_values")
 
     # Generate unique index for this EPC
@@ -516,7 +610,12 @@ def _build_custom_entity(
     index = epc_counts[epc]
 
     # Generate id
-    entity_id = f"class_{class_code:04x}_custom_{mfr_code:06x}_epc_{epc:02x}_{index}"
+    if mfr_code is not None:
+        entity_id = (
+            f"class_{class_code:04x}_custom_{mfr_code:06x}_epc_{epc:02x}_{index}"
+        )
+    else:
+        entity_id = f"class_{class_code:04x}_custom_epc_{epc:02x}_{index}"
 
     result: dict[str, Any] = {
         "id": entity_id,
@@ -545,7 +644,8 @@ def _build_custom_entity(
             result["multipleOf"] = multiple_of
 
     # Vendor-specific fields (flattened)
-    result["manufacturer_code"] = mfr_code
+    if mfr_code is not None:
+        result["manufacturer_code"] = mfr_code
     if entity.get("byte_offset") is not None:
         result["byte_offset"] = entity["byte_offset"]
 
@@ -572,7 +672,18 @@ def main() -> None:
     if CUSTOM_DEFINITIONS_FILE.exists():
         print(f"\nLoading custom definitions from {CUSTOM_DEFINITIONS_FILE}...")
         custom = _load_custom_definitions(CUSTOM_DEFINITIONS_FILE)
-        definitions = _merge_custom_definitions(definitions, custom)
+        # Snapshot MRA EPCs before custom processing so ADD/UPDATE detection
+        # is based on the original MRA data, not entities added by merging.
+        mra_epcs_by_class = {
+            class_code: frozenset(e["epc"] for e in dev["entities"])
+            for class_code, dev in definitions.get("devices", {}).items()
+        }
+        definitions = _merge_custom_definitions(  # ADD first
+            definitions, custom, mra_epcs_by_class
+        )
+        definitions = _apply_overrides(  # then UPDATE
+            definitions, custom, mra_epcs_by_class
+        )
 
     # Write definitions.json
     definitions_path = PYHEMS_DIR / "definitions.json"
