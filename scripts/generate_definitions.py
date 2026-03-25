@@ -30,6 +30,7 @@ The generated definitions.json contains:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,16 @@ class MRAProperty(BaseModel):
 # ============================================================================
 
 
+def _normalize_trailing_number(name: str) -> str:
+    """Insert a space before trailing digits if missing.
+
+    e.g. 'Lock setting1' -> 'Lock setting 1'
+    Only inserts when at least two letters immediately precede the trailing digits,
+    avoiding short codes like 'n1'.
+    """
+    return re.sub(r"(?<=[a-zA-Z]{2})(\d+)$", r" \1", name)
+
+
 def _parse_hex_int(value: Any) -> int | None:
     """Parse a hex string or int to integer.
 
@@ -122,7 +133,7 @@ def _parse_mra_property(
     epc = int(prop_data["epc"], 16)
 
     name_data = prop_data["propertyName"]
-    name_en = name_data["en"]
+    name_en = _normalize_trailing_number(name_data["en"])
     name_ja = name_data["ja"]
 
     # Parse access rules
@@ -214,7 +225,7 @@ def _parse_mra_property(
                     EnumValue(
                         edt=edt,
                         key=val_name,
-                        name_en=descriptions["en"],
+                        name_en=_normalize_trailing_number(descriptions["en"]),
                         name_ja=descriptions["ja"],
                     )
                 )

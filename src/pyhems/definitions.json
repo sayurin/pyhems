@@ -4486,7 +4486,7 @@
           "epc": 224,
           "get": "required",
           "id": "class_026f_epc_e0",
-          "name_en": "Lock setting1",
+          "name_en": "Lock setting 1",
           "name_ja": "施錠設定1",
           "set": "required"
         },
@@ -6705,13 +6705,13 @@
             {
               "edt": 65,
               "key": "timer1",
-              "name_en": "Timer1",
+              "name_en": "Timer 1",
               "name_ja": "タイマー1"
             },
             {
               "edt": 66,
               "key": "timer2",
-              "name_en": "Timer2",
+              "name_en": "Timer 2",
               "name_ja": "タイマー2"
             }
           ],
@@ -8605,7 +8605,7 @@
           "id": "class_027e_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
-          "name_en": "Remaining stored electricity of vehicle mounted battery1",
+          "name_en": "Remaining stored electricity of vehicle mounted battery 1",
           "name_ja": "車載電池の電池残容量1",
           "set": "notApplicable",
           "unit": "Wh"
@@ -8618,7 +8618,7 @@
           "maximum": 32766.0,
           "minimum": 0.0,
           "multipleOf": 0.1,
-          "name_en": "Remaining stored electricity of vehicle mounted battery2",
+          "name_en": "Remaining stored electricity of vehicle mounted battery 2",
           "name_ja": "車載電池の電池残容量2",
           "set": "notApplicable",
           "unit": "Ah"
@@ -8630,7 +8630,7 @@
           "id": "class_027e_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
-          "name_en": "Remaining stored electricity of vehicle mounted battery3",
+          "name_en": "Remaining stored electricity of vehicle mounted battery 3",
           "name_ja": "車載電池の電池残容量3",
           "set": "notApplicable",
           "unit": "%"
@@ -9895,7 +9895,7 @@
           "id": "class_02a1_epc_e2",
           "maximum": 999999999.0,
           "minimum": 0.0,
-          "name_en": "Remaining stored electricity of vehicle mounted battery1",
+          "name_en": "Remaining stored electricity of vehicle mounted battery 1",
           "name_ja": "車載電池の電池残容量1",
           "set": "notApplicable",
           "unit": "Wh"
@@ -9907,7 +9907,7 @@
           "id": "class_02a1_epc_e4",
           "maximum": 100.0,
           "minimum": 0.0,
-          "name_en": "Remaining stored electricity of vehicle mounted battery3",
+          "name_en": "Remaining stored electricity of vehicle mounted battery 3",
           "name_ja": "車載電池の電池残容量3",
           "set": "notApplicable",
           "unit": "%"
