@@ -687,8 +687,12 @@ def main() -> None:
 
     # Write definitions.json
     definitions_path = PYHEMS_DIR / "definitions.json"
+    # Round-trip through JSON to normalize integer keys to strings,
+    # ensuring sort_keys produces the same order as pretty-format-json.
+    normalized = json.loads(json.dumps(definitions))
     with definitions_path.open("w", encoding="utf-8") as f:
-        json.dump(definitions, f, indent=2, ensure_ascii=False)
+        json.dump(normalized, f, indent=2, ensure_ascii=False, sort_keys=True)
+        f.write("\n")
     print(f"\nGenerated: {definitions_path}")
 
     # Print summary
