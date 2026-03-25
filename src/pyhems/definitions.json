@@ -2294,7 +2294,7 @@
             {
               "edt": 66,
               "key": "false",
-              "name_en": "Heat exchanger ON",
+              "name_en": "Heat exchanger OFF",
               "name_ja": "熱交換機OFF"
             }
           ],
