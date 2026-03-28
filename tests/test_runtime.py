@@ -15,6 +15,8 @@ from pyhems import (
     EPC_SELF_NODE_INSTANCE_LIST,
     EPC_SERIAL_NUMBER,
     ESV_GET,
+    ESV_INFC,
+    ESV_INFC_RES,
     NODE_PROFILE_INSTANCE,
     Frame,
     Property,
@@ -615,3 +617,70 @@ class TestAsyncGet:
         # client._protocol is None
         result = await client.get(node_id, EOJ(0x013001), [0x80])
         assert result == []
+
+
+class TestInfcHandling:
+    """Tests for INFC (0x74) confirmation handling."""
+
+    @staticmethod
+    def _simulate_receive(client: HemsClient, frame: Frame, address: str) -> None:
+        """Simulate receiving a frame via _on_receive."""
+        frame_data = frame.encode()
+        client._on_receive(frame_data, (address, 3610))
+
+    @pytest.fixture
+    def client_with_protocol(self) -> HemsClient:
+        """Create a client with mocked protocol."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        client._protocol.send = MagicMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_infc_response_sent_on_receipt(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """Test that INFC_RES (0x7A) is sent when INFC (0x74) is received."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        # Create an INFC (0x74) frame from a device
+        infc_frame = Frame(
+            tid=42,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INFC,
+            properties=[
+                Property(epc=0x80, edt=b"\x30"),
+                Property(epc=0xB0, edt=b"\x42"),
+            ],
+        )
+
+        # Simulate receiving the INFC frame
+        self._simulate_receive(client, infc_frame, "192.168.1.10")
+
+        # Give async task time to complete
+        await asyncio.sleep(0.1)
+
+        # Verify that protocol.send was called for the INFC_RES response
+        assert client._protocol is not None
+        assert client._protocol.send.call_count >= 1  # type: ignore[attr-defined]
+
+        # Get the response frame data from the send call
+        send_calls = list(client._protocol.send.call_args_list)  # type: ignore[attr-defined]
+        assert len(send_calls) > 0
+
+        # Decode the last sent frame to verify it's INFC_RES
+        last_call_data = send_calls[-1][0][0]  # Get the frame data from the call
+        response_frame = Frame.decode(last_call_data)
+
+        # Verify the response frame is INFC_RES (0x7A)
+        assert response_frame.esv == ESV_INFC_RES
+        # Verify transaction ID is preserved
+        assert response_frame.tid == 42
+        # Verify seoj/deoj are swapped
+        assert response_frame.seoj == CONTROLLER_INSTANCE
+        assert response_frame.deoj == EOJ(0x013001)
+        # Verify properties are included
+        assert len(response_frame.properties) == 2

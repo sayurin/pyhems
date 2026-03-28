@@ -23,6 +23,8 @@ ESV_INF_REQ = 0x63  # Notification request
 ESV_SET_RES = 0x71  # Set response
 ESV_GET_RES = 0x72  # Get response
 ESV_INF = 0x73  # Notification
+ESV_INFC = 0x74  # Notification with confirmation (INFC)
+ESV_INFC_RES = 0x7A  # Confirmation response to INFC
 
 # EPC (Property Codes)
 EPC_IDENTIFICATION_NUMBER = 0x83

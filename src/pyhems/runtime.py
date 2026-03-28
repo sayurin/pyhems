@@ -16,6 +16,8 @@ from .const import (
     ESV_GET,
     ESV_GET_RES,
     ESV_GET_SNA,
+    ESV_INFC,
+    ESV_INFC_RES,
     ESV_SETC,
     GET_MAX_RETRIES,
     GET_TIMEOUT,
@@ -354,6 +356,24 @@ class HemsClient:
             if frame.seoj.class_code == NODE_PROFILE_CLASS:
                 self._handle_node_profile(frame, address)
                 return
+
+            # Send INFC_RES confirmation for INFC (0x74) frames
+            if frame.esv == ESV_INFC:
+                _LOGGER.debug(
+                    "Received INFC (0x74) from %s (EOJ: %r), sending INFC_RES",
+                    address,
+                    frame.seoj,
+                )
+                infc_res = Frame(
+                    tid=frame.tid,
+                    seoj=frame.deoj,
+                    deoj=frame.seoj,
+                    esv=ESV_INFC_RES,
+                    properties=frame.properties,
+                )
+                task = asyncio.create_task(self._send_to_address(infc_res, address))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
             # For non-node-profile frames, lookup node_id by address
             node_id = self._device_addresses.get(address)
