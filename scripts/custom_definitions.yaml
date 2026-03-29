@@ -42,7 +42,6 @@
 
 devices:
   # Air cleaner (空気清浄機)
-  # Sharp Corporation - EPC 0xF1 not in MRA → ADD
   0x0135:
     - epc: 0xF1
       manufacturer_code: 0x000005
@@ -75,10 +74,140 @@ devices:
       name_en: "PM2.5"
       name_ja: "PM2.5"
 
+  # Housing solar power generation (住宅用太陽光発電)
+  0x0279:
+    - epc: 0xF2
+      manufacturer_code: 0x000005
+      byte_offset: 0
+      format: uint16
+      unit: "V"
+      minimum: 0
+      maximum: 65533
+      get: optional
+      name_en: "Input Voltage 1"
+      name_ja: "入力電圧1"
+    - epc: 0xF2
+      manufacturer_code: 0x000005
+      byte_offset: 2
+      format: uint16
+      unit: "V"
+      minimum: 0
+      maximum: 65533
+      get: optional
+      name_en: "Input Voltage 2"
+      name_ja: "入力電圧2"
+    - epc: 0xF2
+      manufacturer_code: 0x000005
+      byte_offset: 4
+      format: uint16
+      unit: "V"
+      minimum: 0
+      maximum: 65533
+      get: optional
+      name_en: "Input Voltage 3"
+      name_ja: "入力電圧3"
+    - epc: 0xF2
+      manufacturer_code: 0x000005
+      byte_offset: 6
+      format: uint16
+      unit: "V"
+      minimum: 0
+      maximum: 65533
+      get: optional
+      name_en: "Input Voltage 4"
+      name_ja: "入力電圧4"
+    - epc: 0xF3
+      manufacturer_code: 0x000005
+      byte_offset: 0
+      format: uint8
+      unit: "A"
+      minimum: 0
+      maximum: 253
+      multipleOf: 0.1
+      get: optional
+      name_en: "Input Current 1"
+      name_ja: "入力電流1"
+    - epc: 0xF3
+      manufacturer_code: 0x000005
+      byte_offset: 1
+      format: uint8
+      unit: "A"
+      minimum: 0
+      maximum: 253
+      multipleOf: 0.1
+      get: optional
+      name_en: "Input Current 2"
+      name_ja: "入力電流2"
+    - epc: 0xF3
+      manufacturer_code: 0x000005
+      byte_offset: 2
+      format: uint8
+      unit: "A"
+      minimum: 0
+      maximum: 253
+      multipleOf: 0.1
+      get: optional
+      name_en: "Input Current 3"
+      name_ja: "入力電流3"
+    - epc: 0xF3
+      manufacturer_code: 0x000005
+      byte_offset: 3
+      format: uint8
+      unit: "A"
+      minimum: 0
+      maximum: 253
+      multipleOf: 0.1
+      get: optional
+      name_en: "Input Current 4"
+      name_ja: "入力電流4"
+    - epc: 0xF4
+      manufacturer_code: 0x000005
+      byte_offset: 0
+      format: uint16
+      unit: "W"
+      minimum: 0
+      maximum: 65533
+      multipleOf: 10
+      get: optional
+      name_en: "Input Power 1"
+      name_ja: "入力電力1"
+    - epc: 0xF4
+      manufacturer_code: 0x000005
+      byte_offset: 2
+      format: uint16
+      unit: "W"
+      minimum: 0
+      maximum: 65533
+      multipleOf: 10
+      get: optional
+      name_en: "Input Power 2"
+      name_ja: "入力電力2"
+    - epc: 0xF4
+      manufacturer_code: 0x000005
+      byte_offset: 4
+      format: uint16
+      unit: "W"
+      minimum: 0
+      maximum: 65533
+      multipleOf: 10
+      get: optional
+      name_en: "Input Power 3"
+      name_ja: "入力電力3"
+    - epc: 0xF4
+      manufacturer_code: 0x000005
+      byte_offset: 6
+      format: uint16
+      unit: "W"
+      minimum: 0
+      maximum: 65533
+      multipleOf: 10
+      get: optional
+      name_en: "Input Power 4"
+      name_ja: "入力電力4"
+
   # Air conditioner ventilation fan (空調換気扇)
   # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
   # MRA bug: "false" (OFF) is incorrectly labeled "Heat exchanger ON"
-  # EPC 0xE0 exists in MRA → UPDATE
   0x0134:
     - epc: 0xE0
       enum_values:
