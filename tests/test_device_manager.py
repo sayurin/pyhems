@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -467,6 +468,145 @@ class TestProcessInstanceListEvent:
         node = dm.data[result[0]]
         assert node.product_code == "NP_PRODUCT"
         assert node.serial_number == "NP_SERIAL"
+
+    @pytest.mark.asyncio
+    async def test_debug_dump_executed_when_debug_enabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Debug dump issues a second client.get call when DEBUG logging is enabled."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80, 0xC0})  # 0xC0 is inf-only (not in get_epcs)
+
+        setup_response = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+        ]
+        dump_response = [
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b""),  # no response
+        ]
+        client.get.side_effect = [setup_response, dump_response]
+
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="pyhems.device_manager"):
+            result = await dm.process_instance_list_event(event)
+
+        assert len(result) == 1
+        # One call for setup, one for debug dump
+        assert client.get.call_count == 2
+        dump_call_args = client.get.call_args_list[1].args
+        assert dump_call_args[0] == node_id
+        assert dump_call_args[1] == eoj
+        assert dump_call_args[2] == sorted(get_epcs)
+        assert any("Debug dump" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_debug_dump_skipped_at_info_level(self) -> None:
+        """Debug dump is skipped when logger level is INFO (no extra client.get call)."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+        ]
+
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        # Set logger to INFO — isEnabledFor(DEBUG) returns False, dump is skipped
+        logger = logging.getLogger("pyhems.device_manager")
+        original_level = logger.level
+        logger.setLevel(logging.INFO)
+        try:
+            result = await dm.process_instance_list_event(event)
+        finally:
+            logger.setLevel(original_level)
+
+        assert len(result) == 1
+        # Only the setup call, no debug dump call
+        assert client.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_debug_dump_exception_does_not_affect_setup(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An exception during debug dump does not prevent device from being added."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+
+        setup_response = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+        ]
+        # Second call (debug dump) raises an exception
+        client.get.side_effect = [setup_response, OSError("network error")]
+
+        added_keys: list[str] = []
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
+        dm.on_device_added(added_keys.append)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="pyhems.device_manager"):
+            result = await dm.process_instance_list_event(event)
+
+        # Device was still successfully added despite dump exception
+        assert len(result) == 1
+        assert added_keys == result
+        assert any("Debug dump failed" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

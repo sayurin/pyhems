@@ -397,6 +397,28 @@ class DeviceManager:
                 bytes(sorted(inf_epcs)).hex(),
             )
 
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                try:
+                    dump_results = await self._client.get(
+                        node_id, eoj, sorted(node.get_epcs)
+                    )
+                    responded = sum(1 for p in dump_results if p.edt)
+                    inf_only = sorted(node.inf_epcs - node.get_epcs)
+                    lines = [
+                        f"  EPC 0x{p.epc:02X}: {p.edt.hex() if p.edt else '(no response)'}"
+                        for p in dump_results
+                    ] + [f"  EPC 0x{epc:02X}: (inf-only)" for epc in inf_only]
+                    _LOGGER.debug(
+                        "Debug dump for %s: %d get_epcs, %d responded, %d inf-only\n%s",
+                        device_key,
+                        len(node.get_epcs),
+                        responded,
+                        len(inf_only),
+                        "\n".join(lines),
+                    )
+                except Exception:
+                    _LOGGER.debug("Debug dump failed for %s", device_key)
+
             for cb in self._on_device_added:
                 cb(device_key)
 
