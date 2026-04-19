@@ -419,12 +419,14 @@ def generate_definitions(mra_path: Path) -> dict[str, Any]:
             if entity:
                 entities.append(entity)
 
-        if entities:
-            devices[class_code] = {
-                "name_en": class_name_data["en"],
-                "name_ja": class_name_data["ja"],
-                "entities": entities,
-            }
+        # Register all MRA device classes, even those without device-specific
+        # entities, so common entities (e.g., operation status 0x80) are
+        # still applied via _load_devices().
+        devices[class_code] = {
+            "name_en": class_name_data["en"],
+            "name_ja": class_name_data["ja"],
+            "entities": entities,
+        }
 
     return {
         "version": "1.0.0",
