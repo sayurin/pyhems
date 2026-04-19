@@ -227,6 +227,11 @@
     }
   ],
   "devices": {
+    "1533": {
+      "entities": [],
+      "name_en": "Switch (supporting JEM-A/HA terminals)",
+      "name_ja": "スイッチ (JEM-A/HA端子対応)"
+    },
     "1535": {
       "entities": [
         {
