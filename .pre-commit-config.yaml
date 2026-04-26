@@ -23,6 +23,8 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
+        # Manufacturer names are not subject to spell checking.
+        exclude: ^scripts/manufacturer_codes\.yaml$
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.14.1
     hooks:

@@ -44,6 +44,7 @@ from pydantic import BaseModel
 PYHEMS_DIR = Path(__file__).parent.parent / "src" / "pyhems"
 MRA_DIR = Path(__file__).parent.parent / "mra"
 CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
+MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 
 
 # ============================================================================
@@ -428,12 +429,44 @@ def generate_definitions(mra_path: Path) -> dict[str, Any]:
             "entities": entities,
         }
 
+    manufacturers = _load_manufacturer_codes(MANUFACTURER_CODES_FILE)
+
     return {
         "version": "1.0.0",
         "mra_version": mra_version,
         "common": common_entities,
         "devices": devices,
+        "manufacturers": manufacturers,
     }
+
+
+# ============================================================================
+# Manufacturer Codes Loading
+# ============================================================================
+
+
+def _load_manufacturer_codes(path: Path) -> dict[int, dict[str, Any]]:
+    """Load manufacturer codes from YAML.
+
+    Returns a mapping of manufacturer code (int) to a dict with name_en,
+    name_ja and web_site. Returns an empty dict if the file does not exist.
+    """
+    if not path.exists():
+        return {}
+
+    with path.open(encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    result: dict[int, dict[str, Any]] = {}
+    for entry in data.get("manufacturers", []):
+        code = entry.get("manufacturer_code")
+        if code is None:
+            continue
+        result[int(code)] = {
+            "name_en": entry.get("name_en"),
+            "name_ja": entry.get("name_ja"),
+        }
+    return result
 
 
 # ============================================================================
@@ -713,10 +746,12 @@ def main() -> None:
     entity_count = sum(
         len(d.get("entities", [])) for d in definitions.get("devices", {}).values()
     )
+    manufacturer_count = len(definitions.get("manufacturers", {}))
     print("\nSummary:")
     print(f"  MRA version: {definitions.get('mra_version', 'unknown')}")
     print(f"  Devices: {device_count}")
     print(f"  Entities: {entity_count}")
+    print(f"  Manufacturers: {manufacturer_count}")
 
 
 if __name__ == "__main__":

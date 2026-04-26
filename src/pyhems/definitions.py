@@ -269,6 +269,19 @@ class DeviceDefinition:
     entities: tuple[EntityDefinition, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ManufacturerDefinition:
+    """Definition of an ECHONET Lite manufacturer.
+
+    Attributes:
+        name_en: English company name.
+        name_ja: Japanese company name.
+    """
+
+    name_en: str
+    name_ja: str
+
+
 # ============================================================================
 # Definitions Registry
 # ============================================================================
@@ -287,11 +300,13 @@ class DefinitionsRegistry:
         version: Definitions format version
         mra_version: MRA data version
         entities: Mapping of class_code to tuples of EntityDefinition
+        manufacturers: Mapping of manufacturer code to ManufacturerDefinition
     """
 
     version: str
     mra_version: str
     entities: dict[int, tuple[EntityDefinition, ...]]
+    manufacturers: dict[int, ManufacturerDefinition]
 
 
 # ============================================================================
@@ -494,9 +509,27 @@ def load_definitions_registry(
     )
 
     entities = _build_entities(devices)
+    manufacturers = _load_manufacturers(data.get("manufacturers", {}))
 
     return DefinitionsRegistry(
         version=version,
         mra_version=mra_version,
         entities=entities,
+        manufacturers=manufacturers,
     )
+
+
+def _load_manufacturers(
+    manufacturers_data: dict[str, Any],
+) -> dict[int, ManufacturerDefinition]:
+    """Parse manufacturers section of definitions.json.
+
+    Keys in JSON are strings; convert to int codes.
+    """
+    return {
+        int(code_key): ManufacturerDefinition(
+            name_en=entry.get("name_en") or "",
+            name_ja=entry.get("name_ja") or "",
+        )
+        for code_key, entry in manufacturers_data.items()
+    }

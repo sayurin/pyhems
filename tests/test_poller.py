@@ -24,6 +24,8 @@ def _make_node(
         last_seen=0.0,
         node_id=device_key.split("-", 1)[0],
         manufacturer_code=0x000001,
+        manufacturer_name_en=None,
+        manufacturer_name_ja=None,
         get_epcs=frozenset(),
         set_epcs=frozenset(),
         inf_epcs=frozenset(),
