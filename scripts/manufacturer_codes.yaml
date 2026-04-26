@@ -1,0 +1,954 @@
+last_update: 2026-04-23
+manufacturers:
+  - manufacturer_code: 0x00006B
+    name_ja: 株式会社アイ・エス・ビー
+    name_en: ISB Corporation
+    web_site: https://www.isb.co.jp/
+  - manufacturer_code: 0x000056
+    name_ja: 株式会社iND
+    name_en: iND Co., Ltd.
+    web_site: https://ind.co.jp/
+  - manufacturer_code: 0x000087
+    name_ja: 株式会社アイ･オー･データ機器
+    name_en: I-O DATA DEVICE, INC.
+    web_site: https://www.iodata.jp/
+  - manufacturer_code: 0x00013E
+    name_ja: 株式会社アイ・グリッド・ソリューションズ
+    name_en: i GRID SOLUTIONS Inc.
+    web_site: https://www.igrid.co.jp/
+  - manufacturer_code: 0x000068
+    name_ja: 株式会社アイシン
+    name_en: AISIN CORPORATION
+    web_site: https://www.aisin.com/jp/
+  - manufacturer_code: 0x00011A
+    name_ja: 株式会社ACCESS
+    name_en: ACCESS CO., LTD.
+    web_site: http://jp.access-company.com/
+  - manufacturer_code: 0x0000AC
+    name_ja: IDEC株式会社
+    name_en: IDEC CORPORATION
+    web_site: https://www.idec.com/
+  - manufacturer_code: 0x00002F
+    name_ja: アイホン株式会社
+    name_en: Aiphone Co., Ltd.
+    web_site: https://www.aiphone.co.jp/
+  - manufacturer_code: 0x000110
+    name_ja: 株式会社あすかソリューション
+    name_en: Asuka Solution Company Ltd.
+    web_site: https://www.asuka-solution.com/
+  - manufacturer_code: 0x000096
+    name_ja: アズビル株式会社
+    name_en: Azbil Corporation
+    web_site: http://www.azbil.com/jp/
+  - manufacturer_code: 0x000133
+    name_ja: 株式会社afterFIT
+    name_en: afterFIT Co., Ltd.
+    web_site: https://afterfit.co.jp/
+  - manufacturer_code: 0x0000ED
+    name_ja: アンフィニ株式会社
+    name_en: INFINI Co., Ltd.
+    web_site: https://ja.wikipedia.org/wiki/%E3%82%A2%E3%83%B3%E3%83%95%E3%82%A3%E3%83%8B_(%E5%A4%A7%E9%98%AA%E5%BA%9C%E3%81%AE%E4%BC%81%E6%A5%AD)
+  - manufacturer_code: 0x000079
+    name_ja: アンリツエンジニアリング株式会社
+    name_en: Anritsu Engineering Co., Ltd.
+    web_site: https://www.anritsu-engineering.co.jp/
+  - manufacturer_code: 0x00007F
+    name_ja: アンリツカスタマーサポート株式会社
+    name_en: Anritsu Customer Support Co., Ltd.
+    web_site: https://www.anritsu.com/ja-jp/anritsu-customersupport
+  - manufacturer_code: 0x000077
+    name_ja: 学校法人幾徳学園　神奈川工科大学
+    name_en: Kanagawa Institute of Technology
+    web_site: https://www.kait.jp/
+  - manufacturer_code: 0x000132
+    name_ja: EX4Energy株式会社
+    name_en: EX4Energy, Inc.
+    web_site: https://ex4energy.jp/
+  - manufacturer_code: 0x0000B0
+    name_ja: 株式会社イデア
+    name_en: idea co.,ltd.
+    web_site: https://www.kk-idea.com/
+  - manufacturer_code: 0x00004D
+    name_ja: 因幡電機産業株式会社
+    name_en: INABA DENKI SANGYO CO., LTD.
+    web_site: https://www.inaba.co.jp/
+  - manufacturer_code: 0x000081
+    name_ja: 岩崎通信機株式会社
+    name_en: IWATSU ELECTRIC CO., LTD.
+    web_site: http://www.iwatsu.co.jp
+  - manufacturer_code: 0x00010F
+    name_ja: 岩谷産業株式会社
+    name_en: Iwatani Corporation
+    web_site: http://www.iwatani.co.jp/jpn/
+  - manufacturer_code: 0x0000B1
+    name_ja: 株式会社インターネットイニシアティブ
+    name_en: Internet Initiative Japan Inc.
+    web_site: http://www.iij.ad.jp
+  - manufacturer_code: 0x000124
+    name_ja: 株式会社インテック
+    name_en: INTEC Inc.
+    web_site: https://www.intec.co.jp/
+  - manufacturer_code: 0x00002C
+    name_ja: 株式会社AFT
+    name_en: AFT Co., Ltd.
+    web_site: https://a-f.biz-web.jp/pc/index.html
+  - manufacturer_code: 0x0000DF
+    name_ja: SMAジャパン株式会社
+    name_en: SMA Japan K.K.
+    web_site: https://www.sma-japan.com/
+  - manufacturer_code: 0x00007E
+    name_ja: SMK株式会社
+    name_en: SMK Corporation
+    web_site: https://www.smk.co.jp/
+  - manufacturer_code: 0x0000F3
+    name_ja: 株式会社エナジーゲートウェイ
+    name_en: Energy Gateway, Inc.
+    web_site: https://www.energy-gateway.co.jp/
+  - manufacturer_code: 0x0000F2
+    name_ja: エナジー・ソリューションズ株式会社
+    name_en: ENERGY SOLUTIONS, Inc.
+    web_site: http://www.energy-itsol.com/
+  - manufacturer_code: 0x00013F
+    name_ja: エナジープールジャパン株式会社
+    name_en: Energy Pool Japan K.K.
+    web_site: https://www.energy-pool.eu/jp/
+  - manufacturer_code: 0x0000DD
+    name_ja: 株式会社エナ・ストーン
+    name_en: Enestone Corporation
+    web_site: http://www.enestone.co.jp
+  - manufacturer_code: 0x000072
+    name_ja: 株式会社エナリス
+    name_en: ENERES Co.,Ltd.
+    web_site: http://www.eneres.co.jp
+  - manufacturer_code: 0x000073
+    name_ja: NECプラットフォームズ株式会社
+    name_en: NEC Platforms, Ltd.
+    web_site: https://www.necplatforms.co.jp/
+  - manufacturer_code: 0x000091
+    name_ja: NECプラットフォームズ株式会社
+    name_en: NEC Platforms, Ltd.
+    web_site: https://www.necplatforms.co.jp/
+  - manufacturer_code: 0x000118
+    name_ja: ＮＥＣマグナスコミュニケーションズ株式会社
+    name_en: NEC Magnus Communications, Ltd.
+    web_site: http://www.necmagnus.com/
+  - manufacturer_code: 0x00007C
+    name_ja: ＮＳＷ株式会社
+    name_en: NSW Inc.
+    web_site: https://www.nsw.co.jp/
+  - manufacturer_code: 0x0000B2
+    name_ja: 株式会社NFブロッサムテクノロジーズ
+    name_en: NF Blossom Technologies, Inc.
+    web_site: https://www.nf-blossom.co.jp/
+  - manufacturer_code: 0x0000A0
+    name_ja: エヌ・ティ・ティ・アドバンステクノロジ株式会社
+    name_en: NTT Advanced Technology Corporation
+    web_site: https://www.ntt-at.co.jp/
+  - manufacturer_code: 0x000023
+    name_ja: エヌ・ティ・ティ・コムウェア株式会社
+    name_en: NTT COMWARE CORPORATION
+    web_site: https://www.nttcom.co.jp/
+  - manufacturer_code: 0x0000E9
+    name_ja: 株式会社NTTスマイルエナジー
+    name_en: NTT Smile Energy Inc.
+    web_site: https://nttse.com/
+  - manufacturer_code: 0x000061
+    name_ja: 株式会社NTTデータ先端技術
+    name_en: NTT DATA INTELLILINK Corporation
+    web_site: https://www.intellilink.co.jp/home.aspx
+  - manufacturer_code: 0x00012E
+    name_ja: エネクラウド株式会社
+    name_en: Enecloud Inc.
+    web_site: https://enecloud.co.jp/
+  - manufacturer_code: 0x000041
+    name_ja: 株式会社エネゲート
+    name_en: Enegate Co., Ltd.
+    web_site: https://www.enegate.co.jp/
+  - manufacturer_code: 0x00010A
+    name_ja: 株式会社エネルギーギャップ
+    name_en: ENERGY GAP CORPORATION
+    web_site: https://www.energygap-jp.com/
+  - manufacturer_code: 0x000113
+    name_ja: 荏原実業株式会社
+    name_en: EBARA JITSUGYO CO., LTD.
+    web_site: https://ejpower.co.jp
+  - manufacturer_code: 0x000057
+    name_ja: エリーパワー株式会社
+    name_en: ELIIY Power Co., Ltd.
+    web_site: https://www.eliiypower.co.jp/
+  - manufacturer_code: 0x000012
+    name_ja: 大井電気株式会社
+    name_en: Oi Electric Co.,Ltd.
+    web_site: http://www.ooi.co.jp
+  - manufacturer_code: 0x0000D8
+    name_ja: 大崎データテック株式会社
+    name_en: OSAKI DATATECH CO., LTD.
+    web_site: https://osakidatatech.com/company/profile/
+  - manufacturer_code: 0x0000F5
+    name_ja: オーデリック株式会社
+    name_en: ODELIC CO., LTD.
+    web_site: https://www.odelic.co.jp/
+  - manufacturer_code: 0x00012C
+    name_ja: オーナンバ株式会社
+    name_en: Onamba Co., Ltd.
+    web_site: https://www.onamba.co.jp
+  - manufacturer_code: 0x00006A
+    name_ja: 岡谷鋼機株式会社
+    name_en: OKAYA & CO., LTD.
+    web_site: https://www.okaya.co.jp/
+  - manufacturer_code: 0x000114
+    name_ja: 岡谷機電株式会社
+    name_en: OkayaKiden Co., Ltd.
+    web_site: https://www.kiden.okaya.co.jp/
+  - manufacturer_code: 0x000137
+    name_ja: 岡谷機電株式会社
+    name_en: OkayaKiden Co., Ltd.
+    web_site: https://www.kiden.okaya.co.jp/
+  - manufacturer_code: 0x000048
+    name_ja: 沖電気工業株式会社
+    name_en: Oki Electric Industry Co., Ltd.
+    web_site: https://www.oki.com/jp/
+  - manufacturer_code: 0x000052
+    name_ja: 大崎電気工業株式会社
+    name_en: Osaki Electric Co., Ltd.
+    web_site: http://www.osaki.co.jp/
+  - manufacturer_code: 0x000064
+    name_ja: オムロン ソーシアルソリューションズ株式会社
+    name_en: OMRON SOCIAL SOLUTIONS Co., Ltd.
+    web_site: https://socialsolution.omron.com/jp/ja/
+  - manufacturer_code: 0x0000D7
+    name_ja: 加賀電子株式会社
+    name_en: Kaga Electronics Co., Ltd.
+    web_site: https://www.taxan.co.jp/
+  - manufacturer_code: 0x00009B
+    name_ja: 株式会社ガスター
+    name_en: GASTAR Co., Ltd.
+    web_site: https://www.gastar.co.jp/
+  - manufacturer_code: 0x0000F0
+    name_ja: 株式会社カネカ
+    name_en: Kaneka Corporation
+    web_site: https://www.kaneka.co.jp/
+  - manufacturer_code: 0x000063
+    name_ja: 河村電器産業株式会社
+    name_en: Kawamura Electric Inc.
+    web_site: http://www.kawamura.co.jp/
+  - manufacturer_code: 0x00009A
+    name_ja: 関西電力送配電株式会社
+    name_en: Kansai Transmission and Distribution, Inc.
+    web_site: https://www.kansai-td.co.jp/
+  - manufacturer_code: 0x00010B
+    name_ja: 株式会社北日本電線
+    name_en: KITANIHON ELECTRIC CABLE CO., LTD.
+    web_site: https://www.kitaniti-td.co.jp/
+  - manufacturer_code: 0x0000BF
+    name_ja: 九州電力送配電株式会社
+    name_en: KYUSHU ELECTRIC POWER TRANSMISSION AND DISTRIBUTION CO.,INC.
+    web_site: https://www.kyuden.co.jp/td_index.html
+  - manufacturer_code: 0x00008C
+    name_ja: 九電テクノシステムズ株式会社
+    name_en: Kyuden Technosystems Corporation
+    web_site: https://www.q-tecno.co.jp/
+  - manufacturer_code: 0x00003B
+    name_ja: 京セラ株式会社
+    name_en: KYOCERA Corporation
+    web_site: http://www.kyocera.co.jp/
+  - manufacturer_code: 0x000130
+    name_ja: 株式会社クールデザイン
+    name_en: cooldesign.
+    web_site: http://www.cooldesign.jp/
+  - manufacturer_code: 0x00013A
+    name_ja: 株式会社ＧＵＧＥＮ
+    name_en: GUGEN Inc.
+    web_site: https://gugen.tech/
+  - manufacturer_code: 0x000129
+    name_ja: GoodWe　Japan株式会社
+    name_en: GoodWe Japan K.K.
+    web_site: https://jp.goodwe.com/
+  - manufacturer_code: 0x000134
+    name_ja: GoodWe Technologies Co.,Ltd.
+    name_en: GoodWe Technologies Co.,Ltd.
+    web_site: https://en.goodwe.com/
+  - manufacturer_code: 0x00008F
+    name_ja: 株式会社グラモ
+    name_en: Glamo Inc.
+    web_site: http://glamo.co.jp/
+  - manufacturer_code: 0x00013B
+    name_ja: 株式会社Crossdoor
+    name_en: Crossdoor Inc.
+    web_site: https://www.crossdoor.co.jp/
+  - manufacturer_code: 0x0000E8
+    name_ja: コイズミ照明株式会社
+    name_en: KOIZUMI Lighting Technology Corp.
+    web_site: http://www.koizumi-lt.co.jp/
+  - manufacturer_code: 0x000067
+    name_ja: 株式会社コロナ
+    name_en: CORONA CORPORATION
+    web_site: http://www.corona.co.jp/
+  - manufacturer_code: 0x000123
+    name_ja: 株式会社コンテック
+    name_en: Contec Co., Ltd.
+    web_site: https://www.contec.com/jp/
+  - manufacturer_code: 0x000128
+    name_ja: 埼広エンジニヤリング株式会社
+    name_en: Saiko Engineering Co., Ltd.
+    web_site: https://www.saikoh-e.co.jp
+  - manufacturer_code: 0x00006E
+    name_ja: 株式会社サウンドビジョン
+    name_en: Sound Vision Co., Ltd.
+    web_site: https://www.soundvision.co.jp/
+  - manufacturer_code: 0x00011E
+    name_ja: 株式会社サカイガワ
+    name_en: SAKAIGAWA Corporation Co.Ltd.
+    web_site: https://www.sakaigawa.com/
+  - manufacturer_code: 0x000093
+    name_ja: 佐鳥電機株式会社
+    name_en: SATORI ELECTRIC CO., LTD.
+    web_site: http://www.satori.co.jp/
+  - manufacturer_code: 0x00010E
+    name_ja: 株式会社サニックス
+    name_en: SANIX INCORPORATED
+    web_site: https://www.sanix.jp/
+  - manufacturer_code: 0x0000BA
+    name_ja: 三協立山株式会社
+    name_en: Sankyo Tateyama, Inc.
+    web_site: http://www.st-grp.co.jp/
+  - manufacturer_code: 0x000116
+    name_ja: Sungrow Power Supply Co., Ltd.
+    name_en: Sungrow Power Supply Co., Ltd.
+    web_site: https://en.sungrowpower.com/
+  - manufacturer_code: 0x0000DB
+    name_ja: サンテックパワージャパン株式会社
+    name_en: Suntech Power Japan Corporation
+    web_site: http://www.suntech-power.co.jp/
+  - manufacturer_code: 0x00011C
+    name_ja: サンデン・リテールシステム株式会社
+    name_en: Sanden Retail Systems Corporation
+    web_site: https://www.sanden-retail-systems.com/
+  - manufacturer_code: 0x000101
+    name_ja: サンポット株式会社
+    name_en: Sunpot Co., Ltd.
+    web_site: https://www.sunpot.co.jp/
+  - manufacturer_code: 0x0000C5
+    name_ja: 三和シヤッター工業株式会社
+    name_en: SANWA SHUTTER CORP.
+    web_site: http://www.sanwa-ss.co.jp/
+  - manufacturer_code: 0x0000FB
+    name_ja: 志幸技研工業株式会社
+    name_en: CICO CORPORATION
+    web_site: https://www.cico.co.jp/
+  - manufacturer_code: 0x00002E
+    name_ja: 四国計測工業株式会社
+    name_en: Shikoku Instrumentation CO.,LTD.
+    web_site: http://www.yonkei.co.jp
+  - manufacturer_code: 0x0000AE
+    name_ja: 四国電力送配電株式会社
+    name_en: YONDEN T&D
+    web_site: https://www.yonden.co.jp/nw/
+  - manufacturer_code: 0x00009F
+    name_ja: 株式会社GSユアサ
+    name_en: GS Yuasa International Ltd.
+    web_site: https://www.gs-yuasa.com/jp/
+  - manufacturer_code: 0x00010D
+    name_ja: 株式会社Shizen Connect
+    name_en: Shizen Connect, Inc.
+    web_site: https://www.se-digital.net/
+  - manufacturer_code: 0x0000F8
+    name_ja: 株式会社シムックスイニシアティブ
+    name_en: CIMX Initiative Inc.
+    web_site: https://www.cimx-initiative.com/
+  - manufacturer_code: 0x000005
+    name_ja: シャープ株式会社
+    name_en: SHARP CORPORATION
+    web_site: https://jp.sharp/
+  - manufacturer_code: 0x0000CA
+    name_ja: 株式会社ジェイエスピー
+    name_en: JSP Co., Ltd.
+    web_site: https://www.jspnet.co.jp/
+  - manufacturer_code: 0x0000F7
+    name_ja: 株式会社ジェイシティ
+    name_en: JCity,Inc.
+    web_site: https://www.jcity.co.jp/
+  - manufacturer_code: 0x000131
+    name_ja: Shenzhen Eternalplanet Energy Pingshan Ltd.
+    name_en: Shenzhen Eternalplanet Energy Pingshan Ltd.
+    web_site: https://echonet.jp/introduce/gz-000900/
+  - manufacturer_code: 0x0000CE
+    name_ja: 新電元工業株式会社
+    name_en: Shindengen Electric Manufacturing Co., Ltd.
+    web_site: https://www.shindengen.co.jp/
+  - manufacturer_code: 0x000144
+    name_ja: Sky Electric Japan 株式会社
+    name_en: Sky Electric Japan K.K.
+    web_site: https://skyelectricjapan.com/
+  - manufacturer_code: 0x00007A
+    name_ja: 図研エルミック株式会社
+    name_en: Zuken Elmic, Inc.
+    web_site: https://www.elwsc.co.jp/
+  - manufacturer_code: 0x000100
+    name_ja: スマートソーラー株式会社
+    name_en: Smart Solar Corporation
+    web_site: https://www.smartsolar.co.jp/
+  - manufacturer_code: 0x0000A8
+    name_ja: 株式会社スマートパワーシステム
+    name_en: Smart Power System Co., Ltd.
+    web_site: http://www.smartpowersystem.co.jp/
+  - manufacturer_code: 0x00003D
+    name_ja: 住友電気工業株式会社
+    name_en: Sumitomo Electric Industries, Ltd.
+    web_site: http://www.sei.co.jp/
+  - manufacturer_code: 0x00003E
+    name_ja: 住友電工ネットワークス株式会社
+    name_en: Sumitomo Electric Networks, Inc.
+    web_site: null
+  - manufacturer_code: 0x000107
+    name_ja: 株式会社正興電機製作所
+    name_en: Seiko Electric Co., Ltd.
+    web_site: http://www.seiko-denki.co.jp
+  - manufacturer_code: 0x00003A
+    name_ja: 積水ハウス株式会社
+    name_en: Sekisui House, Ltd.
+    web_site: https://www.sekisuihouse.co.jp/
+  - manufacturer_code: 0x00008A
+    name_ja: 株式会社ゼネラル
+    name_en: GENERAL Inc.
+    web_site: https://www.generalww.com/jp/
+  - manufacturer_code: 0x000108
+    name_ja: 株式会社SOUSEI Technology
+    name_en: SOUSEI Technology Inc.
+    web_site: null
+  - manufacturer_code: 0x00011B
+    name_ja: SolaX Power Network Technology (Zhe jiang) Co. , Ltd.
+    name_en: SolaX Power Network Technology (Zhe jiang) Co. , Ltd.
+    web_site: https://www.solaxpower.com/
+  - manufacturer_code: 0x0000E1
+    name_ja: ソフトバンク株式会社
+    name_en: SoftBank Corp.
+    web_site: https://www.softbank.jp/
+  - manufacturer_code: 0x000060
+    name_ja: 株式会社ソニーコンピュータサイエンス研究所
+    name_en: Sony Computer Science Laboratories, Inc.
+    web_site: https://www.sonycsl.co.jp/
+  - manufacturer_code: 0x000008
+    name_ja: ダイキン工業株式会社
+    name_en: DAIKIN INDUSTRIES, LTD.
+    web_site: http://www.daikin.co.jp
+  - manufacturer_code: 0x000015
+    name_ja: 株式会社ダイキンシステムソリューションズ研究所
+    name_en: Daikin System Solutions Laboratory Ltd.
+    web_site: null
+  - manufacturer_code: 0x000141
+    name_ja: 大光電機株式会社
+    name_en: DAIKO ELECTRIC CO.,LTD.
+    web_site: https://www.lighting-daiko.co.jp/
+  - manufacturer_code: 0x000119
+    name_ja: 株式会社ダイヘン
+    name_en: DAIHEN Corporation
+    web_site: http://www.daihen.co.jp/
+  - manufacturer_code: 0x000080
+    name_ja: ダイヤゼブラ電機株式会社
+    name_en: DIAMOND&ZEBRA ELECTRIC MFG.CO.,LTD.
+    web_site: https://ja.wikipedia.org/wiki/%E3%83%80%E3%82%A4%E3%83%A4%E3%82%BC%E3%83%96%E3%83%A9%E9%9B%BB%E6%A9%9F
+  - manufacturer_code: 0x00009C
+    name_ja: ダイヤモンド電機株式会社
+    name_en: Diamond Electric Mfg. Co., Ltd.
+    web_site: https://ja.wikipedia.org/wiki/%E3%83%80%E3%82%A4%E3%83%A4%E3%83%A2%E3%83%B3%E3%83%89%E3%82%A8%E3%83%AC%E3%82%AF%E3%83%88%E3%83%AA%E3%83%83%E3%82%AF%E3%83%9B%E3%83%BC%E3%83%AB%E3%83%87%E3%82%A3%E3%83%B3%E3%82%B0%E3%82%B9
+  - manufacturer_code: 0x00004F
+    name_ja: 大和ハウス工業株式会社
+    name_en: Daiwa House Industry Co., Ltd.
+    web_site: http://www.daiwahouse.co.jp/
+  - manufacturer_code: 0x00012F
+    name_ja: 台湾プラスチックジャパンニューエナジー株式会社
+    name_en: Formosa Bio & Energy Corp Japan
+    web_site: https://www.formosajp.com/
+  - manufacturer_code: 0x0000AF
+    name_ja: タカラスタンダード株式会社
+    name_en: Takara Standard Co., Ltd.
+    web_site: http://www.takara-standard.co.jp/
+  - manufacturer_code: 0x00012D
+    name_ja: 立川ブラインド工業株式会社
+    name_en: Tachikawa Corporation
+    web_site: https://www.blind.co.jp/
+  - manufacturer_code: 0x000117
+    name_ja: WWB株式会社
+    name_en: WWB Corporation
+    web_site: https://wwwb.jp/
+  - manufacturer_code: 0x000136
+    name_ja: 株式会社中央物産
+    name_en: Chuo Bussan Co., Ltd.
+    web_site: https://chubutsu.co.jp/
+  - manufacturer_code: 0x0000B5
+    name_ja: 中国電力株式会社
+    name_en: The Chugoku Electric Power Company, Incorporated
+    web_site: http://www.energia.co.jp/
+  - manufacturer_code: 0x0000A3
+    name_ja: 中部電力パワーグリッド株式会社
+    name_en: Chubu Electric Power Grid Co., Inc.
+    web_site: https://powergrid.chuden.co.jp/
+  - manufacturer_code: 0x0000D2
+    name_ja: 長府工産株式会社
+    name_en: Chofukosan co., ltd.
+    web_site: https://chofukosan.com/
+  - manufacturer_code: 0x0000D5
+    name_ja: 長州産業株式会社
+    name_en: Choshu Industry Co., Ltd.
+    web_site: https://choshu.co.jp/
+  - manufacturer_code: 0x000088
+    name_ja: 株式会社長府製作所
+    name_en: CHOFU SEISAKUSHO Co,Ltd.
+    web_site: http://www.chofu.co.jp/
+  - manufacturer_code: 0x0000C1
+    name_ja: 通研電気工業株式会社
+    name_en: Tsuken Electric Ind. Co., Ltd.
+    web_site: https://www.2ken.co.jp/
+  - manufacturer_code: 0x0000D0
+    name_ja: 株式会社椿本チエイン
+    name_en: Tsubakimoto Chain Co.
+    web_site: http://www.tsubakimoto.jp/
+  - manufacturer_code: 0x000076
+    name_ja: 株式会社TSP
+    name_en: TSP Co.,Ltd.
+    web_site: http://www.tsp-net.co.jp/index.html
+  - manufacturer_code: 0x0000E3
+    name_ja: 株式会社ディーディーエル
+    name_en: DDL Co.,Ltd.
+    web_site: http://www.ddl.co.jp/
+  - manufacturer_code: 0x000103
+    name_ja: データテクノロジー株式会社
+    name_en: Data Technology Inc.
+    web_site: http://www.data-technology.co.jp/
+  - manufacturer_code: 0x0000E4
+    name_ja: 株式会社テクノアイ
+    name_en: TECHNO EYE
+    web_site: https://technoeye.co.jp/
+  - manufacturer_code: 0x000145
+    name_ja: Tesla Japan合同会社
+    name_en: Tesla Japan G.K.
+    web_site: https://www.tesla.com/ja_jp
+  - manufacturer_code: 0x0000EE
+    name_ja: テセラ・テクノロジー株式会社
+    name_en: Tessera Technology Inc.
+    web_site: https://www.tessera.co.jp/
+  - manufacturer_code: 0x0000AD
+    name_ja: デルタ電子株式会社
+    name_en: Delta Electronics (Japan), Inc.
+    web_site: https://www.delta-japan.jp/ja-JP/index
+  - manufacturer_code: 0x0000BE
+    name_ja: 株式会社デンケン
+    name_en: Denken Co., Ltd.
+    web_site: https://www.denken-co.com/
+  - manufacturer_code: 0x00003C
+    name_ja: 株式会社デンソー
+    name_en: DENSO Corporation
+    web_site: https://www.denso.com/jp/ja/
+  - manufacturer_code: 0x000109
+    name_ja: 株式会社デンソー
+    name_en: DENSO Co.,Ltd.
+    web_site: https://www.kk-denso.co.jp/
+  - manufacturer_code: 0x00012B
+    name_ja: 株式会社デンソーウェーブ
+    name_en: DENSO WAVE Incorporated
+    web_site: https://www.denso-wave.com/
+  - manufacturer_code: 0x0000F4
+    name_ja: 株式会社デンソーエアクール
+    name_en: DENSO AIRCOOL Corporation
+    web_site: https://www.denso-aircool.co.jp/
+  - manufacturer_code: 0x0000FF
+    name_ja: 東京電力エナジーパートナー株式会社
+    name_en: TEPCO Energy Partner, Inc.
+    web_site: https://www.tepco.co.jp/ep/
+  - manufacturer_code: 0x000099
+    name_ja: 東京電力ホールディングス株式会社
+    name_en: Tokyo Electric Power Company Holdings, Inc.
+    web_site: http://www.tepco.co.jp
+  - manufacturer_code: 0x000085
+    name_ja: 株式会社東光高岳
+    name_en: TAKAOKA TOKO CO., LTD.
+    web_site: https://www.tktk.co.jp/
+  - manufacturer_code: 0x000035
+    name_ja: 東光東芝メーターシステムズ株式会社
+    name_en: Toshiba Toko Meter Systems Co., Ltd.
+    web_site: https://www.t2ms.co.jp/
+  - manufacturer_code: 0x000016
+    name_ja: 株式会社東芝
+    name_en: TOSHIBA CORPORATION
+    web_site: https://www.global.toshiba/jp/top.html
+  - manufacturer_code: 0x0000D9
+    name_ja: 東芝ITコントロールシステム株式会社
+    name_en: Toshiba IT & Control Systems Corporation
+    web_site: https://ja.wikipedia.org/wiki/%E6%9D%B1%E8%8A%9DIT%E3%82%B3%E3%83%B3%E3%83%88%E3%83%AD%E3%83%BC%E3%83%AB%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0
+  - manufacturer_code: 0x0000EC
+    name_ja: 東芝エネルギーシステムズ株式会社
+    name_en: Toshiba Energy Systems & Solutions Corporation
+    web_site: https://ja.wikipedia.org/wiki/%E6%9D%B1%E8%8A%9D%E3%82%A8%E3%83%8D%E3%83%AB%E3%82%AE%E3%83%BC%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0%E3%82%BA
+  - manufacturer_code: 0x000043
+    name_ja: 東芝ユニファイドテクノロジーズ㈱
+    name_en: Toshiba Unified Technologies Corporation
+    web_site: https://www.toshiba-uft.co.jp/uft/
+  - manufacturer_code: 0x000069
+    name_ja: 東芝ライフスタイル株式会社
+    name_en: Toshiba Lifestyle Products & Services Corporation
+    web_site: https://www.toshiba-lifestyle.com/jp/
+  - manufacturer_code: 0x00001B
+    name_ja: 東芝ライテック株式会社
+    name_en: Toshiba Lighting & Technology Corporation
+    web_site: https://www.tlt.co.jp/
+  - manufacturer_code: 0x000050
+    name_ja: ＴＯＴＯ株式会社
+    name_en: TOTO LTD.
+    web_site: https://jp.toto.com/
+  - manufacturer_code: 0x000111
+    name_ja: 東プレ株式会社
+    name_en: Topre Corporation
+    web_site: https://www.topre.co.jp/
+  - manufacturer_code: 0x0000F9
+    name_ja: 東邦電子株式会社
+    name_en: Toho Electronics Inc.
+    web_site: https://toho-inc.com/toho/
+  - manufacturer_code: 0x0000C2
+    name_ja: 東北計器工業株式会社
+    name_en: Tohoku Electric Meter Industry Co.,Inc.
+    web_site: https://www.keiko.co.jp/
+  - manufacturer_code: 0x0000BC
+    name_ja: 東北電力ネットワーク株式会社
+    name_en: Tohoku Electric Power Network Co., Inc.
+    web_site: https://nw.tohoku-epco.co.jp/
+  - manufacturer_code: 0x000126
+    name_ja: 株式会社戸上電機製作所
+    name_en: Togami Electric Mfg. Co., Ltd.
+    web_site: https://www.togami-elec.co.jp/
+  - manufacturer_code: 0x000143
+    name_ja: 徳業エネルギー日本株式会社
+    name_en: Ningbo Deye Technology Co., Ltd.
+    web_site: https://jp.deyeinverter.com/
+  - manufacturer_code: 0x0000CD
+    name_ja: トクラス株式会社
+    name_en: Toclas Corporation
+    web_site: http://www.toclas.co.jp/
+  - manufacturer_code: 0x0000B3
+    name_ja: 特定非営利活動法人TOPPERSプロジェクト
+    name_en: TOPPERS Project, Inc.
+    web_site: https://www.toppers.jp/
+  - manufacturer_code: 0x0000EF
+    name_ja: 株式会社豊田自動織機
+    name_en: Toyota Industries Corporation
+    web_site: https://www.toyota-shokki.co.jp/
+  - manufacturer_code: 0x000121
+    name_ja: トヨタ自動車株式会社
+    name_en: Toyota Motor Corporation
+    web_site: https://global.toyota/jp/
+  - manufacturer_code: 0x00011F
+    name_ja: 豊田通商株式会社
+    name_en: Toyota Tsusho Corporation
+    web_site: https://www.toyota-tsusho.com/
+  - manufacturer_code: 0x00005C
+    name_ja: トランスブート株式会社
+    name_en: Tranceboot Co.,Ltd.
+    web_site: http://www.tranceboot.com/
+  - manufacturer_code: 0x000138
+    name_ja: TRENDE株式会社
+    name_en: TRENDE Inc.
+    web_site: https://trende.jp/
+  - manufacturer_code: 0x000086
+    name_ja: 西日本電信電話株式会社
+    name_en: Nippon Telegraph and Telephone West Corporation
+    web_site: https://www.ntt-west.co.jp/
+  - manufacturer_code: 0x000112
+    name_ja: 日栄インテック株式会社
+    name_en: Nichiei Intec Co., Ltd.
+    web_site: https://www.nichieiintec.jp/
+  - manufacturer_code: 0x00006C
+    name_ja: ニチコン株式会社
+    name_en: NICHICON CORPORATION
+    web_site: https://www.nichicon.co.jp/
+  - manufacturer_code: 0x0000EB
+    name_ja: ニチコン亀岡株式会社
+    name_en: Nichicon Kameoka Corporation
+    web_site: null
+  - manufacturer_code: 0x000102
+    name_ja: ニチコン草津株式会社
+    name_en: Nichicon Kusatsu Corporation
+    web_site: null
+  - manufacturer_code: 0x0000A5
+    name_ja: 株式会社ニチベイ
+    name_en: Nichibei Co., Ltd.
+    web_site: https://www.nichi-bei.co.jp/
+  - manufacturer_code: 0x000036
+    name_ja: 株式会社日新システムズ
+    name_en: NISSIN SYSTEMS Co.,Ltd.
+    web_site: http://www.co-nss.co.jp/
+  - manufacturer_code: 0x0000B7
+    name_ja: 日東工業株式会社
+    name_en: Nitto Kogyo Corporation
+    web_site: https://www.nito.co.jp/
+  - manufacturer_code: 0x00013D
+    name_ja: 日本瓦斯株式会社
+    name_en: Nippon Gas Co., Ltd.
+    web_site: https://www.nichigas.co.jp/
+  - manufacturer_code: 0x000017
+    name_ja: 日本キヤリア株式会社
+    name_en: Carrier Japan Corporation
+    web_site: https://www.toshiba-carrier.co.jp/
+  - manufacturer_code: 0x000009
+    name_ja: 日本電気株式会社
+    name_en: NEC Corporation
+    web_site: https://jpn.nec.com/
+  - manufacturer_code: 0x0000C3
+    name_ja: 日本電気計器検定所
+    name_en: Japan Electric Meters Inspection Corporation
+    web_site: https://www.jemic.go.jp/
+  - manufacturer_code: 0x00008D
+    name_ja: 日本電信電話株式会社
+    name_en: Nippon Telegraph and Telephone Corporation
+    web_site: https://group.ntt/jp/
+  - manufacturer_code: 0x000071
+    name_ja: 株式会社日本産業
+    name_en: Nihon Sangyo Co., Ltd.
+    web_site: https://www.ichijo.co.jp/corporate/outline/nissan/
+  - manufacturer_code: 0x0000DC
+    name_ja: 日本テクノ株式会社
+    name_en: NIHON TECHNO CO., LTD.
+    web_site: http://www.n-techno.co.jp/
+  - manufacturer_code: 0x000106
+    name_ja: Nature株式会社
+    name_en: Nature Inc.
+    web_site: https://nature.global/
+  - manufacturer_code: 0x000104
+    name_ja: ネクストエナジー・アンド・リソース株式会社
+    name_en: Next Energy & Resources Co., Ltd.
+    web_site: https://www.nextenergy.jp/
+  - manufacturer_code: 0x0000E2
+    name_ja: NextDrive株式会社
+    name_en: NextDrive K.K.
+    web_site: https://www.nextdrive.io/jp/
+  - manufacturer_code: 0x000146
+    name_ja: 株式会社ノエックス
+    name_en: NOEX inc.
+    web_site: https://noex-inc.co.jp/
+  - manufacturer_code: 0x000054
+    name_ja: 株式会社ノーリツ
+    name_en: NORITZ Corporation
+    web_site: http://www.noritz.co.jp
+  - manufacturer_code: 0x000082
+    name_ja: パーパス株式会社
+    name_en: Purpose Co., ltd.
+    web_site: http://www.purpose.co.jp/
+  - manufacturer_code: 0x000147
+    name_ja: 株式会社Haiot
+    name_en: Haiot Co., Ltd.
+    web_site: https://haiot.jp/#what-we-do
+  - manufacturer_code: 0x00006F
+    name_ja: 株式会社バッファロー
+    name_en: BUFFALO INC.
+    web_site: http://buffalo.jp/
+  - manufacturer_code: 0x00000B
+    name_ja: パナソニック HVAC & CC株式会社
+    name_en: Panasonic HVAC & CC Co., Ltd.
+    web_site: https://panasonic.co.jp/hvac-cc/corp/
+  - manufacturer_code: 0x0000FE
+    name_ja: パナソニック HVAC & CC株式会社
+    name_en: Panasonic HVAC & CC Co., Ltd.
+    web_site: https://panasonic.co.jp/hvac-cc/corp/
+  - manufacturer_code: 0x0000DA
+    name_ja: パナソニック産機システムズ株式会社
+    name_en: Panasonic Commercial Equipment Systems Co.,Ltd.
+    web_site: https://ja.wikipedia.org/wiki/%E3%83%91%E3%83%8A%E3%82%BD%E3%83%8B%E3%83%83%E3%82%AF%E7%94%A3%E6%A9%9F%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0%E3%82%BA
+  - manufacturer_code: 0x000127
+    name_ja: 株式会社パロマ
+    name_en: Paloma Co., Ltd.
+    web_site: http://www.paloma.co.jp/
+  - manufacturer_code: 0x000122
+    name_ja: ハンファＱセルズジャパン株式会社
+    name_en: Hanwha Q CELLS Japan Co., Ltd.
+    web_site: https://www.hanwha-japan.com/
+  - manufacturer_code: 0x000047
+    name_ja: 東日本電信電話株式会社
+    name_en: Nippon Telegraph and Telephone East Corporation
+    web_site: https://www.ntt-east.co.jp/
+  - manufacturer_code: 0x000001
+    name_ja: 株式会社日立製作所
+    name_en: Hitachi, Ltd.
+    web_site: https://www.hitachi.co.jp/
+  - manufacturer_code: 0x000022
+    name_ja: 日立グローバルライフソリューションズ株式会社
+    name_en: Hitachi Global Life Solutions, Inc.
+    web_site: https://corp.hitachi-gls.co.jp/
+  - manufacturer_code: 0x000044
+    name_ja: 株式会社日立産機システム
+    name_en: Hitachi Industrial Equipment Systems Co., Ltd.
+    web_site: https://www.hitachi-ies.co.jp/
+  - manufacturer_code: 0x000040
+    name_ja: 株式会社日立ハイテクソリューションズ
+    name_en: Hitachi High-Tech Solutions Corporation
+    web_site: https://www.hitachi-hightech.com/hsl/
+  - manufacturer_code: 0x0000E5
+    name_ja: 株式会社日立パワーソリューションズ
+    name_en: Hitachi Power Solutions Co., Ltd.
+    web_site: https://www.hitachi-power-solutions.com/
+  - manufacturer_code: 0x000115
+    name_ja: 華為技術日本株式会社
+    name_en: Huawei Technologies Co., Ltd.
+    web_site: https://solar.huawei.com/jp/
+  - manufacturer_code: 0x000055
+    name_ja: 株式会社ファミリーネット・ジャパン
+    name_en: FAMILYNET JAPAN CORPORATION
+    web_site: http://www.fnj.co.jp
+  - manufacturer_code: 0x0000F6
+    name_ja: 株式会社フィールドロジック
+    name_en: Field Logic Inc.
+    web_site: http://www.f-logic.jp/
+  - manufacturer_code: 0x0000B4
+    name_ja: フォーアールエナジー株式会社
+    name_en: 4R Energy Corporation
+    web_site: https://www.4r-energy.com/
+  - manufacturer_code: 0x000051
+    name_ja: 富士アイティ株式会社
+    name_en: Fuji IT Co., Ltd.
+    web_site: http://www.fujielectric.co.jp/fit/
+  - manufacturer_code: 0x0000FC
+    name_ja: 富士工業株式会社
+    name_en: FUJI INDUSTRIAL CO., LTD.
+    web_site: https://www.fujioh.com/
+  - manufacturer_code: 0x0000DE
+    name_ja: 富士フイルムビジネスイノベーションジャパン株式会社
+    name_en: FUJIFILM Business Innovation Japan Corp.
+    web_site: https://www.fujifilm.com/fb/ja
+  - manufacturer_code: 0x00004E
+    name_ja: 富士通株式会社
+    name_en: Fujitsu Limited
+    web_site: https://global.fujitsu/ja-jp
+  - manufacturer_code: 0x000090
+    name_ja: 富士通コンポーネント株式会社
+    name_en: FUJITSU COMPONENT LIMITED
+    web_site: https://ja.wikipedia.org/wiki/FCL%E3%82%B3%E3%83%B3%E3%83%9D%E3%83%BC%E3%83%8D%E3%83%B3%E3%83%88
+  - manufacturer_code: 0x0000CB
+    name_ja: 富士電機株式会社
+    name_en: Fuji Electric Co., Ltd.
+    web_site: http://www.fujielectric.co.jp/
+  - manufacturer_code: 0x0000FA
+    name_ja: ぷらっとホーム株式会社
+    name_en: Plat'Home Co., Ltd.
+    web_site: https://www.plathome.co.jp/
+  - manufacturer_code: 0x0000B6
+    name_ja: 文化シヤッター株式会社
+    name_en: Bunka Shutter Co., Ltd.
+    web_site: http://www.bunka-s.co.jp/
+  - manufacturer_code: 0x0000FD
+    name_ja: 株式会社ベルニクス
+    name_en: Bellnix Co., Ltd.
+    web_site: https://www.bellnix.co.jp/
+  - manufacturer_code: 0x0000BB
+    name_ja: 北陸電力送配電株式会社
+    name_en: Hokuriku Electric Power Transmission & Distribution Company
+    web_site: https://www.rikuden.co.jp/nw/
+  - manufacturer_code: 0x0000E6
+    name_ja: 一般財団法人北海道電気保安協会
+    name_en: Hokkaido Electrical Safety Inspection Association
+    web_site: http://www.hochan.jp
+  - manufacturer_code: 0x0000B8
+    name_ja: 北海道電力ネットワーク株式会社
+    name_en: Hokkaido Electric Power Network, Inc.
+    web_site: https://www.hepco.co.jp/network/
+  - manufacturer_code: 0x0000CC
+    name_ja: ボッシュホームコンフォートジャパン株式会社
+    name_en: Bosch Home Comfort Japan, Inc.
+    web_site: https://www.bosch-homecomfortgroup.com/ja/スタートページ/
+  - manufacturer_code: 0x0000A1
+    name_ja: 株式会社本田技術研究所
+    name_en: Honda R&D Co., Ltd.
+    web_site: https://www.honda.co.jp/RandD/
+  - manufacturer_code: 0x000078
+    name_ja: マクセル株式会社
+    name_en: Maxell, Ltd.
+    web_site: https://www.maxell.co.jp/
+  - manufacturer_code: 0x00010C
+    name_ja: マックス株式会社
+    name_en: MAX Co., Ltd.
+    web_site: https://www.max-ltd.co.jp/
+  - manufacturer_code: 0x000006
+    name_ja: 三菱電機株式会社
+    name_en: Mitsubishi Electric Corporation
+    web_site: http://www.mitsubishielectric.co.jp/
+  - manufacturer_code: 0x000034
+    name_ja: 三菱電機エンジニアリング株式会社
+    name_en: Mitsubishi Electric Engineering Co., Ltd.
+    web_site: https://www.mee.co.jp/
+  - manufacturer_code: 0x000105
+    name_ja: 三菱電機照明株式会社
+    name_en: Mitsubishi Electric Lighting Corporation
+    web_site: https://www.mitsubishi-lighting.co.jp/
+  - manufacturer_code: 0x000097
+    name_ja: 株式会社未来技術研究所
+    name_en: Future technology laboratories INC.
+    web_site: https://www.ftl.co.jp/
+  - manufacturer_code: 0x00011D
+    name_ja: mui Lab株式会社
+    name_en: mui Lab, Inc.
+    web_site: https://muilab.com/
+  - manufacturer_code: 0x0000D4
+    name_ja: 株式会社村田製作所
+    name_en: Murata Manufacturing Co., Ltd.
+    web_site: https://www.murata.com/ja-jp
+  - manufacturer_code: 0x000120
+    name_ja: 明星電気株式会社
+    name_en: Meisei Electric Co., Ltd.
+    web_site: https://www.meisei.co.jp/
+  - manufacturer_code: 0x000058
+    name_ja: 株式会社メディオテック
+    name_en: MEDIOTEC Co.,Ltd.
+    web_site: https://mediotec.co.jp/
+  - manufacturer_code: 0x000083
+    name_ja: 株式会社メルコテクノ横浜
+    name_en: Melco Techno Yokohama Corporation
+    web_site: https://www.mt-yokohama.com/
+  - manufacturer_code: 0x00012A
+    name_ja: 株式会社モノクローム
+    name_en: Monochrome Inc.
+    web_site: https://www.monochrome.so/
+  - manufacturer_code: 0x00009E
+    name_ja: 株式会社安川電機
+    name_en: YASKAWA Electric Corporation
+    web_site: https://www.yaskawa.co.jp/
+  - manufacturer_code: 0x000142
+    name_ja: 株式会社Yanekara
+    name_en: Yanekara Inc.
+    web_site: https://yanekara.jp/
+  - manufacturer_code: 0x000095
+    name_ja: 大和電器株式会社
+    name_en: YAMATO DENKI co.,ltd.
+    web_site: https://www.yamatodenki.com/
+  - manufacturer_code: 0x000053
+    name_ja: 株式会社ユビキタスAI
+    name_en: Ubiquitous AI Corporation
+    web_site: https://www.ubiquitous-ai.com
+  - manufacturer_code: 0x000139
+    name_ja: ラトックシステム株式会社
+    name_en: RATOC Systems, Inc.
+    web_site: https://www.ratocsystems.com/
+  - manufacturer_code: 0x0000F1
+    name_ja: 株式会社ラプラス・システム
+    name_en: Laplace System co., Ltd.
+    web_site: https://www.lapsys.co.jp/
+  - manufacturer_code: 0x000140
+    name_ja: Landis+Gyr AG
+    name_en: Landis+Gyr AG
+    web_site: https://www.landisgyr.com/
+  - manufacturer_code: 0x000025
+    name_ja: 株式会社LIXIL
+    name_en: LIXIL Corporation
+    web_site: http://www.lixil.co.jp
+  - manufacturer_code: 0x000125
+    name_ja: 株式会社LiveSmart
+    name_en: LiveSmart KK
+    web_site: https://livesmart.co.jp/
+  - manufacturer_code: 0x000135
+    name_ja: 株式会社リンクジャパン
+    name_en: LinkJapan Inc.
+    web_site: https://linkjapan.co.jp/
+  - manufacturer_code: 0x000059
+    name_ja: リンナイ株式会社
+    name_en: Rinnai Corporation
+    web_site: http://www.rinnai.co.jp/
+  - manufacturer_code: 0x0000E0
+    name_ja: 株式会社Looop
+    name_en: Looop Inc.
+    web_site: https://looop.co.jp/

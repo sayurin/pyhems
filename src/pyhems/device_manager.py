@@ -20,6 +20,7 @@ from .const import (
     ESV_SET_RES,
     ESV_SET_SNA,
 )
+from .definitions import DefinitionsRegistry
 from .eoj import EOJ
 from .frame import Frame, Property
 from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
@@ -129,6 +130,8 @@ class NodeState:
     last_seen: float
     node_id: str
     manufacturer_code: int
+    manufacturer_name_en: str | None
+    manufacturer_name_ja: str | None
     get_epcs: frozenset[int]
     set_epcs: frozenset[int]
     inf_epcs: frozenset[int]
@@ -153,6 +156,7 @@ class DeviceManager:
         self,
         client: HemsClient,
         monitored_epcs: Mapping[int, frozenset[int]],
+        definitions: DefinitionsRegistry,
         class_code_filter: frozenset[int] | None = None,
     ) -> None:
         """Initialize the device manager.
@@ -160,11 +164,14 @@ class DeviceManager:
         Args:
             client: HEMS runtime client for communication.
             monitored_epcs: Mapping of class_code -> EPCs to monitor.
+            definitions: Loaded device definitions registry. Used to resolve
+                manufacturer names from manufacturer codes.
             class_code_filter: If set, only these class codes are accepted.
                 If None, all class codes are accepted.
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
+        self._definitions = definitions
         self._class_code_filter = class_code_filter
 
         self.data: dict[str, NodeState] = {}
@@ -368,6 +375,10 @@ class DeviceManager:
 
             poll_epcs = frozenset((initial_epcs & get_epcs) - inf_epcs)
 
+            mfr = self._definitions.manufacturers.get(manufacturer_code)
+            manufacturer_name_en = mfr.name_en if mfr else None
+            manufacturer_name_ja = mfr.name_ja if mfr else None
+
             node = NodeState(
                 eoj=eoj,
                 properties=properties,
@@ -378,6 +389,8 @@ class DeviceManager:
                 inf_epcs=inf_epcs,
                 poll_epcs=poll_epcs,
                 manufacturer_code=manufacturer_code,
+                manufacturer_name_en=manufacturer_name_en,
+                manufacturer_name_ja=manufacturer_name_ja,
                 product_code=product_code,
                 serial_number=serial_number,
             )
