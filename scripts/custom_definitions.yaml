@@ -205,6 +205,47 @@ devices:
       name_en: "Input Power 4"
       name_ja: "入力電力4"
 
+  # Controller (コントローラ) - Sharp manufacturer-specific properties
+  0x05FF:
+    - epc: 0xF2
+      manufacturer_code: 0x000005
+      format: uint32
+      unit: "W"
+      minimum: 0
+      maximum: 4294967293
+      multipleOf: 0.1
+      get: optional
+      name_en: "Instantaneous Electric Power Sold"
+      name_ja: "瞬時売電電力"
+    - epc: 0xF3
+      manufacturer_code: 0x000005
+      format: uint32
+      unit: "W"
+      minimum: 0
+      maximum: 4294967293
+      multipleOf: 0.1
+      get: optional
+      name_en: "Instantaneous Electric Power Bought"
+      name_ja: "瞬時買電電力"
+    - epc: 0xF4
+      manufacturer_code: 0x000005
+      format: uint32
+      unit: "Wh"
+      minimum: 0
+      maximum: 4294967293
+      get: optional
+      name_en: "Cumulative Electric Energy Sold"
+      name_ja: "積算売電電力量"
+    - epc: 0xF5
+      manufacturer_code: 0x000005
+      format: uint32
+      unit: "Wh"
+      minimum: 0
+      maximum: 4294967293
+      get: optional
+      name_en: "Cumulative Electric Energy Bought"
+      name_ja: "積算買電電力量"
+
   # Air conditioner ventilation fan (空調換気扇)
   # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
   # MRA bug: "false" (OFF) is incorrectly labeled "Heat exchanger ON"
