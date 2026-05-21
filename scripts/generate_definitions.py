@@ -503,6 +503,8 @@ def _apply_overrides(
     patch the matching entity in-place. Any field except ``epc`` and
     ``manufacturer_code`` is applied as an override.  ``enum_values`` uses
     key-based merge (matched by ``key``, updating ``name_en``/``name_ja``).
+    Mentioned keys are also reordered to match the order they appear in the
+    override list; un-mentioned keys keep their original MRA order at the tail.
 
     Args:
         definitions: Generated MRA definitions.
@@ -552,8 +554,13 @@ def _apply_overrides(
                     if field in match_keys:
                         continue
                     if field == "enum_values":
-                        # Key-based merge for enum_values
+                        # Key-based merge for enum_values.
+                        # Mentioned keys are reordered to match the order they
+                        # appear in the override list (and placed before any
+                        # un-mentioned keys, which keep their original MRA
+                        # order at the tail).
                         current_evs = entity.get("enum_values", [])
+                        override_order: list[str] = []
                         for ev_override in value:
                             key = ev_override["key"]
                             matched_evs = [ev for ev in current_evs if ev["key"] == key]
@@ -570,6 +577,15 @@ def _apply_overrides(
                                 if "name_ja" in ev_override:
                                     ev["name_ja"] = ev_override["name_ja"]
                                 override_count += 1
+                            override_order.append(key)
+
+                        if override_order:
+                            key_index = {k: i for i, k in enumerate(override_order)}
+                            tail_index = len(override_order)
+                            current_evs.sort(
+                                key=lambda ev: key_index.get(ev["key"], tail_index)
+                            )
+                            entity["enum_values"] = current_evs
                     else:
                         # Direct field replacement
                         entity[field] = value

@@ -1020,32 +1020,32 @@
             {
               "edt": 65,
               "key": "uppermost",
-              "name_en": "Uppermost",
-              "name_ja": "上"
-            },
-            {
-              "edt": 66,
-              "key": "lowermost",
-              "name_en": "Lowermost",
-              "name_ja": "下"
-            },
-            {
-              "edt": 67,
-              "key": "central",
-              "name_en": "Central",
-              "name_ja": "中央"
+              "name_en": "　　→",
+              "name_ja": "　　→"
             },
             {
               "edt": 68,
               "key": "upperCenter",
-              "name_en": "Midpoint between uppermost and central",
-              "name_ja": "上中"
+              "name_en": "　↘→",
+              "name_ja": "　↘→"
+            },
+            {
+              "edt": 67,
+              "key": "central",
+              "name_en": "　↘　",
+              "name_ja": "　↘　"
             },
             {
               "edt": 69,
               "key": "lowerCenter",
-              "name_en": "Midpoint between lowermost and central",
-              "name_ja": "下中"
+              "name_en": "↓↘　",
+              "name_ja": "↓↘　"
+            },
+            {
+              "edt": 66,
+              "key": "lowermost",
+              "name_en": "↓　　",
+              "name_ja": "↓　　"
             }
           ],
           "epc": 164,
@@ -1058,190 +1058,190 @@
         {
           "enum_values": [
             {
-              "edt": 65,
-              "key": "rc_r",
-              "name_en": "Right center and Right",
-              "name_ja": "右中・右"
-            },
-            {
-              "edt": 66,
-              "key": "l_lc",
-              "name_en": "Left and Left center",
-              "name_ja": "左・左中"
-            },
-            {
-              "edt": 67,
-              "key": "lc_c_rc",
-              "name_en": "Left center, Center and Right center",
-              "name_ja": "左中・中・右中"
-            },
-            {
-              "edt": 68,
-              "key": "l_lc_rc_r",
-              "name_en": "Left, Left center, Right center and Right",
-              "name_ja": "左・左中・右中・右"
-            },
-            {
               "edt": 81,
               "key": "r",
-              "name_en": "Right",
-              "name_ja": "右"
+              "name_en": "　　　　→",
+              "name_ja": "　　　　→"
             },
             {
               "edt": 82,
               "key": "rc",
-              "name_en": "Right center",
-              "name_ja": "右中"
+              "name_en": "　　　↘　",
+              "name_ja": "　　　↘　"
             },
             {
               "edt": 84,
               "key": "c",
-              "name_en": "Center",
-              "name_ja": "中"
-            },
-            {
-              "edt": 85,
-              "key": "c_r",
-              "name_en": "Center and right",
-              "name_ja": "中・右"
-            },
-            {
-              "edt": 86,
-              "key": "c_rc",
-              "name_en": "Center and Right center",
-              "name_ja": "中・右中"
-            },
-            {
-              "edt": 87,
-              "key": "c_rc_r",
-              "name_en": "Center, Right center and Right",
-              "name_ja": "中・右中・右"
+              "name_en": "　　↓　　",
+              "name_ja": "　　↓　　"
             },
             {
               "edt": 88,
               "key": "lc",
-              "name_en": "Left center",
-              "name_ja": "左中"
-            },
-            {
-              "edt": 89,
-              "key": "lc_r",
-              "name_en": "Left center and Right",
-              "name_ja": "左中・右"
-            },
-            {
-              "edt": 90,
-              "key": "lc_rc",
-              "name_en": "Left center and Right center",
-              "name_ja": "左中・右中"
-            },
-            {
-              "edt": 91,
-              "key": "lc_rc_r",
-              "name_en": "Left center, Right center and Right",
-              "name_ja": "左中・右中・右"
-            },
-            {
-              "edt": 92,
-              "key": "lc_c",
-              "name_en": "Left center and Center",
-              "name_ja": "左中・中"
-            },
-            {
-              "edt": 93,
-              "key": "lc_c_r",
-              "name_en": "Left center, Center and Right",
-              "name_ja": "左中・中・右"
-            },
-            {
-              "edt": 95,
-              "key": "lc_c_rc_r",
-              "name_en": "Left center, Center, Right center and Right",
-              "name_ja": "左中・中・右中・右"
+              "name_en": "　↙　　　",
+              "name_ja": "　↙　　　"
             },
             {
               "edt": 96,
               "key": "l",
-              "name_en": "Left",
-              "name_ja": "左"
+              "name_en": "←　　　　",
+              "name_ja": "←　　　　"
+            },
+            {
+              "edt": 65,
+              "key": "rc_r",
+              "name_en": "　　　↘→",
+              "name_ja": "　　　↘→"
+            },
+            {
+              "edt": 85,
+              "key": "c_r",
+              "name_en": "　　↓　→",
+              "name_ja": "　　↓　→"
+            },
+            {
+              "edt": 89,
+              "key": "lc_r",
+              "name_en": "　↙　　→",
+              "name_ja": "　↙　　→"
             },
             {
               "edt": 97,
               "key": "l_r",
-              "name_en": "Left and Right",
-              "name_ja": "左・右"
+              "name_en": "←　　　→",
+              "name_ja": "←　　　→"
+            },
+            {
+              "edt": 86,
+              "key": "c_rc",
+              "name_en": "　　↓↘　",
+              "name_ja": "　　↓↘　"
+            },
+            {
+              "edt": 90,
+              "key": "lc_rc",
+              "name_en": "　↙　↘　",
+              "name_ja": "　↙　↘　"
             },
             {
               "edt": 98,
               "key": "l_rc",
-              "name_en": "Left and Right center",
-              "name_ja": "左・右中"
+              "name_en": "←　　↘　",
+              "name_ja": "←　　↘　"
             },
             {
-              "edt": 99,
-              "key": "l_rc_r",
-              "name_en": "Left, Right center and Right",
-              "name_ja": "左・右中・右"
+              "edt": 92,
+              "key": "lc_c",
+              "name_en": "　↙↓　　",
+              "name_ja": "　↙↓　　"
             },
             {
               "edt": 100,
               "key": "l_c",
-              "name_en": "Left and Center",
-              "name_ja": "左・中"
+              "name_en": "←　↓　　",
+              "name_ja": "←　↓　　"
+            },
+            {
+              "edt": 66,
+              "key": "l_lc",
+              "name_en": "←↙　　　",
+              "name_ja": "←↙　　　"
+            },
+            {
+              "edt": 87,
+              "key": "c_rc_r",
+              "name_en": "　　↓↘→",
+              "name_ja": "　　↓↘→"
+            },
+            {
+              "edt": 91,
+              "key": "lc_rc_r",
+              "name_en": "　↙　↘→",
+              "name_ja": "　↙　↘→"
+            },
+            {
+              "edt": 93,
+              "key": "lc_c_r",
+              "name_en": "　↙↓　→",
+              "name_ja": "　↙↓　→"
+            },
+            {
+              "edt": 67,
+              "key": "lc_c_rc",
+              "name_en": "　↙↓↘　",
+              "name_ja": "　↙↓↘　"
+            },
+            {
+              "edt": 99,
+              "key": "l_rc_r",
+              "name_en": "←　　↘→",
+              "name_ja": "←　　↘→"
             },
             {
               "edt": 101,
               "key": "l_c_r",
-              "name_en": "Left, Center and Right",
-              "name_ja": "左・中・右"
+              "name_en": "←　↓　→",
+              "name_ja": "←　↓　→"
             },
             {
               "edt": 102,
               "key": "l_c_rc",
-              "name_en": "Left, Center and Right center",
-              "name_ja": "左・中・右中"
-            },
-            {
-              "edt": 103,
-              "key": "l_c_rc_r",
-              "name_en": "Left, Center, Right center and Right",
-              "name_ja": "左・中・右中・右"
+              "name_en": "←　↓↘　",
+              "name_ja": "←　↓↘　"
             },
             {
               "edt": 105,
               "key": "l_lc_r",
-              "name_en": "Left, Left center and Right",
-              "name_ja": "左・左中・右"
+              "name_en": "←↙　　→",
+              "name_ja": "←↙　　→"
             },
             {
               "edt": 106,
               "key": "l_lc_rc",
-              "name_en": "Left, Left center and Right center",
-              "name_ja": "左・左中・右中"
+              "name_en": "←↙　↘　",
+              "name_ja": "←↙　↘　"
             },
             {
               "edt": 108,
               "key": "l_lc_c",
-              "name_en": "Left, Left center and center",
-              "name_ja": "左・左中・中"
+              "name_en": "←↙↓　　",
+              "name_ja": "←↙↓　　"
+            },
+            {
+              "edt": 95,
+              "key": "lc_c_rc_r",
+              "name_en": "　↙↓↘→",
+              "name_ja": "　↙↓↘→"
+            },
+            {
+              "edt": 103,
+              "key": "l_c_rc_r",
+              "name_en": "←　↓↘→",
+              "name_ja": "←　↓↘→"
+            },
+            {
+              "edt": 68,
+              "key": "l_lc_rc_r",
+              "name_en": "←↙　↘→",
+              "name_ja": "←↙　↘→"
             },
             {
               "edt": 109,
               "key": "l_lc_c_r",
-              "name_en": "Left, Left center, Center and Right",
-              "name_ja": "左・左中・中・右"
+              "name_en": "←↙↓　→",
+              "name_ja": "←↙↓　→"
             },
             {
               "edt": 110,
               "key": "l_lc_c_rc",
-              "name_en": "Left, Left center, Center and Right center",
-              "name_ja": "左・左中・中・右中"
+              "name_en": "←↙↓↘　",
+              "name_ja": "←↙↓↘　"
             },
             {
               "edt": 111,
               "key": "l_lc_c_rc_r",
-              "name_en": "Left, Left center, Center, Right center and Right",
-              "name_ja": "左・左中・中・右中・右"
+              "name_en": "←↙↓↘→",
+              "name_ja": "←↙↓↘→"
             }
           ],
           "epc": 165,
