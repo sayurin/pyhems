@@ -246,6 +246,127 @@ devices:
       name_en: "Cumulative Electric Energy Bought"
       name_ja: "積算買電電力量"
 
+  # Home air conditioner (家庭用エアコン)
+  # Air flow direction (vertical) setting (風向上下設定) EPC 0xA4
+  # 5 angles from horizontal(→) to downward(↓), expressed as arrow combinations
+  # Air flow direction (horizontal) setting (風向左右設定) EPC 0xA5
+  # Display with arrow symbols instead of verbose text descriptions
+  # 5 fixed positions: L(←) LC(↙) C(↓) RC(↘) R(→)
+  # Absent positions are replaced with fullwidth space (U+3000) to align columns
+  0x0130:
+    - epc: 0xA4
+      enum_values:
+        - key: uppermost
+          name_en: "　　→"
+          name_ja: "　　→"
+        - key: upperCenter
+          name_en: "　↘→"
+          name_ja: "　↘→"
+        - key: central
+          name_en: "　↘　"
+          name_ja: "　↘　"
+        - key: lowerCenter
+          name_en: "↓↘　"
+          name_ja: "↓↘　"
+        - key: lowermost
+          name_en: "↓　　"
+          name_ja: "↓　　"
+    - epc: 0xA5
+      enum_values:
+        - key: r
+          name_en: "　　　　→"
+          name_ja: "　　　　→"
+        - key: rc
+          name_en: "　　　↘　"
+          name_ja: "　　　↘　"
+        - key: c
+          name_en: "　　↓　　"
+          name_ja: "　　↓　　"
+        - key: lc
+          name_en: "　↙　　　"
+          name_ja: "　↙　　　"
+        - key: l
+          name_en: "←　　　　"
+          name_ja: "←　　　　"
+        - key: rc_r
+          name_en: "　　　↘→"
+          name_ja: "　　　↘→"
+        - key: c_r
+          name_en: "　　↓　→"
+          name_ja: "　　↓　→"
+        - key: lc_r
+          name_en: "　↙　　→"
+          name_ja: "　↙　　→"
+        - key: l_r
+          name_en: "←　　　→"
+          name_ja: "←　　　→"
+        - key: c_rc
+          name_en: "　　↓↘　"
+          name_ja: "　　↓↘　"
+        - key: lc_rc
+          name_en: "　↙　↘　"
+          name_ja: "　↙　↘　"
+        - key: l_rc
+          name_en: "←　　↘　"
+          name_ja: "←　　↘　"
+        - key: lc_c
+          name_en: "　↙↓　　"
+          name_ja: "　↙↓　　"
+        - key: l_c
+          name_en: "←　↓　　"
+          name_ja: "←　↓　　"
+        - key: l_lc
+          name_en: "←↙　　　"
+          name_ja: "←↙　　　"
+        - key: c_rc_r
+          name_en: "　　↓↘→"
+          name_ja: "　　↓↘→"
+        - key: lc_rc_r
+          name_en: "　↙　↘→"
+          name_ja: "　↙　↘→"
+        - key: lc_c_r
+          name_en: "　↙↓　→"
+          name_ja: "　↙↓　→"
+        - key: lc_c_rc
+          name_en: "　↙↓↘　"
+          name_ja: "　↙↓↘　"
+        - key: l_rc_r
+          name_en: "←　　↘→"
+          name_ja: "←　　↘→"
+        - key: l_c_r
+          name_en: "←　↓　→"
+          name_ja: "←　↓　→"
+        - key: l_c_rc
+          name_en: "←　↓↘　"
+          name_ja: "←　↓↘　"
+        - key: l_lc_r
+          name_en: "←↙　　→"
+          name_ja: "←↙　　→"
+        - key: l_lc_rc
+          name_en: "←↙　↘　"
+          name_ja: "←↙　↘　"
+        - key: l_lc_c
+          name_en: "←↙↓　　"
+          name_ja: "←↙↓　　"
+        - key: lc_c_rc_r
+          name_en: "　↙↓↘→"
+          name_ja: "　↙↓↘→"
+        - key: l_c_rc_r
+          name_en: "←　↓↘→"
+          name_ja: "←　↓↘→"
+        - key: l_lc_rc_r
+          name_en: "←↙　↘→"
+          name_ja: "←↙　↘→"
+        - key: l_lc_c_r
+          name_en: "←↙↓　→"
+          name_ja: "←↙↓　→"
+        - key: l_lc_c_rc
+          name_en: "←↙↓↘　"
+          name_ja: "←↙↓↘　"
+        - key: l_lc_c_rc_r
+          name_en: "←↙↓↘→"
+          name_ja: "←↙↓↘→"
+
   # Air conditioner ventilation fan (空調換気扇)
   # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
   # MRA bug: "false" (OFF) is incorrectly labeled "Heat exchanger ON"
