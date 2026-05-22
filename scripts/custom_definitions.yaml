@@ -257,115 +257,115 @@ devices:
     - epc: 0xA4
       enum_values:
         - key: uppermost
-          name_en: "　　→"
-          name_ja: "　　→"
+          name_en: "|　　→|"
+          name_ja: "|　　→|"
         - key: upperCenter
-          name_en: "　↘→"
-          name_ja: "　↘→"
+          name_en: "|　↘→|"
+          name_ja: "|　↘→|"
         - key: central
-          name_en: "　↘　"
-          name_ja: "　↘　"
+          name_en: "|　↘　|"
+          name_ja: "|　↘　|"
         - key: lowerCenter
-          name_en: "↓↘　"
-          name_ja: "↓↘　"
+          name_en: "|↓↘　|"
+          name_ja: "|↓↘　|"
         - key: lowermost
-          name_en: "↓　　"
-          name_ja: "↓　　"
+          name_en: "|↓　　|"
+          name_ja: "|↓　　|"
     - epc: 0xA5
       enum_values:
         - key: r
-          name_en: "　　　　→"
-          name_ja: "　　　　→"
+          name_en: "|　　　　→|"
+          name_ja: "|　　　　→|"
         - key: rc
-          name_en: "　　　↘　"
-          name_ja: "　　　↘　"
+          name_en: "|　　　↘　|"
+          name_ja: "|　　　↘　|"
         - key: c
-          name_en: "　　↓　　"
-          name_ja: "　　↓　　"
+          name_en: "|　　↓　　|"
+          name_ja: "|　　↓　　|"
         - key: lc
-          name_en: "　↙　　　"
-          name_ja: "　↙　　　"
+          name_en: "|　↙　　　|"
+          name_ja: "|　↙　　　|"
         - key: l
-          name_en: "←　　　　"
-          name_ja: "←　　　　"
+          name_en: "|←　　　　|"
+          name_ja: "|←　　　　|"
         - key: rc_r
-          name_en: "　　　↘→"
-          name_ja: "　　　↘→"
+          name_en: "|　　　↘→|"
+          name_ja: "|　　　↘→|"
         - key: c_r
-          name_en: "　　↓　→"
-          name_ja: "　　↓　→"
+          name_en: "|　　↓　→|"
+          name_ja: "|　　↓　→|"
         - key: lc_r
-          name_en: "　↙　　→"
-          name_ja: "　↙　　→"
+          name_en: "|　↙　　→|"
+          name_ja: "|　↙　　→|"
         - key: l_r
-          name_en: "←　　　→"
-          name_ja: "←　　　→"
+          name_en: "|←　　　→|"
+          name_ja: "|←　　　→|"
         - key: c_rc
-          name_en: "　　↓↘　"
-          name_ja: "　　↓↘　"
+          name_en: "|　　↓↘　|"
+          name_ja: "|　　↓↘　|"
         - key: lc_rc
-          name_en: "　↙　↘　"
-          name_ja: "　↙　↘　"
+          name_en: "|　↙　↘　|"
+          name_ja: "|　↙　↘　|"
         - key: l_rc
-          name_en: "←　　↘　"
-          name_ja: "←　　↘　"
+          name_en: "|←　　↘　|"
+          name_ja: "|←　　↘　|"
         - key: lc_c
-          name_en: "　↙↓　　"
-          name_ja: "　↙↓　　"
+          name_en: "|　↙↓　　|"
+          name_ja: "|　↙↓　　|"
         - key: l_c
-          name_en: "←　↓　　"
-          name_ja: "←　↓　　"
+          name_en: "|←　↓　　|"
+          name_ja: "|←　↓　　|"
         - key: l_lc
-          name_en: "←↙　　　"
-          name_ja: "←↙　　　"
+          name_en: "|←↙　　　|"
+          name_ja: "|←↙　　　|"
         - key: c_rc_r
-          name_en: "　　↓↘→"
-          name_ja: "　　↓↘→"
+          name_en: "|　　↓↘→|"
+          name_ja: "|　　↓↘→|"
         - key: lc_rc_r
-          name_en: "　↙　↘→"
-          name_ja: "　↙　↘→"
+          name_en: "|　↙　↘→|"
+          name_ja: "|　↙　↘→|"
         - key: lc_c_r
-          name_en: "　↙↓　→"
-          name_ja: "　↙↓　→"
+          name_en: "|　↙↓　→|"
+          name_ja: "|　↙↓　→|"
         - key: lc_c_rc
-          name_en: "　↙↓↘　"
-          name_ja: "　↙↓↘　"
+          name_en: "|　↙↓↘　|"
+          name_ja: "|　↙↓↘　|"
         - key: l_rc_r
-          name_en: "←　　↘→"
-          name_ja: "←　　↘→"
+          name_en: "|←　　↘→|"
+          name_ja: "|←　　↘→|"
         - key: l_c_r
-          name_en: "←　↓　→"
-          name_ja: "←　↓　→"
+          name_en: "|←　↓　→|"
+          name_ja: "|←　↓　→|"
         - key: l_c_rc
-          name_en: "←　↓↘　"
-          name_ja: "←　↓↘　"
+          name_en: "|←　↓↘　|"
+          name_ja: "|←　↓↘　|"
         - key: l_lc_r
-          name_en: "←↙　　→"
-          name_ja: "←↙　　→"
+          name_en: "|←↙　　→|"
+          name_ja: "|←↙　　→|"
         - key: l_lc_rc
-          name_en: "←↙　↘　"
-          name_ja: "←↙　↘　"
+          name_en: "|←↙　↘　|"
+          name_ja: "|←↙　↘　|"
         - key: l_lc_c
-          name_en: "←↙↓　　"
-          name_ja: "←↙↓　　"
+          name_en: "|←↙↓　　|"
+          name_ja: "|←↙↓　　|"
         - key: lc_c_rc_r
-          name_en: "　↙↓↘→"
-          name_ja: "　↙↓↘→"
+          name_en: "|　↙↓↘→|"
+          name_ja: "|　↙↓↘→|"
         - key: l_c_rc_r
-          name_en: "←　↓↘→"
-          name_ja: "←　↓↘→"
+          name_en: "|←　↓↘→|"
+          name_ja: "|←　↓↘→|"
         - key: l_lc_rc_r
-          name_en: "←↙　↘→"
-          name_ja: "←↙　↘→"
+          name_en: "|←↙　↘→|"
+          name_ja: "|←↙　↘→|"
         - key: l_lc_c_r
-          name_en: "←↙↓　→"
-          name_ja: "←↙↓　→"
+          name_en: "|←↙↓　→|"
+          name_ja: "|←↙↓　→|"
         - key: l_lc_c_rc
-          name_en: "←↙↓↘　"
-          name_ja: "←↙↓↘　"
+          name_en: "|←↙↓↘　|"
+          name_ja: "|←↙↓↘　|"
         - key: l_lc_c_rc_r
-          name_en: "←↙↓↘→"
-          name_ja: "←↙↓↘→"
+          name_en: "|←↙↓↘→|"
+          name_ja: "|←↙↓↘→|"
 
   # Air conditioner ventilation fan (空調換気扇)
   # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
