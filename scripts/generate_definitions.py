@@ -503,8 +503,9 @@ def _apply_overrides(
     patch the matching entity in-place. Any field except ``epc`` and
     ``manufacturer_code`` is applied as an override.  ``enum_values`` uses
     key-based merge (matched by ``key``, updating ``name_en``/``name_ja``).
-    Mentioned keys are also reordered to match the order they appear in the
-    override list; un-mentioned keys keep their original MRA order at the tail.
+    When the override covers ALL enum keys, the enum_values are also reordered
+    to match the order they appear in the override list; partial overrides
+    (e.g., label-only fixes) leave the original MRA order unchanged.
 
     Args:
         definitions: Generated MRA definitions.
@@ -555,10 +556,10 @@ def _apply_overrides(
                         continue
                     if field == "enum_values":
                         # Key-based merge for enum_values.
-                        # Mentioned keys are reordered to match the order they
-                        # appear in the override list (and placed before any
-                        # un-mentioned keys, which keep their original MRA
-                        # order at the tail).
+                        # Reordering is applied only when the override covers
+                        # ALL enum keys (full coverage), so that partial
+                        # overrides (label-only fixes) do not disturb the
+                        # original MRA order.
                         current_evs = entity.get("enum_values", [])
                         override_order: list[str] = []
                         for ev_override in value:
@@ -579,12 +580,10 @@ def _apply_overrides(
                                 override_count += 1
                             override_order.append(key)
 
-                        if override_order:
+                        # Only reorder when the override fully covers every key
+                        if override_order and len(override_order) == len(current_evs):
                             key_index = {k: i for i, k in enumerate(override_order)}
-                            tail_index = len(override_order)
-                            current_evs.sort(
-                                key=lambda ev: key_index.get(ev["key"], tail_index)
-                            )
+                            current_evs.sort(key=lambda ev: key_index[ev["key"]])
                             entity["enum_values"] = current_evs
                     else:
                         # Direct field replacement

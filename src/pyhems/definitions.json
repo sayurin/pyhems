@@ -1020,32 +1020,32 @@
             {
               "edt": 65,
               "key": "uppermost",
-              "name_en": "　　→",
-              "name_ja": "　　→"
+              "name_en": "|　　→|",
+              "name_ja": "|　　→|"
             },
             {
               "edt": 68,
               "key": "upperCenter",
-              "name_en": "　↘→",
-              "name_ja": "　↘→"
+              "name_en": "|　↘→|",
+              "name_ja": "|　↘→|"
             },
             {
               "edt": 67,
               "key": "central",
-              "name_en": "　↘　",
-              "name_ja": "　↘　"
+              "name_en": "|　↘　|",
+              "name_ja": "|　↘　|"
             },
             {
               "edt": 69,
               "key": "lowerCenter",
-              "name_en": "↓↘　",
-              "name_ja": "↓↘　"
+              "name_en": "|↓↘　|",
+              "name_ja": "|↓↘　|"
             },
             {
               "edt": 66,
               "key": "lowermost",
-              "name_en": "↓　　",
-              "name_ja": "↓　　"
+              "name_en": "|↓　　|",
+              "name_ja": "|↓　　|"
             }
           ],
           "epc": 164,
@@ -1060,188 +1060,188 @@
             {
               "edt": 81,
               "key": "r",
-              "name_en": "　　　　→",
-              "name_ja": "　　　　→"
+              "name_en": "|　　　　→|",
+              "name_ja": "|　　　　→|"
             },
             {
               "edt": 82,
               "key": "rc",
-              "name_en": "　　　↘　",
-              "name_ja": "　　　↘　"
+              "name_en": "|　　　↘　|",
+              "name_ja": "|　　　↘　|"
             },
             {
               "edt": 84,
               "key": "c",
-              "name_en": "　　↓　　",
-              "name_ja": "　　↓　　"
+              "name_en": "|　　↓　　|",
+              "name_ja": "|　　↓　　|"
             },
             {
               "edt": 88,
               "key": "lc",
-              "name_en": "　↙　　　",
-              "name_ja": "　↙　　　"
+              "name_en": "|　↙　　　|",
+              "name_ja": "|　↙　　　|"
             },
             {
               "edt": 96,
               "key": "l",
-              "name_en": "←　　　　",
-              "name_ja": "←　　　　"
+              "name_en": "|←　　　　|",
+              "name_ja": "|←　　　　|"
             },
             {
               "edt": 65,
               "key": "rc_r",
-              "name_en": "　　　↘→",
-              "name_ja": "　　　↘→"
+              "name_en": "|　　　↘→|",
+              "name_ja": "|　　　↘→|"
             },
             {
               "edt": 85,
               "key": "c_r",
-              "name_en": "　　↓　→",
-              "name_ja": "　　↓　→"
+              "name_en": "|　　↓　→|",
+              "name_ja": "|　　↓　→|"
             },
             {
               "edt": 89,
               "key": "lc_r",
-              "name_en": "　↙　　→",
-              "name_ja": "　↙　　→"
+              "name_en": "|　↙　　→|",
+              "name_ja": "|　↙　　→|"
             },
             {
               "edt": 97,
               "key": "l_r",
-              "name_en": "←　　　→",
-              "name_ja": "←　　　→"
+              "name_en": "|←　　　→|",
+              "name_ja": "|←　　　→|"
             },
             {
               "edt": 86,
               "key": "c_rc",
-              "name_en": "　　↓↘　",
-              "name_ja": "　　↓↘　"
+              "name_en": "|　　↓↘　|",
+              "name_ja": "|　　↓↘　|"
             },
             {
               "edt": 90,
               "key": "lc_rc",
-              "name_en": "　↙　↘　",
-              "name_ja": "　↙　↘　"
+              "name_en": "|　↙　↘　|",
+              "name_ja": "|　↙　↘　|"
             },
             {
               "edt": 98,
               "key": "l_rc",
-              "name_en": "←　　↘　",
-              "name_ja": "←　　↘　"
+              "name_en": "|←　　↘　|",
+              "name_ja": "|←　　↘　|"
             },
             {
               "edt": 92,
               "key": "lc_c",
-              "name_en": "　↙↓　　",
-              "name_ja": "　↙↓　　"
+              "name_en": "|　↙↓　　|",
+              "name_ja": "|　↙↓　　|"
             },
             {
               "edt": 100,
               "key": "l_c",
-              "name_en": "←　↓　　",
-              "name_ja": "←　↓　　"
+              "name_en": "|←　↓　　|",
+              "name_ja": "|←　↓　　|"
             },
             {
               "edt": 66,
               "key": "l_lc",
-              "name_en": "←↙　　　",
-              "name_ja": "←↙　　　"
+              "name_en": "|←↙　　　|",
+              "name_ja": "|←↙　　　|"
             },
             {
               "edt": 87,
               "key": "c_rc_r",
-              "name_en": "　　↓↘→",
-              "name_ja": "　　↓↘→"
+              "name_en": "|　　↓↘→|",
+              "name_ja": "|　　↓↘→|"
             },
             {
               "edt": 91,
               "key": "lc_rc_r",
-              "name_en": "　↙　↘→",
-              "name_ja": "　↙　↘→"
+              "name_en": "|　↙　↘→|",
+              "name_ja": "|　↙　↘→|"
             },
             {
               "edt": 93,
               "key": "lc_c_r",
-              "name_en": "　↙↓　→",
-              "name_ja": "　↙↓　→"
+              "name_en": "|　↙↓　→|",
+              "name_ja": "|　↙↓　→|"
             },
             {
               "edt": 67,
               "key": "lc_c_rc",
-              "name_en": "　↙↓↘　",
-              "name_ja": "　↙↓↘　"
+              "name_en": "|　↙↓↘　|",
+              "name_ja": "|　↙↓↘　|"
             },
             {
               "edt": 99,
               "key": "l_rc_r",
-              "name_en": "←　　↘→",
-              "name_ja": "←　　↘→"
+              "name_en": "|←　　↘→|",
+              "name_ja": "|←　　↘→|"
             },
             {
               "edt": 101,
               "key": "l_c_r",
-              "name_en": "←　↓　→",
-              "name_ja": "←　↓　→"
+              "name_en": "|←　↓　→|",
+              "name_ja": "|←　↓　→|"
             },
             {
               "edt": 102,
               "key": "l_c_rc",
-              "name_en": "←　↓↘　",
-              "name_ja": "←　↓↘　"
+              "name_en": "|←　↓↘　|",
+              "name_ja": "|←　↓↘　|"
             },
             {
               "edt": 105,
               "key": "l_lc_r",
-              "name_en": "←↙　　→",
-              "name_ja": "←↙　　→"
+              "name_en": "|←↙　　→|",
+              "name_ja": "|←↙　　→|"
             },
             {
               "edt": 106,
               "key": "l_lc_rc",
-              "name_en": "←↙　↘　",
-              "name_ja": "←↙　↘　"
+              "name_en": "|←↙　↘　|",
+              "name_ja": "|←↙　↘　|"
             },
             {
               "edt": 108,
               "key": "l_lc_c",
-              "name_en": "←↙↓　　",
-              "name_ja": "←↙↓　　"
+              "name_en": "|←↙↓　　|",
+              "name_ja": "|←↙↓　　|"
             },
             {
               "edt": 95,
               "key": "lc_c_rc_r",
-              "name_en": "　↙↓↘→",
-              "name_ja": "　↙↓↘→"
+              "name_en": "|　↙↓↘→|",
+              "name_ja": "|　↙↓↘→|"
             },
             {
               "edt": 103,
               "key": "l_c_rc_r",
-              "name_en": "←　↓↘→",
-              "name_ja": "←　↓↘→"
+              "name_en": "|←　↓↘→|",
+              "name_ja": "|←　↓↘→|"
             },
             {
               "edt": 68,
               "key": "l_lc_rc_r",
-              "name_en": "←↙　↘→",
-              "name_ja": "←↙　↘→"
+              "name_en": "|←↙　↘→|",
+              "name_ja": "|←↙　↘→|"
             },
             {
               "edt": 109,
               "key": "l_lc_c_r",
-              "name_en": "←↙↓　→",
-              "name_ja": "←↙↓　→"
+              "name_en": "|←↙↓　→|",
+              "name_ja": "|←↙↓　→|"
             },
             {
               "edt": 110,
               "key": "l_lc_c_rc",
-              "name_en": "←↙↓↘　",
-              "name_ja": "←↙↓↘　"
+              "name_en": "|←↙↓↘　|",
+              "name_ja": "|←↙↓↘　|"
             },
             {
               "edt": 111,
               "key": "l_lc_c_rc_r",
-              "name_en": "←↙↓↘→",
-              "name_ja": "←↙↓↘→"
+              "name_en": "|←↙↓↘→|",
+              "name_ja": "|←↙↓↘→|"
             }
           ],
           "epc": 165,
