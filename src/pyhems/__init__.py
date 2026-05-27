@@ -13,6 +13,7 @@ from .const import (
     EPC_GET_PROPERTY_MAP,
     EPC_IDENTIFICATION_NUMBER,
     EPC_INF_PROPERTY_MAP,
+    EPC_INSTALLATION_LOCATION,
     EPC_INSTANCE_LIST,
     EPC_MANUFACTURER_CODE,
     EPC_PRODUCT_CODE,
@@ -35,6 +36,7 @@ from .const import (
 from .definitions import (
     DefinitionsLoadError,
     DefinitionsRegistry,
+    DeviceDefinition,
     EntityDefinition,
     EnumValue,
     ManufacturerDefinition,
@@ -47,6 +49,11 @@ from .definitions import (
 from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
 from .frame import Frame, Property
+from .installation_location import (
+    INSTALLATION_LOCATIONS,
+    InstallationLocation,
+    decode_installation_location,
+)
 from .poller import PropertyPoller
 from .runtime import (
     HemsClient,
@@ -71,6 +78,7 @@ __all__ = [
     "EPC_GET_PROPERTY_MAP",
     "EPC_IDENTIFICATION_NUMBER",
     "EPC_INF_PROPERTY_MAP",
+    "EPC_INSTALLATION_LOCATION",
     "EPC_INSTANCE_LIST",
     "EPC_MANUFACTURER_CODE",
     "EPC_PRODUCT_CODE",
@@ -87,10 +95,12 @@ __all__ = [
     "ESV_SETC",
     "ESV_SET_RES",
     "ESV_SET_SNA",
+    "INSTALLATION_LOCATIONS",
     "NODE_PROFILE_CLASS",
     "NODE_PROFILE_INSTANCE",
     "DefinitionsLoadError",
     "DefinitionsRegistry",
+    "DeviceDefinition",
     "DeviceManager",
     "EchonetLiteProtocol",
     "EntityDefinition",
@@ -100,6 +110,7 @@ __all__ = [
     "HemsErrorEvent",
     "HemsFrameEvent",
     "HemsInstanceListEvent",
+    "InstallationLocation",
     "ManufacturerDefinition",
     "NodeState",
     "Property",
@@ -110,5 +121,6 @@ __all__ = [
     "create_multicast_socket",
     "create_numeric_decoder",
     "create_numeric_encoder",
+    "decode_installation_location",
     "load_definitions_registry",
 ]

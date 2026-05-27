@@ -11,6 +11,7 @@ from .const import (
     CONTROLLER_INSTANCE,
     EPC_GET_PROPERTY_MAP,
     EPC_INF_PROPERTY_MAP,
+    EPC_INSTALLATION_LOCATION,
     EPC_MANUFACTURER_CODE,
     EPC_PRODUCT_CODE,
     EPC_SERIAL_NUMBER,
@@ -23,6 +24,10 @@ from .const import (
 from .definitions import DefinitionsRegistry
 from .eoj import EOJ
 from .frame import Frame, Property
+from .installation_location import (
+    InstallationLocation,
+    decode_installation_location,
+)
 from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,11 +143,38 @@ class NodeState:
     poll_epcs: frozenset[int]
     product_code: str | None
     serial_number: str | None
+    class_name_en: str | None = None
+    class_name_ja: str | None = None
 
     @property
     def device_key(self) -> str:
         """Return the unique device key."""
         return f"{self.node_id}-{self.eoj:06x}"
+
+    @property
+    def manufacturer_name(self) -> str:
+        """Manufacturer display name.
+
+        Returns the English manufacturer name when known, otherwise the
+        hexadecimal manufacturer code such as ``"0xABCDEF"``.
+        """
+        return self.manufacturer_name_en or f"0x{self.manufacturer_code:06X}"
+
+    @property
+    def class_name(self) -> str:
+        """ECHONET Lite device class display name.
+
+        Returns the English class name when known, otherwise
+        ``"ECHONET Lite class 0xXXXX"`` derived from the EOJ class code.
+        """
+        return self.class_name_en or f"ECHONET Lite class 0x{self.eoj.class_code:04X}"
+
+    @property
+    def installation_location(self) -> InstallationLocation | None:
+        """Decoded EPC 0x81 (installation location), if available."""
+        return decode_installation_location(
+            self.properties.get(EPC_INSTALLATION_LOCATION)
+        )
 
 
 class DeviceManager:
@@ -379,6 +411,10 @@ class DeviceManager:
             manufacturer_name_en = mfr.name_en if mfr else None
             manufacturer_name_ja = mfr.name_ja if mfr else None
 
+            device_def = self._definitions.devices.get(eoj.class_code)
+            class_name_en = device_def.name_en if device_def else None
+            class_name_ja = device_def.name_ja if device_def else None
+
             node = NodeState(
                 eoj=eoj,
                 properties=properties,
@@ -393,6 +429,8 @@ class DeviceManager:
                 manufacturer_name_ja=manufacturer_name_ja,
                 product_code=product_code,
                 serial_number=serial_number,
+                class_name_en=class_name_en,
+                class_name_ja=class_name_ja,
             )
 
             self.last_frame_received_at = timestamp
