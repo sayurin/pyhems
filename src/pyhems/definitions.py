@@ -299,12 +299,14 @@ class DefinitionsRegistry:
     Attributes:
         version: Definitions format version
         mra_version: MRA data version
+        devices: Mapping of class_code to DeviceDefinition
         entities: Mapping of class_code to tuples of EntityDefinition
         manufacturers: Mapping of manufacturer code to ManufacturerDefinition
     """
 
     version: str
     mra_version: str
+    devices: dict[int, DeviceDefinition]
     entities: dict[int, tuple[EntityDefinition, ...]]
     manufacturers: dict[int, ManufacturerDefinition]
 
@@ -514,6 +516,7 @@ def load_definitions_registry(
     return DefinitionsRegistry(
         version=version,
         mra_version=mra_version,
+        devices=devices,
         entities=entities,
         manufacturers=manufacturers,
     )

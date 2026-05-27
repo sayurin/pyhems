@@ -132,6 +132,47 @@ class TestNodeState:
         )
         assert node.device_key == "fe00000000000000000000000000000001-013001"
 
+    def test_manufacturer_name_uses_english_when_known(self) -> None:
+        """English name is returned when the manufacturer code is known."""
+        node = _make_node()
+        node.manufacturer_name_en = "Acme Corp"
+        node.manufacturer_name_ja = "アクメ株式会社"
+        assert node.manufacturer_name == "Acme Corp"
+
+    def test_manufacturer_name_falls_back_to_hex_code(self) -> None:
+        """When the manufacturer code is unknown to the registry."""
+        node = _make_node()
+        assert node.manufacturer_code == 0x000001
+        assert node.manufacturer_name == "0x000001"
+
+    def test_class_name_uses_english_when_known(self) -> None:
+        """English class name is returned when the class code is known."""
+        node = _make_node()
+        node.class_name_en = "Home air conditioner"
+        node.class_name_ja = "家庭用エアコン"
+        assert node.class_name == "Home air conditioner"
+
+    def test_class_name_falls_back_to_class_code_hex(self) -> None:
+        """When the class code is unknown to the registry."""
+        node = _make_node(eoj=0x013001)
+        assert node.class_name == "ECHONET Lite class 0x0130"
+
+    def test_installation_location_unset(self) -> None:
+        """EPC 0x81 absent or set to 0x00 yields None."""
+        node = _make_node()
+        assert node.installation_location is None
+        node.properties[0x81] = b"\x00"
+        assert node.installation_location is None
+
+    def test_installation_location_decoded(self) -> None:
+        """A known LLLL/NNN byte decodes through to NodeState."""
+        node = _make_node(properties={0x81: b"\x29"})  # LLLL=5 (lavatory), NNN=1
+        loc = node.installation_location
+        assert loc is not None
+        assert loc.key == "lavatory"
+        assert loc.name == "Lavatory"
+        assert loc.instance == 1
+
 
 # ---------------------------------------------------------------------------
 # DeviceManager helpers

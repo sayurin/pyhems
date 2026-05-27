@@ -27,6 +27,7 @@ ESV_INFC = 0x74  # Notification with confirmation (INFC)
 ESV_INFC_RES = 0x7A  # Confirmation response to INFC
 
 # EPC (Property Codes)
+EPC_INSTALLATION_LOCATION = 0x81
 EPC_IDENTIFICATION_NUMBER = 0x83
 EPC_MANUFACTURER_CODE = 0x8A
 EPC_PRODUCT_CODE = 0x8C
