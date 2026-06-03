@@ -180,40 +180,6 @@
       "set": "optional"
     },
     {
-      "enum_values": [
-        {
-          "edt": 65,
-          "key": "true",
-          "name_en": "Not through a public network",
-          "name_ja": "公衆回線未経由操作"
-        },
-        {
-          "edt": 66,
-          "key": "false",
-          "name_en": "Through a public network",
-          "name_ja": "公衆回線経由操作"
-        },
-        {
-          "edt": 97,
-          "key": "true",
-          "name_en": "Communication line is normal. (operation through a public network is not possible.)",
-          "name_ja": "通信回線正常(公衆回線経由の操作不可)"
-        },
-        {
-          "edt": 98,
-          "key": "false",
-          "name_en": "Communication line is normal. (operation through a public network is possible.)",
-          "name_ja": "通信回線正常(公衆回線経由の操作可能)"
-        }
-      ],
-      "epc": 147,
-      "get": "optional",
-      "id": "class_0000_epc_93",
-      "name_en": "Remote control setting",
-      "name_ja": "遠隔操作設定",
-      "set": "optional"
-    },
-    {
       "epc": 153,
       "format": "uint16",
       "get": "optional",

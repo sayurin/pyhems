@@ -4,7 +4,6 @@ This module provides:
 - EntityDefinition for entity configuration
 - DeviceDefinition for device class configuration
 - DefinitionsRegistry for managing all definitions
-- Decoder factory functions for creating EDT decoders
 
 Usage:
     from pyhems import load_definitions_registry
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,130 +25,6 @@ _LOGGER = logging.getLogger(__name__)
 
 class DefinitionsLoadError(Exception):
     """Raised when definitions cannot be loaded."""
-
-
-# ============================================================================
-# Decoder Factory Functions
-# ============================================================================
-
-# MRA format string -> (signed, byte_count)
-_FORMAT_INFO: dict[str, tuple[bool, int]] = {
-    "uint8": (False, 1),
-    "int8": (True, 1),
-    "uint16": (False, 2),
-    "int16": (True, 2),
-    "uint32": (False, 4),
-    "int32": (True, 4),
-}
-
-
-def create_numeric_decoder(
-    mra_format: str,
-    minimum: float | None = None,
-    maximum: float | None = None,
-    scale: float = 1.0,
-    byte_offset: int = 0,
-) -> Callable[[bytes], float | int | None]:
-    """Create a numeric decoder function for EDT data.
-
-    Args:
-        mra_format: MRA format string (e.g., "uint8", "int16", "uint32")
-        minimum: Minimum valid value (before scale). Values below are invalid.
-        maximum: Maximum valid value (before scale). Values above are invalid.
-        scale: Scale factor to apply (default 1.0)
-        byte_offset: Byte offset within EDT data (default 0)
-
-    Returns:
-        A function that decodes EDT bytes to a numeric value.
-        Returns None for values outside [minimum, maximum] range.
-
-    Raises:
-        ValueError: If mra_format is not recognized.
-    """
-    format_info = _FORMAT_INFO.get(mra_format)
-    if not format_info:
-        raise ValueError(f"Unknown MRA format: {mra_format}")
-
-    signed, byte_count = format_info
-    required_len = byte_offset + byte_count
-
-    def numeric_decoder(state: bytes) -> float | int | None:
-        if not state or len(state) < required_len:
-            return None
-        raw = int.from_bytes(
-            state[byte_offset : byte_offset + byte_count], "big", signed=signed
-        )
-        # Check range (invalid values return None)
-        if minimum is not None and raw < minimum:
-            return None
-        if maximum is not None and raw > maximum:
-            return None
-        return raw if scale == 1.0 else raw * scale
-
-    return numeric_decoder
-
-
-def create_numeric_encoder(
-    mra_format: str,
-    scale: float = 1.0,
-) -> Callable[[float | int], bytes]:
-    """Create a numeric encoder function for EDT data.
-
-    Args:
-        mra_format: MRA format string (e.g., "uint8", "int16", "uint32")
-        scale: Scale factor to reverse during encoding (default 1.0)
-
-    Returns:
-        A function that encodes a numeric value to EDT bytes.
-
-    Raises:
-        ValueError: If mra_format is not recognized.
-    """
-    format_info = _FORMAT_INFO.get(mra_format)
-    if not format_info:
-        raise ValueError(f"Unknown MRA format: {mra_format}")
-
-    signed, byte_count = format_info
-
-    def numeric_encoder(value: float | int) -> bytes:
-        raw = round(value / scale) if scale != 1.0 else round(value)
-        try:
-            return int(raw).to_bytes(byte_count, "big", signed=signed)
-        except OverflowError as ex:
-            raise ValueError(
-                f"Value {value} out of range for format {mra_format}"
-            ) from ex
-
-    return numeric_encoder
-
-
-def create_binary_decoder(on_value: bytes) -> Callable[[bytes], bool | None]:
-    r"""Create a binary decoder function for EDT data.
-
-    Args:
-        on_value: Bytes representing ON state (e.g., b"\x30")
-
-    Returns:
-        A function that decodes EDT bytes to a boolean.
-    """
-
-    def _binary_decoder(state: bytes) -> bool | None:
-        return state == on_value if state else None
-
-    return _binary_decoder
-
-
-def create_enum_decoder() -> Callable[[bytes], int | None]:
-    """Create an enum decoder function for EDT data.
-
-    Returns:
-        A function that decodes EDT bytes to an integer enum value.
-    """
-
-    def _enum_decoder(state: bytes) -> int | None:
-        return state[0] if state else None
-
-    return _enum_decoder
 
 
 # ============================================================================

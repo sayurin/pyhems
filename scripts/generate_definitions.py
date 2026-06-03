@@ -284,6 +284,13 @@ def _build_entity_from_property(
     if is_state and prop.has_level_enums and len(prop.enum_values) > 16:
         return None
 
+    # Skip entities where different EDT bytes share the same key name.
+    # Such enums make encode() non-deterministic and produce an unusable codec.
+    if is_state:
+        keys = [ev.key for ev in prop.enum_values]
+        if len(keys) != len(set(keys)):
+            return None
+
     name_en = prop.name_en
     assert name_en, (
         f"Missing English name for class 0x{class_code:04X} EPC 0x{prop.epc:02X}"

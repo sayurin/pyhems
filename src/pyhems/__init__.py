@@ -1,5 +1,14 @@
 """pyhems - ECHONET Lite library for HEMS."""
 
+from .codecs import (
+    BinaryCodec,
+    EnumCodec,
+    InstallationLocationCodec,
+    NumericCodec,
+    PropertyCodec,
+    get_codec,
+    get_codec_for_epc,
+)
 from .const import (
     CLASS_CODE_AIR_CLEANER,
     CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN,
@@ -40,10 +49,6 @@ from .definitions import (
     EntityDefinition,
     EnumValue,
     ManufacturerDefinition,
-    create_binary_decoder,
-    create_enum_decoder,
-    create_numeric_decoder,
-    create_numeric_encoder,
     load_definitions_registry,
 )
 from .device_manager import DeviceManager, NodeState
@@ -98,12 +103,14 @@ __all__ = [
     "INSTALLATION_LOCATIONS",
     "NODE_PROFILE_CLASS",
     "NODE_PROFILE_INSTANCE",
+    "BinaryCodec",
     "DefinitionsLoadError",
     "DefinitionsRegistry",
     "DeviceDefinition",
     "DeviceManager",
     "EchonetLiteProtocol",
     "EntityDefinition",
+    "EnumCodec",
     "EnumValue",
     "Frame",
     "HemsClient",
@@ -111,16 +118,17 @@ __all__ = [
     "HemsFrameEvent",
     "HemsInstanceListEvent",
     "InstallationLocation",
+    "InstallationLocationCodec",
     "ManufacturerDefinition",
     "NodeState",
+    "NumericCodec",
     "Property",
+    "PropertyCodec",
     "PropertyPoller",
     "RuntimeEvent",
-    "create_binary_decoder",
-    "create_enum_decoder",
     "create_multicast_socket",
-    "create_numeric_decoder",
-    "create_numeric_encoder",
     "decode_installation_location",
+    "get_codec",
+    "get_codec_for_epc",
     "load_definitions_registry",
 ]

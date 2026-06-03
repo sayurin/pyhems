@@ -63,6 +63,25 @@ class InstallationLocation:
     name_ja: str
     instance: int
 
+    @classmethod
+    def from_code(cls, code: int, instance: int = 0) -> InstallationLocation:
+        """Build an :class:`InstallationLocation` from ``code`` + ``instance``.
+
+        Looks up the standard ``key`` / ``name`` / ``name_ja`` metadata from
+        :data:`INSTALLATION_LOCATIONS`. Raises :class:`ValueError` when
+        ``code`` is not a standard ``LLLL`` value or ``instance`` is out of
+        range (0..7).
+        """
+        entry = INSTALLATION_LOCATIONS.get(code)
+        if entry is None:
+            raise ValueError(f"Unknown installation location code: {code}")
+        if not 0 <= instance <= 0x07:
+            raise ValueError(
+                f"Installation location instance must be 0..7, got {instance}"
+            )
+        key, name, name_ja = entry
+        return cls(code=code, key=key, name=name, name_ja=name_ja, instance=instance)
+
 
 def decode_installation_location(
     raw: bytes | bytearray | int | None,
