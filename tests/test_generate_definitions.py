@@ -138,20 +138,24 @@ def test_load_definitions_registry_succeeds() -> None:
 
 
 def test_create_numeric_encoder_uint16_with_scale() -> None:
-    """Numeric encoder should reverse scale."""
-    from pyhems.definitions import create_numeric_encoder
+    """NumericCodec should reverse scale."""
+    from pyhems import NumericCodec
 
-    encoder = create_numeric_encoder("uint16", scale=0.1)
-    assert encoder(12.3) == b"\x00{"
+    codec = NumericCodec(
+        mra_format="uint16", scale=0.1, minimum=None, maximum=None, byte_offset=0
+    )
+    assert codec.encode(12.3) == b"\x00{"
 
 
 def test_create_numeric_encoder_out_of_range_raises_value_error() -> None:
-    """Numeric encoder should reject values outside format range."""
-    from pyhems.definitions import create_numeric_encoder
+    """NumericCodec should reject values outside format range."""
+    from pyhems import NumericCodec
 
-    encoder = create_numeric_encoder("uint8")
+    codec = NumericCodec(
+        mra_format="uint8", scale=1.0, minimum=None, maximum=None, byte_offset=0
+    )
     with pytest.raises(ValueError, match="out of range"):
-        encoder(300)
+        codec.encode(300)
 
 
 if __name__ == "__main__":
