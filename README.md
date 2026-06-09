@@ -76,13 +76,12 @@ asyncio.run(main())
 ## Definitions
 
 ```python
-from pyhems import load_definitions_registry
+from pyhems import REGISTRY
 
-registry = load_definitions_registry()
-print(registry.version, registry.mra_version)
+print(REGISTRY.version, REGISTRY.mra_version)
 
 # Mapping: class_code -> tuple[EntityDefinition, ...]
-ac_entities = registry.entities.get(0x0130, ())
+ac_entities = REGISTRY.entities.get(0x0130, ())
 for entity in ac_entities[:3]:
     print(entity.epc, entity.name_en)
 ```

@@ -35,7 +35,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyhems = ["*.json", "py.typed"]
+pyhems = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -44,6 +44,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 required-version = ">=0.13.0"
+extend-exclude = ["src/pyhems/_definitions_generated.py"]
 
 [tool.ruff.lint]
 select = [

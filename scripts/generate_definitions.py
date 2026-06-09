@@ -29,9 +29,12 @@ The generated definitions.json contains:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import yaml
@@ -721,6 +724,199 @@ def _build_custom_entity(
 
 
 # ============================================================================
+# Code Generation Functions
+# ============================================================================
+
+
+def _load_definitions_module() -> ModuleType:
+    """Load pyhems.definitions as a standalone module.
+
+    definitions.py is loaded directly via importlib so its dataclasses can be
+    reused without importing the full pyhems package (which pulls in runtime
+    dependencies). The module has no intra-package imports, so standalone
+    loading is safe.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_pyhems_definitions_codegen", PYHEMS_DIR / "definitions.py"
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # Register in sys.modules so dataclass(slots=True) can resolve __module__.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _to_entity(defs_mod: ModuleType, entity_data: dict[str, Any]) -> Any:
+    """Build an EntityDefinition dataclass from a definition dict."""
+    epc: int = entity_data["epc"]
+    enum_values = tuple(
+        defs_mod.EnumValue(
+            edt=item["edt"],
+            key=item["key"],
+            name_en=item["name_en"],
+            name_ja=item["name_ja"],
+        )
+        for item in entity_data.get("enum_values", [])
+    )
+    mra_format = entity_data.get("format")
+    assert mra_format or enum_values, (
+        f"Entity EPC 0x{epc:02X} has neither format nor enum_values"
+    )
+    return defs_mod.EntityDefinition(
+        id=entity_data["id"],
+        epc=epc,
+        name_en=entity_data["name_en"],
+        name_ja=entity_data["name_ja"],
+        get=entity_data["get"],
+        set=entity_data["set"],
+        format=mra_format,
+        unit=entity_data.get("unit"),
+        minimum=entity_data.get("minimum"),
+        maximum=entity_data.get("maximum"),
+        multiple_of=entity_data.get("multipleOf", 1.0),
+        enum_values=enum_values,
+        byte_offset=entity_data.get("byte_offset", 0),
+        manufacturer_code=entity_data.get("manufacturer_code"),
+    )
+
+
+def _to_devices(
+    defs_mod: ModuleType,
+    devices_data: dict[str, Any],
+    common_data: list[dict[str, Any]],
+) -> dict[int, Any]:
+    """Build DeviceDefinition dataclasses keyed by class code."""
+    common_entities = [_to_entity(defs_mod, e) for e in common_data]
+    devices: dict[int, Any] = {}
+    for class_code_key, device_data in devices_data.items():
+        class_code = int(class_code_key)
+        device_entities = [
+            _to_entity(defs_mod, e) for e in device_data.get("entities", [])
+        ]
+        devices[class_code] = defs_mod.DeviceDefinition(
+            class_code=class_code,
+            name_en=device_data["name_en"],
+            name_ja=device_data["name_ja"],
+            entities=tuple(common_entities + device_entities),
+        )
+    return devices
+
+
+def _validate_entity(entity: Any, class_code: int) -> None:
+    """Validate an entity definition at build time.
+
+    Previously performed at runtime when loading definitions.json; now that
+    definitions are generated as code, invalid definitions are caught here.
+    """
+    assert entity.enum_values or entity.format, (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
+    )
+    assert (
+        not entity.enum_values
+        or len(entity.enum_values) != 1
+        or entity.get == "notApplicable"
+        or entity.format is not None
+    ), (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
+        " has only 1 enum_value"
+    )
+
+
+def _to_manufacturers(
+    defs_mod: ModuleType, manufacturers_data: dict[str, Any]
+) -> dict[int, Any]:
+    """Build ManufacturerDefinition dataclasses keyed by code."""
+    return {
+        int(code_key): defs_mod.ManufacturerDefinition(
+            name_en=entry.get("name_en") or "",
+            name_ja=entry.get("name_ja") or "",
+        )
+        for code_key, entry in manufacturers_data.items()
+    }
+
+
+def _generate_python_source(definitions: dict[str, Any], defs_mod: ModuleType) -> str:
+    """Render definitions as importable Python source.
+
+    Produces a module that builds the DefinitionsRegistry from dataclass
+    literals (rendered via repr), so the data is referenced directly as code
+    instead of being parsed from JSON at runtime. Common entities are emitted
+    once as ``_COMMON`` and shared by every device class.
+    """
+    version = definitions["version"]
+    mra_version = definitions["mra_version"]
+
+    common = [_to_entity(defs_mod, entity) for entity in definitions["common"]]
+    n_common = len(common)
+    devices = _to_devices(defs_mod, definitions["devices"], definitions["common"])
+    manufacturers = _to_manufacturers(defs_mod, definitions["manufacturers"])
+
+    # Build-time validation (previously performed at runtime in definitions.py)
+    for class_code, device in devices.items():
+        for entity in device.entities:
+            _validate_entity(entity, class_code)
+
+    lines: list[str] = [
+        "# ruff: noqa",
+        '"""Auto-generated ECHONET Lite definitions.',
+        "",
+        "DO NOT EDIT. Generated by scripts/generate_definitions.py.",
+        '"""',
+        "",
+        "from .definitions import (",
+        "    DefinitionsRegistry,",
+        "    DeviceDefinition,",
+        "    EntityDefinition,",
+        "    EnumValue,",
+        "    ManufacturerDefinition,",
+        ")",
+        "",
+        "_COMMON: tuple[EntityDefinition, ...] = (",
+    ]
+    lines.extend(f"    {entity!r}," for entity in common)
+    lines.append(")")
+    lines.append("")
+    lines.append("DEVICES: dict[int, DeviceDefinition] = {")
+    for class_code in sorted(devices):
+        device = devices[class_code]
+        specific = device.entities[n_common:]
+        lines.append(f"    {class_code}: DeviceDefinition(")
+        lines.append(f"        class_code={class_code},")
+        lines.append(f"        name_en={device.name_en!r},")
+        lines.append(f"        name_ja={device.name_ja!r},")
+        if specific:
+            lines.append("        entities=_COMMON + (")
+            lines.extend(f"            {entity!r}," for entity in specific)
+            lines.append("        ),")
+        else:
+            lines.append("        entities=_COMMON,")
+        lines.append("    ),")
+    lines.append("}")
+    lines.append("")
+    lines.append("MANUFACTURERS: dict[int, ManufacturerDefinition] = {")
+    lines.extend(
+        f"    {code}: {manufacturers[code]!r}," for code in sorted(manufacturers)
+    )
+    lines.append("}")
+    lines.append("")
+    lines.extend(
+        [
+            "REGISTRY = DefinitionsRegistry(",
+            f"    version={version!r},",
+            f"    mra_version={mra_version!r},",
+            "    devices=DEVICES,",
+            "    entities={cc: d.entities for cc, d in DEVICES.items()},",
+            "    manufacturers=MANUFACTURERS,",
+            ")",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 
@@ -753,15 +949,13 @@ def main() -> None:
             definitions, custom, mra_epcs_by_class
         )
 
-    # Write definitions.json
-    definitions_path = PYHEMS_DIR / "definitions.json"
-    # Round-trip through JSON to normalize integer keys to strings,
-    # ensuring sort_keys produces the same order as pretty-format-json.
-    normalized = json.loads(json.dumps(definitions))
-    with definitions_path.open("w", encoding="utf-8") as f:
-        json.dump(normalized, f, indent=2, ensure_ascii=False, sort_keys=True)
-        f.write("\n")
-    print(f"\nGenerated: {definitions_path}")
+    # Write generated Python module (definitions referenced directly as code)
+    defs_mod = _load_definitions_module()
+    generated_source = _generate_python_source(definitions, defs_mod)
+    generated_path = PYHEMS_DIR / "_definitions_generated.py"
+    with generated_path.open("w", encoding="utf-8") as f:
+        f.write(generated_source)
+    print(f"\nGenerated: {generated_path}")
 
     # Print summary
     device_count = len(definitions.get("devices", {}))

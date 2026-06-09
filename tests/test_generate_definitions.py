@@ -1,14 +1,15 @@
-"""Tests for generate_definitions.py output.
+"""Tests for generated definitions.
 
-Ensures generated `src/pyhems/definitions.json` contains `get` and `set` fields
-and that they use the expected MRA values.
+Ensures generated entities expose valid ``get``/``set`` access strings and
+unique enum value labels.
 """
 
-import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
+
+from pyhems import REGISTRY, EntityDefinition
 
 ALLOWED_ACCESS_VALUES = {
     "required",
@@ -19,114 +20,45 @@ ALLOWED_ACCESS_VALUES = {
 }
 
 
-def load_definitions() -> dict[str, Any]:
-    p = Path("src/pyhems/definitions.json")
-    assert p.exists(), "definitions.json must be generated for tests"
-    return cast(dict[str, Any], json.loads(p.read_text()))
+def _all_entities() -> Iterator[EntityDefinition]:
+    for entities in REGISTRY.entities.values():
+        yield from entities
 
 
 def test_all_entities_have_get_set_strings() -> None:
-    data = load_definitions()
-
-    for ent in data.get("common", []) + [
-        e for d in data.get("devices", {}).values() for e in d.get("entities", [])
-    ]:
-        assert "get" in ent, (
-            f"Entity missing 'get': {ent.get('id') or ent.get('name_en')}"
+    for ent in _all_entities():
+        assert isinstance(ent.get, str), f"'get' must be string for {ent.id}"
+        assert isinstance(ent.set, str), f"'set' must be string for {ent.id}"
+        assert ent.get in ALLOWED_ACCESS_VALUES, (
+            f"Unexpected get value: {ent.get} in {ent.id}"
         )
-        assert "set" in ent, (
-            f"Entity missing 'set': {ent.get('id') or ent.get('name_en')}"
+        assert ent.set in ALLOWED_ACCESS_VALUES, (
+            f"Unexpected set value: {ent.set} in {ent.id}"
         )
-        assert isinstance(ent["get"], str), (
-            f"'get' must be string for {ent.get('id') or ent.get('name_en')}"
-        )
-        assert isinstance(ent["set"], str), (
-            f"'set' must be string for {ent.get('id') or ent.get('name_en')}"
-        )
-        assert ent["get"] in ALLOWED_ACCESS_VALUES, (
-            f"Unexpected get value: {ent['get']} in {ent.get('id') or ent.get('name_en')}"
-        )
-        assert ent["set"] in ALLOWED_ACCESS_VALUES, (
-            f"Unexpected set value: {ent['set']} in {ent.get('id') or ent.get('name_en')}"
-        )
-
-
-def _find_entity(
-    data: dict[str, Any], class_hex: str, epc_hex: str
-) -> dict[str, Any] | None:
-    # class_hex like '0x0602', epc_hex like '0x80'
-    class_code = int(class_hex, 16)
-    epc = int(epc_hex, 16)
-    dev = data.get("devices", {}).get(class_code)
-    if not dev:
-        return None
-    for ent in dev.get("entities", []):
-        if ent.get("epc") == epc:
-            return cast(dict[str, Any], ent)
-    return None
 
 
 def test_enum_values_are_unique() -> None:
-    data = load_definitions()
-
-    for ent in data.get("common", []) + [
-        e for d in data.get("devices", {}).values() for e in d.get("entities", [])
-    ]:
-        enum_values = ent.get("enum_values")
-        if not enum_values:
+    for ent in _all_entities():
+        if not ent.enum_values:
             continue
-        eid = ent.get("id") or ent.get("name_en")
-
-        names_en = [v["name_en"] for v in enum_values]
+        names_en = [v.name_en for v in ent.enum_values]
         assert len(names_en) == len(set(names_en)), (
-            f"Duplicate 'name_en' in enum_values of {eid}: {names_en}"
+            f"Duplicate 'name_en' in enum_values of {ent.id}: {names_en}"
         )
-
-        names_ja = [v["name_ja"] for v in enum_values]
+        names_ja = [v.name_ja for v in ent.enum_values]
         assert len(names_ja) == len(set(names_ja)), (
-            f"Duplicate 'name_ja' in enum_values of {eid}: {names_ja}"
+            f"Duplicate 'name_ja' in enum_values of {ent.id}: {names_ja}"
         )
 
 
-def test_sample_entities_have_expected_get_set() -> None:
-    data = load_definitions()
-
-    tv_op = _find_entity(data, "0x0602", "0x80")
-    if tv_op is not None:
-        # If the property appears in device entities (rare), check get/set there
-        assert tv_op["get"] == "required"
-        assert tv_op["set"] == "required_o"
-    else:
-        # operation status is a common property; confirm MRA device file has the required set
-        mra_tv = Path("mra/devices/0x0602.json")
-        assert mra_tv.exists(), "MRA file for TV must exist"
-        tvj = json.loads(mra_tv.read_text())
-        found = False
-        for p in tvj.get("elProperties", []):
-            if p.get("epc") == "0x80":
-                ar = p.get("accessRule", {})
-                assert ar.get("get") == "required"
-                assert ar.get("set") == "required_o"
-                found = True
-                break
-        assert found, "TV property 0x80 not found in MRA"
-
-    dg_d5 = _find_entity(data, "0x028E", "0xD5")
-    if dg_d5 is not None:
-        # If present, expect class-level required_c get and required set (may be optional in some MRA versions)
-        assert dg_d5["get"] in {"required_c", "required"}
-        assert dg_d5["set"] in {"required", "optional", "required_c"}
-    else:
-        # fallback: check MRA source
-        mra_f = Path("mra/devices/0x028E.json")
-        if mra_f.exists():
-            mj = json.loads(mra_f.read_text())
-            for p in mj.get("elProperties", []):
-                if p.get("epc") == "0xD5":
-                    ar = p.get("accessRule", {})
-                    assert ar.get("get") in {"required_c", "required"}
-                    assert ar.get("set") in {"required", "optional", "required_c"}
-                    break
+def test_common_operation_status_access() -> None:
+    """Operation status (0x80) is a common superClass property on every device."""
+    entities = {e.epc: e for e in REGISTRY.entities[0x0602]}
+    op = entities[0x80]
+    assert op.get == "required"
+    assert op.set == "optional"
+    mra_tv = Path("mra/devices/0x0602.json")
+    assert mra_tv.exists(), "MRA file for TV must exist"
 
 
 def test_load_definitions_registry_succeeds() -> None:

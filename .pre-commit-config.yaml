@@ -34,4 +34,4 @@ repos:
           - pytest
           - pydantic
           - types-PyYAML
-exclude: ^mra/
+exclude: ^(mra/|src/pyhems/_definitions_generated\.py)

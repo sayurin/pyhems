@@ -1,5 +1,6 @@
 """pyhems - ECHONET Lite library for HEMS."""
 
+from ._definitions_generated import REGISTRY
 from .codecs import (
     BinaryCodec,
     EnumCodec,
@@ -43,7 +44,6 @@ from .const import (
     NODE_PROFILE_INSTANCE,
 )
 from .definitions import (
-    DefinitionsLoadError,
     DefinitionsRegistry,
     DeviceDefinition,
     EntityDefinition,
@@ -103,8 +103,8 @@ __all__ = [
     "INSTALLATION_LOCATIONS",
     "NODE_PROFILE_CLASS",
     "NODE_PROFILE_INSTANCE",
+    "REGISTRY",
     "BinaryCodec",
-    "DefinitionsLoadError",
     "DefinitionsRegistry",
     "DeviceDefinition",
     "DeviceManager",

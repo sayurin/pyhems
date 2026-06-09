@@ -273,13 +273,10 @@ pyhems は MRA（Machine Readable Appendix）データに基づいたエンテ�
 ### 定義レジストリの使用
 
 ```python
-from pyhems import load_definitions_registry
-
-# 定義を読み込み
-registry = load_definitions_registry()
+from pyhems import REGISTRY
 
 # 特定のデバイスクラスのエンティティ定義を取得
-entities = registry.entities.get(0x0130, ())  # 家庭用エアコン
+entities = REGISTRY.entities.get(0x0130, ())  # 家庭用エアコン
 for entity in entities:
     print(f"{entity.name_ja}: EPC=0x{entity.epc:02X}")
 ```
