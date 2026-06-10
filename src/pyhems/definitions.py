@@ -159,7 +159,7 @@ class DefinitionsRegistry:
     This is an immutable data container holding definitions loaded from
     definitions.json (generated from MRA data).
 
-    Use load_definitions_registry() or async_load_definitions_registry() to create.
+    Use the :data:`pyhems.REGISTRY` constant to access the pre-built registry.
 
     Attributes:
         version: Definitions format version
@@ -174,19 +174,3 @@ class DefinitionsRegistry:
     devices: dict[int, DeviceDefinition]
     entities: dict[int, tuple[EntityDefinition, ...]]
     manufacturers: dict[int, ManufacturerDefinition]
-
-
-# ============================================================================
-# Registry Access
-# ============================================================================
-
-
-def load_definitions_registry() -> DefinitionsRegistry:
-    """Return the pre-built definitions registry.
-
-    Thin backward-compatible wrapper around the generated :data:`REGISTRY`
-    constant; prefer importing ``REGISTRY`` from :mod:`pyhems` directly.
-    """
-    from ._definitions_generated import REGISTRY
-
-    return REGISTRY

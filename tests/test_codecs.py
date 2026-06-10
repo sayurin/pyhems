@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from pyhems import (
+    REGISTRY,
     BinaryCodec,
     EntityDefinition,
     EnumCodec,
@@ -14,7 +15,6 @@ from pyhems import (
     NumericCodec,
     get_codec,
     get_codec_for_epc,
-    load_definitions_registry,
 )
 
 
@@ -217,13 +217,13 @@ def test_get_codec_raises_when_no_format_and_no_enum() -> None:
 # get_codec_for_epc — binary codec definitions-level guarantees
 # ============================================================================
 
-_DEFINITIONS = load_definitions_registry()
+_DEFINITIONS = REGISTRY
 
 
 def test_get_codec_for_epc_raises_for_unknown_epc() -> None:
     """get_codec_for_epc raises LookupError when EPC is not in the class."""
     with pytest.raises(LookupError, match="0xFF not found"):
-        get_codec_for_epc(_DEFINITIONS, 0x0130, 0xFF)
+        get_codec_for_epc(0x0130, 0xFF)
 
 
 # Class codes that use EPC 0x80 (Operation Status) as a binary on/off property.
@@ -248,7 +248,7 @@ def test_op_status_epc_yields_binary_codec(class_code: int) -> None:
     This guarantees the HA integration can always obtain the codec at entity
     init time and does not need a hardcoded fallback.
     """
-    codec = get_codec_for_epc(_DEFINITIONS, class_code, 0x80)
+    codec = get_codec_for_epc(class_code, 0x80)
     assert isinstance(codec, BinaryCodec), (
         f"Expected BinaryCodec for EPC 0x80 on class 0x{class_code:04X}, got {codec!r}"
     )
@@ -260,7 +260,7 @@ def test_lock_setting_epc_yields_binary_codec() -> None:
     This guarantees the HA integration can always obtain the codec at entity
     init time and does not need a hardcoded fallback.
     """
-    codec = get_codec_for_epc(_DEFINITIONS, 0x026F, 0xE0)
+    codec = get_codec_for_epc(0x026F, 0xE0)
     assert isinstance(codec, BinaryCodec), (
         f"Expected BinaryCodec for EPC 0xE0 on class 0x026F (Electric Lock), got {codec!r}"
     )
@@ -374,7 +374,7 @@ def test_platform_epc_codec_type(
     If any of these assertions fails, a pyhems definition change has broken
     a guarantee that the HA integration depends on.
     """
-    codec = get_codec_for_epc(_DEFINITIONS, class_code, epc)
+    codec = get_codec_for_epc(class_code, epc)
     assert isinstance(codec, expected_type), (
         f"class 0x{class_code:04X} EPC 0x{epc:02X} ({description}): "
         f"expected {expected_type.__name__}, got {type(codec).__name__}"

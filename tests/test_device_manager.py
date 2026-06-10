@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pyhems import EOJ, Property, load_definitions_registry
+from pyhems import EOJ, Property
 from pyhems.const import (
     ESV_GET_RES,
     ESV_INF,
@@ -23,8 +23,6 @@ from pyhems.device_manager import (
 )
 from pyhems.frame import Frame
 from pyhems.runtime import HemsFrameEvent, HemsInstanceListEvent
-
-_DEFINITIONS = load_definitions_registry()
 
 # ---------------------------------------------------------------------------
 # Private utility functions
@@ -244,7 +242,7 @@ class TestProcessFrameEvent:
     def test_ignores_non_response_frame(self) -> None:
         """Non-response frames (e.g. SETC requests) are ignored."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node()
         dm.data[node.device_key] = node
 
@@ -254,7 +252,7 @@ class TestProcessFrameEvent:
     def test_ignores_unknown_device(self) -> None:
         """Frames for unknown devices are ignored."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
 
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
@@ -267,7 +265,7 @@ class TestProcessFrameEvent:
     def test_updates_properties(self) -> None:
         """Response frames update device properties."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -280,7 +278,7 @@ class TestProcessFrameEvent:
     def test_no_update_when_same_value(self) -> None:
         """No update when property value is unchanged."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x30"})
         dm.data[node.device_key] = node
 
@@ -292,7 +290,7 @@ class TestProcessFrameEvent:
     def test_ignores_set_response(self) -> None:
         """SET_RES frames don't overwrite stored state."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -305,7 +303,7 @@ class TestProcessFrameEvent:
     def test_ignores_set_sna_response(self) -> None:
         """SET_SNA frames don't overwrite stored state."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -318,7 +316,7 @@ class TestProcessFrameEvent:
     def test_inf_frame_updates_properties(self) -> None:
         """INF notification frames update device properties."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -331,7 +329,7 @@ class TestProcessFrameEvent:
     def test_on_device_updated_callback(self) -> None:
         """Callback is invoked when a device is updated."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -347,7 +345,7 @@ class TestProcessFrameEvent:
     def test_unsubscribe_callback(self) -> None:
         """Unsubscribe prevents further callbacks."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
@@ -397,7 +395,7 @@ class TestProcessInstanceListEvent:
         ]
 
         monitored_epcs = {0x0130: frozenset({0x80, 0xB0})}
-        dm = DeviceManager(client, monitored_epcs, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, monitored_epcs)
 
         added_keys: list[str] = []
         dm.on_device_added(added_keys.append)
@@ -428,7 +426,7 @@ class TestProcessInstanceListEvent:
     async def test_skips_existing_device(self) -> None:
         """Already known devices are not set up again."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node()
         dm.data[node.device_key] = node
 
@@ -447,9 +445,7 @@ class TestProcessInstanceListEvent:
     async def test_class_code_filter(self) -> None:
         """Devices with filtered class codes are skipped."""
         client = _make_client()
-        dm = DeviceManager(
-            client, {}, class_code_filter=frozenset({0x0130}), definitions=_DEFINITIONS
-        )
+        dm = DeviceManager(client, {}, class_code_filter=frozenset({0x0130}))
 
         event = HemsInstanceListEvent(
             received_at=1.0,
@@ -474,7 +470,7 @@ class TestProcessInstanceListEvent:
             Property(epc=0x8C, edt=b""),
             Property(epc=0x8D, edt=b""),
         ]
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
 
         event = HemsInstanceListEvent(
             received_at=1.0,
@@ -499,7 +495,7 @@ class TestProcessInstanceListEvent:
             Property(epc=0x8C, edt=b""),
             Property(epc=0x8D, edt=b""),
         ]
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
 
         node_id = "fe00000000000000000000000000000001"
         event = HemsInstanceListEvent(
@@ -547,9 +543,7 @@ class TestProcessInstanceListEvent:
         ]
         client.get.side_effect = [setup_response, dump_response]
 
-        dm = DeviceManager(
-            client, {0x0130: frozenset({0x80, 0xB0})}, definitions=_DEFINITIONS
-        )
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
 
         event = HemsInstanceListEvent(
             received_at=1.0,
@@ -592,9 +586,7 @@ class TestProcessInstanceListEvent:
             Property(epc=0xB0, edt=b"\x41"),
         ]
 
-        dm = DeviceManager(
-            client, {0x0130: frozenset({0x80, 0xB0})}, definitions=_DEFINITIONS
-        )
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
 
         event = HemsInstanceListEvent(
             received_at=1.0,
@@ -643,9 +635,7 @@ class TestProcessInstanceListEvent:
         client.get.side_effect = [setup_response, OSError("network error")]
 
         added_keys: list[str] = []
-        dm = DeviceManager(
-            client, {0x0130: frozenset({0x80, 0xB0})}, definitions=_DEFINITIONS
-        )
+        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
         dm.on_device_added(added_keys.append)
 
         event = HemsInstanceListEvent(
@@ -676,7 +666,7 @@ class TestPollDevice:
     async def test_poll_known_device(self) -> None:
         """Polling a known device sends a GET frame."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
@@ -691,7 +681,7 @@ class TestPollDevice:
     async def test_poll_unknown_device(self) -> None:
         """Polling an unknown device returns False."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
 
         result = await dm.poll_device("unknown-device")
         assert result is False
@@ -701,7 +691,7 @@ class TestPollDevice:
     async def test_poll_device_no_poll_epcs(self) -> None:
         """Polling a device with no poll EPCs returns False."""
         client = _make_client()
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset())
         dm.data[node.device_key] = node
 
@@ -713,7 +703,7 @@ class TestPollDevice:
         """Polling handles OSError gracefully."""
         client = _make_client()
         client.send.side_effect = OSError("Network error")
-        dm = DeviceManager(client, {}, definitions=_DEFINITIONS)
+        dm = DeviceManager(client, {})
         node = _make_node()
         dm.data[node.device_key] = node
 

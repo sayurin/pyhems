@@ -61,14 +61,6 @@ def test_common_operation_status_access() -> None:
     assert mra_tv.exists(), "MRA file for TV must exist"
 
 
-def test_load_definitions_registry_succeeds() -> None:
-    """Loading the registry validates all entities via asserts."""
-    from pyhems.definitions import load_definitions_registry
-
-    registry = load_definitions_registry()
-    assert registry.entities
-
-
 def test_create_numeric_encoder_uint16_with_scale() -> None:
     """NumericCodec should reverse scale."""
     from pyhems import NumericCodec

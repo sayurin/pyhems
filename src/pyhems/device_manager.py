@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from ._definitions_generated import REGISTRY
 from .const import (
     CONTROLLER_INSTANCE,
     EPC_GET_PROPERTY_MAP,
@@ -21,7 +22,6 @@ from .const import (
     ESV_SET_RES,
     ESV_SET_SNA,
 )
-from .definitions import DefinitionsRegistry
 from .eoj import EOJ
 from .frame import Frame, Property
 from .installation_location import (
@@ -188,7 +188,6 @@ class DeviceManager:
         self,
         client: HemsClient,
         monitored_epcs: Mapping[int, frozenset[int]],
-        definitions: DefinitionsRegistry,
         class_code_filter: frozenset[int] | None = None,
     ) -> None:
         """Initialize the device manager.
@@ -196,14 +195,11 @@ class DeviceManager:
         Args:
             client: HEMS runtime client for communication.
             monitored_epcs: Mapping of class_code -> EPCs to monitor.
-            definitions: Loaded device definitions registry. Used to resolve
-                manufacturer names from manufacturer codes.
             class_code_filter: If set, only these class codes are accepted.
                 If None, all class codes are accepted.
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
-        self._definitions = definitions
         self._class_code_filter = class_code_filter
 
         self.data: dict[str, NodeState] = {}
@@ -407,11 +403,11 @@ class DeviceManager:
 
             poll_epcs = frozenset((initial_epcs & get_epcs) - inf_epcs)
 
-            mfr = self._definitions.manufacturers.get(manufacturer_code)
+            mfr = REGISTRY.manufacturers.get(manufacturer_code)
             manufacturer_name_en = mfr.name_en if mfr else None
             manufacturer_name_ja = mfr.name_ja if mfr else None
 
-            device_def = self._definitions.devices.get(eoj.class_code)
+            device_def = REGISTRY.devices.get(eoj.class_code)
             class_name_en = device_def.name_en if device_def else None
             class_name_ja = device_def.name_ja if device_def else None
 

@@ -21,11 +21,9 @@ Typical usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
-if TYPE_CHECKING:
-    from .definitions import DefinitionsRegistry
-
+from ._definitions_generated import REGISTRY
 from .definitions import EntityDefinition
 from .installation_location import (
     INSTALLATION_LOCATIONS,
@@ -241,21 +239,20 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
 
 
 def get_codec_for_epc(
-    registry: DefinitionsRegistry,
     class_code: int,
     epc: int,
 ) -> PropertyCodec:
     """Return the appropriate codec for *epc* on device class *class_code*.
 
     Looks up the :class:`~pyhems.EntityDefinition` for the given EPC in
-    *registry* and calls :func:`get_codec` on it.
+    :data:`pyhems.REGISTRY` and calls :func:`get_codec` on it.
 
     Raises :class:`LookupError` when no definition exists for the EPC on the
     given class.  Propagates :class:`ValueError` from :func:`get_codec` when
     no codec can be built from the definition (e.g. neither ``enum_values``
     nor ``format`` is set).
     """
-    for entity_def in registry.entities.get(class_code, ()):
+    for entity_def in REGISTRY.entities.get(class_code, ()):
         if entity_def.epc == epc:
             return get_codec(entity_def)
     raise LookupError(f"EPC 0x{epc:02X} not found for class 0x{class_code:04X}")
