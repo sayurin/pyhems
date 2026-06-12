@@ -1,6 +1,6 @@
 # pyhems
 
-[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ECHONET Lite library for Home Energy Management System (HEMS).
@@ -19,7 +19,7 @@ ECHONET Lite library for Home Energy Management System (HEMS).
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.14+
 - bidict>=0.23.0
 
 ## License
