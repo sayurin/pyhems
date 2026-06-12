@@ -2,7 +2,6 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#   "pydantic",
 #   "pyyaml",
 # ]
 # ///
@@ -13,29 +12,25 @@ This script:
 1. Reads MRA data from the local mra/ directory
 2. Parses MRA JSON to extract device and property specifications
 3. Loads custom definitions from custom_definitions.yaml
-4. Generates definitions.json for runtime entity creation
+4. Generates _definitions_generated.py for runtime entity creation
 
 Run with: uv run scripts/generate_definitions.py
 
-Output files:
-- src/pyhems/definitions.json
-
-The generated definitions.json contains:
-- common: Entities shared across all device classes (from superClass)
-- devices: Device class definitions with entity configurations
-  - Each entity has: id, epc, name_en, name_ja, format, unit, minimum, maximum,
-    multipleOf, enum_values (fields vary by entity type)
+Output file:
+- src/pyhems/_definitions_generated.py
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
+import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import yaml
-from pydantic import BaseModel
 
 # ============================================================================
 # Constants
@@ -46,23 +41,60 @@ MRA_DIR = Path(__file__).parent.parent / "mra"
 CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 
+# ============================================================================
+# Load definitions dataclasses from pyhems/definitions.py
+#
+# Loaded via sys.path so definitions.py can be imported standalone, without
+# pulling in the full pyhems package and its runtime dependencies
+# (codecs, device_manager, etc.).
+# ============================================================================
+
+sys.path.insert(0, str(PYHEMS_DIR))
+try:
+    import definitions as _defs_mod
+finally:
+    sys.path.pop(0)
+
+EnumValue: TypeAlias = _defs_mod.EnumValue  # noqa: UP040
+EntityDefinition: TypeAlias = _defs_mod.EntityDefinition  # noqa: UP040
+DeviceDefinition: TypeAlias = _defs_mod.DeviceDefinition  # noqa: UP040
+ManufacturerDefinition: TypeAlias = _defs_mod.ManufacturerDefinition  # noqa: UP040
+DefinitionsRegistry: TypeAlias = _defs_mod.DefinitionsRegistry  # noqa: UP040
+
 
 # ============================================================================
-# Pydantic Models
+# Internal Build Containers
 # ============================================================================
 
 
-class EnumValue(BaseModel):
-    """A single enum value with EDT, key, and display names."""
+@dataclass
+class _DeviceBuild:
+    """Mutable container for building device-specific entity lists."""
 
-    edt: int
-    key: str
     name_en: str
     name_ja: str
+    entities: list[EntityDefinition]  # device-specific only (excludes common)
 
 
-class MRAProperty(BaseModel):
-    """Parsed MRA property data."""
+@dataclass
+class _DefinitionsBuild:
+    """Mutable top-level container for the full definitions build."""
+
+    version: str
+    mra_version: str
+    common: list[EntityDefinition]
+    devices: dict[int, _DeviceBuild]
+    manufacturers: dict[int, ManufacturerDefinition]
+
+
+# ============================================================================
+# Internal MRA Parsing Model
+# ============================================================================
+
+
+@dataclass
+class _MRAProperty:
+    """Parsed MRA property data (internal, not exported)."""
 
     epc: int
     name_en: str
@@ -120,16 +152,8 @@ def _parse_hex_int(value: Any) -> int | None:
 
 def _parse_mra_property(
     prop_data: dict[str, Any], definitions: dict[str, Any]
-) -> MRAProperty:
-    """Parse a single MRA property definition.
-
-    Args:
-        prop_data: MRA property data
-        definitions: MRA definitions for resolving $ref
-
-    Returns:
-        Parsed MRAProperty
-    """
+) -> _MRAProperty:
+    """Parse a single MRA property definition."""
     # MRA properties always have these required keys: epc, propertyName, accessRule, data
     epc = int(prop_data["epc"], 16)
 
@@ -231,7 +255,7 @@ def _parse_mra_property(
                     )
                 )
 
-    return MRAProperty(
+    return _MRAProperty(
         epc=epc,
         name_en=name_en,
         name_ja=name_ja,
@@ -255,14 +279,9 @@ def _parse_mra_property(
 
 def _build_entity_from_property(
     class_code: int,
-    prop: MRAProperty,
-) -> dict[str, Any] | None:
-    """Build entity dict from MRA property.
-
-    Output schema is platform-agnostic with MRA data only.
-    HA integration infers platform and device_class from these fields.
-    """
-    # Properties must be readable or writable; neither is valid
+    prop: _MRAProperty,
+) -> EntityDefinition | None:
+    """Build EntityDefinition directly from an MRA property."""
     is_readable = prop.get in ("required", "required_c", "required_o", "optional")
     is_writable = prop.set in ("required", "required_c", "required_o", "optional")
     assert is_readable or is_writable, (
@@ -270,10 +289,7 @@ def _build_entity_from_property(
         "is neither readable nor writable"
     )
 
-    # Determine entity type using inline conditions
-    # Sensor: number type with unit
     is_sensor = prop.data_type == "number" and prop.mra_unit is not None
-    # State: state type (binary_sensor or select based on enum_values)
     is_state = prop.data_type == "state"
 
     if not is_sensor and not is_state:
@@ -296,55 +312,42 @@ def _build_entity_from_property(
         f"Missing English name for class 0x{class_code:04X} EPC 0x{prop.epc:02X}"
     )
 
-    enum_vals = prop.enum_values
+    enum_vals: list[EnumValue] = prop.enum_values
     assert not is_state or enum_vals, (
         f"state entity for class 0x{class_code:04X} EPC 0x{prop.epc:02X} "
         f"({name_en}) has no enum_values"
     )
 
-    # Generate id: class_{class_code}_epc_{epc}
-    entity_id = f"class_{class_code:04x}_epc_{prop.epc:02x}"
+    # For sensors: filter out out-of-range enum_values (special markers like
+    # "Unmeasurable", "Not measured" that sit outside the numeric range)
+    if (
+        enum_vals
+        and is_sensor
+        and prop.mra_minimum is not None
+        and prop.mra_maximum is not None
+    ):
+        enum_vals = [
+            ev for ev in enum_vals if prop.mra_minimum <= ev.edt <= prop.mra_maximum
+        ]
 
-    entity: dict[str, Any] = {
-        "id": entity_id,
-        "epc": prop.epc,
-        "name_en": name_en,
-        "name_ja": prop.name_ja,
-        # preserve original access values
-        "get": prop.get,
-        "set": prop.set,
-    }
-
-    # Add sensor-specific MRA fields
-    if is_sensor:
-        entity["format"] = prop.mra_format
-        if prop.mra_unit:
-            entity["unit"] = prop.mra_unit
-        if prop.mra_minimum is not None:
-            entity["minimum"] = prop.mra_minimum
-        if prop.mra_maximum is not None:
-            entity["maximum"] = prop.mra_maximum
-        if prop.mra_multiple_of is not None and prop.mra_multiple_of != 1.0:
-            entity["multipleOf"] = prop.mra_multiple_of
-
-    # Include enum_values for state entities (binary/select)
-    # For sensors with min/max, filter out out-of-range enum_values (special markers)
-    if enum_vals:
-        filtered_enums = enum_vals
-        if is_sensor and prop.mra_minimum is not None and prop.mra_maximum is not None:
-            # Filter out enum_values outside [minimum, maximum] range
-            # These are typically special values like "Unmeasurable", "Not measured"
-            filtered_enums = [
-                ev for ev in enum_vals if prop.mra_minimum <= ev.edt <= prop.mra_maximum
-            ]
-        if filtered_enums:
-            entity["enum_values"] = [ev.model_dump() for ev in filtered_enums]
-
-    # Ensure original access strings are always present
-    entity.setdefault("get", prop.get)
-    entity.setdefault("set", prop.set)
-
-    return entity
+    return EntityDefinition(
+        id=f"class_{class_code:04x}_epc_{prop.epc:02x}",
+        epc=prop.epc,
+        name_en=name_en,
+        name_ja=prop.name_ja,
+        get=prop.get,
+        set=prop.set,
+        format=prop.mra_format if is_sensor else None,
+        unit=prop.mra_unit if is_sensor else None,
+        minimum=prop.mra_minimum if is_sensor else None,
+        maximum=prop.mra_maximum if is_sensor else None,
+        multiple_of=(
+            prop.mra_multiple_of
+            if is_sensor and prop.mra_multiple_of is not None
+            else 1.0
+        ),
+        enum_values=tuple(enum_vals),
+    )
 
 
 # ============================================================================
@@ -375,32 +378,37 @@ def _is_latest_version(prop_data: dict[str, Any]) -> bool:
     return to_value == "latest"
 
 
-def generate_definitions(mra_path: Path) -> dict[str, Any]:
+def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
     """Generate definitions from MRA data."""
     devices_path = mra_path / "devices"
     if not devices_path.exists():
         print(f"Error: devices directory not found at {devices_path}")
-        return {}
+        return _DefinitionsBuild(
+            version="1.0.0",
+            mra_version="unknown",
+            common=[],
+            devices={},
+            manufacturers={},
+        )
 
     mra_version, mra_definitions = _load_mra_metadata(mra_path)
 
     # Build common entities once (shared across all device classes)
     with (mra_path / "superClass" / "0x0000.json").open(encoding="utf-8") as f:
         superclass = json.load(f)
-    common_entities = []
+    common: list[EntityDefinition] = []
     for prop_data in superclass["elProperties"]:
         if not _is_latest_version(prop_data):
             continue
-
         prop = _parse_mra_property(prop_data, mra_definitions)
         entity = _build_entity_from_property(0, prop)
         if entity is not None:
-            common_entities.append(entity)
+            common.append(entity)
 
     # EPCs already in common section (to avoid duplicates in device-specific entities)
-    common_epcs = frozenset(entity["epc"] for entity in common_entities)
+    common_epcs = frozenset(e.epc for e in common)
 
-    devices: dict[int, dict[str, Any]] = {}
+    devices: dict[int, _DeviceBuild] = {}
 
     for device_file in sorted(devices_path.glob("0x*.json")):
         class_code = int(device_file.stem, 16)
@@ -409,8 +417,7 @@ def generate_definitions(mra_path: Path) -> dict[str, Any]:
             data = json.load(f)
 
         class_name_data = data["className"]
-
-        entities: list[dict[str, Any]] = []
+        entities: list[EntityDefinition] = []
 
         for prop_data in data["elProperties"]:
             # Only include properties valid for the latest MRA version
@@ -430,21 +437,21 @@ def generate_definitions(mra_path: Path) -> dict[str, Any]:
         # Register all MRA device classes, even those without device-specific
         # entities, so common entities (e.g., operation status 0x80) are
         # still applied via _load_devices().
-        devices[class_code] = {
-            "name_en": class_name_data["en"],
-            "name_ja": class_name_data["ja"],
-            "entities": entities,
-        }
+        devices[class_code] = _DeviceBuild(
+            name_en=class_name_data["en"],
+            name_ja=class_name_data["ja"],
+            entities=entities,
+        )
 
     manufacturers = _load_manufacturer_codes(MANUFACTURER_CODES_FILE)
 
-    return {
-        "version": "1.0.0",
-        "mra_version": mra_version,
-        "common": common_entities,
-        "devices": devices,
-        "manufacturers": manufacturers,
-    }
+    return _DefinitionsBuild(
+        version="1.0.0",
+        mra_version=mra_version,
+        common=common,
+        devices=devices,
+        manufacturers=manufacturers,
+    )
 
 
 # ============================================================================
@@ -452,11 +459,11 @@ def generate_definitions(mra_path: Path) -> dict[str, Any]:
 # ============================================================================
 
 
-def _load_manufacturer_codes(path: Path) -> dict[int, dict[str, Any]]:
+def _load_manufacturer_codes(path: Path) -> dict[int, ManufacturerDefinition]:
     """Load manufacturer codes from YAML.
 
-    Returns a mapping of manufacturer code (int) to a dict with name_en,
-    name_ja and web_site. Returns an empty dict if the file does not exist.
+    Returns a mapping of manufacturer code (int) to ManufacturerDefinition.
+    Returns an empty dict if the file does not exist.
     """
     if not path.exists():
         return {}
@@ -464,15 +471,15 @@ def _load_manufacturer_codes(path: Path) -> dict[int, dict[str, Any]]:
     with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
-    result: dict[int, dict[str, Any]] = {}
+    result: dict[int, ManufacturerDefinition] = {}
     for entry in data.get("manufacturers", []):
         code = entry.get("manufacturer_code")
         if code is None:
             continue
-        result[int(code)] = {
-            "name_en": entry.get("name_en"),
-            "name_ja": entry.get("name_ja"),
-        }
+        result[int(code)] = ManufacturerDefinition(
+            name_en=entry.get("name_en") or "",
+            name_ja=entry.get("name_ja") or "",
+        )
     return result
 
 
@@ -485,7 +492,7 @@ def _load_custom_definitions(custom_path: Path) -> dict[str, Any]:
     """Load custom definitions from YAML file.
 
     Args:
-        custom_path: Path to custom_definitions.yaml
+        custom_path: Path to custom_definitions.yaml.
 
     Returns:
         Parsed custom definitions or empty dict if not found.
@@ -499,37 +506,31 @@ def _load_custom_definitions(custom_path: Path) -> dict[str, Any]:
     return data if data else {}
 
 
+# YAML field name → EntityDefinition attribute name (where they differ)
+_YAML_TO_ATTR: dict[str, str] = {"multipleOf": "multiple_of"}
+
+
 def _apply_overrides(
-    definitions: dict[str, Any],
+    build: _DefinitionsBuild,
     custom: dict[str, Any],
     mra_epcs_by_class: dict[int, frozenset[int]],
-) -> dict[str, Any]:
-    """Apply overrides to existing MRA-generated entities.
+) -> None:
+    """Apply overrides to existing MRA-generated entities (in-place).
 
     For each entry whose EPC already exists in the MRA definitions,
-    patch the matching entity in-place. Any field except ``epc`` and
-    ``manufacturer_code`` is applied as an override.  ``enum_values`` uses
-    key-based merge (matched by ``key``, updating ``name_en``/``name_ja``).
-    When the override covers ALL enum keys, the enum_values are also reordered
-    to match the order they appear in the override list; partial overrides
-    (e.g., label-only fixes) leave the original MRA order unchanged.
-
-    Args:
-        definitions: Generated MRA definitions.
-        custom: Custom definitions from YAML.
-        mra_epcs_by_class: Pre-computed MRA EPCs per class code.
-
-    Returns:
-        Definitions with overrides applied.
+    patch the matching EntityDefinition using dataclasses.replace().
+    ``enum_values`` uses key-based merge (matched by ``key``, updating
+    ``name_en``/``name_ja``).  When the override covers ALL enum keys,
+    the enum_values are also reordered to match the override list order;
+    partial overrides leave the original MRA order unchanged.
     """
-    devices = definitions.get("devices", {})
     override_count = 0
 
     for class_code, entries in custom.get("devices", {}).items():
-        if class_code not in devices:
+        if class_code not in build.devices:
             continue
 
-        mra_entities = devices[class_code]["entities"]
+        device_build = build.devices[class_code]
         mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
 
         for entry in entries:
@@ -539,25 +540,29 @@ def _apply_overrides(
 
             manufacturer_code = entry.get("manufacturer_code")
 
-            # Find matching entities by EPC (and optionally manufacturer)
-            matching = [e for e in mra_entities if e["epc"] == epc]
-            if manufacturer_code is not None:
-                matching = [
-                    e
-                    for e in matching
-                    if e.get("manufacturer_code") == manufacturer_code
-                ]
-            if not matching:
+            # Collect indices of matching entities
+            matching_idx = [
+                i
+                for i, e in enumerate(device_build.entities)
+                if e.epc == epc
+                and (
+                    manufacturer_code is None
+                    or e.manufacturer_code == manufacturer_code
+                )
+            ]
+            if not matching_idx:
                 print(
                     f"  Warning: override target EPC 0x{epc:02X} not found "
                     f"in class 0x{class_code:04X}"
                 )
                 continue
 
-            # Fields that are used for matching, not for overriding
             match_keys = {"epc", "manufacturer_code"}
 
-            for entity in matching:
+            for idx in matching_idx:
+                entity = device_build.entities[idx]
+                changes: dict[str, Any] = {}
+
                 for field, value in entry.items():
                     if field in match_keys:
                         continue
@@ -567,71 +572,66 @@ def _apply_overrides(
                         # ALL enum keys (full coverage), so that partial
                         # overrides (label-only fixes) do not disturb the
                         # original MRA order.
-                        current_evs = entity.get("enum_values", [])
+                        current_evs = list(entity.enum_values)
+                        updated: dict[str, EnumValue] = {}
                         override_order: list[str] = []
                         for ev_override in value:
                             key = ev_override["key"]
-                            matched_evs = [ev for ev in current_evs if ev["key"] == key]
-                            if not matched_evs:
+                            matched = [ev for ev in current_evs if ev.key == key]
+                            if not matched:
                                 print(
                                     f"  Warning: override enum key '{key}' "
                                     f"not found in EPC 0x{epc:02X} of "
                                     f"class 0x{class_code:04X}"
                                 )
                                 continue
-                            for ev in matched_evs:
-                                if "name_en" in ev_override:
-                                    ev["name_en"] = ev_override["name_en"]
-                                if "name_ja" in ev_override:
-                                    ev["name_ja"] = ev_override["name_ja"]
+                            for ev in matched:
+                                updated[key] = dataclasses.replace(
+                                    ev,
+                                    name_en=ev_override.get("name_en", ev.name_en),
+                                    name_ja=ev_override.get("name_ja", ev.name_ja),
+                                )
                                 override_count += 1
                             override_order.append(key)
+
+                        new_evs = [updated.get(ev.key, ev) for ev in current_evs]
 
                         # Only reorder when the override fully covers every key
                         if override_order and len(override_order) == len(current_evs):
                             key_index = {k: i for i, k in enumerate(override_order)}
-                            current_evs.sort(key=lambda ev: key_index[ev["key"]])
-                            entity["enum_values"] = current_evs
+                            new_evs.sort(key=lambda ev: key_index[ev.key])
+
+                        changes["enum_values"] = tuple(new_evs)
                     else:
-                        # Direct field replacement
-                        entity[field] = value
+                        attr = _YAML_TO_ATTR.get(field, field)
+                        changes[attr] = value
                         override_count += 1
+
+                if changes:
+                    device_build.entities[idx] = dataclasses.replace(entity, **changes)
 
     if override_count:
         print(f"  Applied {override_count} override(s)")
 
-    return definitions
-
 
 def _merge_custom_definitions(
-    definitions: dict[str, Any],
+    build: _DefinitionsBuild,
     custom: dict[str, Any],
     mra_epcs_by_class: dict[int, frozenset[int]],
-) -> dict[str, Any]:
-    """Merge custom definitions into MRA definitions.
+) -> None:
+    """Merge new custom entities into definitions (in-place).
 
     For each entry whose EPC does NOT exist in the MRA definitions,
-    create a new custom entity and append it.
-
-    Args:
-        definitions: Generated MRA definitions.
-        custom: Custom definitions from YAML.
-        mra_epcs_by_class: Pre-computed MRA EPCs per class code.
-
-    Returns:
-        Merged definitions.
+    create a new EntityDefinition and append it.
     """
-    devices = definitions.get("devices", {})
     custom_entity_count = 0
 
     for class_code, entries in custom.get("devices", {}).items():
-        if class_code not in devices:
+        if class_code not in build.devices:
             print(f"  Warning: custom target class 0x{class_code:04X} not found")
             continue
 
         mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
-
-        # Group entities by EPC to generate sequential indices
         epc_counts: dict[int, int] = {}
 
         for entry in entries:
@@ -639,45 +639,28 @@ def _merge_custom_definitions(
             if epc in mra_epcs:
                 continue  # Override — handled by _apply_overrides
 
-            entity_result = _build_custom_entity(
-                class_code,
-                entry,
-                epc_counts,
-            )
-            devices[class_code]["entities"].append(entity_result)
+            entity = _build_custom_entity(class_code, entry, epc_counts)
+            build.devices[class_code].entities.append(entity)
             custom_entity_count += 1
 
     if custom_entity_count:
         print(f"  Total custom entities: {custom_entity_count}")
 
-    return definitions
-
 
 def _build_custom_entity(
     class_code: int,
-    entity: dict[str, Any],
+    entry: dict[str, Any],
     epc_counts: dict[int, int],
-) -> dict[str, Any]:
-    """Build a custom entity definition.
+) -> EntityDefinition:
+    """Build a custom EntityDefinition from a YAML entry."""
+    epc: int = entry["epc"]
+    mfr_code: int | None = entry.get("manufacturer_code")
+    enum_values_raw = entry.get("enum_values")
 
-    Args:
-        class_code: Device class code.
-        entity: Entity definition from YAML.
-        epc_counts: Counter for EPCs to generate unique indices.
-
-    Returns:
-        Entity definition dict.
-    """
-    epc: int = entity["epc"]
-    mfr_code: int | None = entity.get("manufacturer_code")
-    enum_values = entity.get("enum_values")
-
-    # Generate unique index for this EPC
     epc_counts.setdefault(epc, 0)
     epc_counts[epc] += 1
     index = epc_counts[epc]
 
-    # Generate id
     if mfr_code is not None:
         entity_id = (
             f"class_{class_code:04x}_custom_{mfr_code:06x}_epc_{epc:02x}_{index}"
@@ -685,39 +668,127 @@ def _build_custom_entity(
     else:
         entity_id = f"class_{class_code:04x}_custom_epc_{epc:02x}_{index}"
 
-    result: dict[str, Any] = {
-        "id": entity_id,
-        "epc": epc,
-        "name_en": entity.get("name_en", ""),
-        "name_ja": entity.get("name_ja", ""),
-        # preserve access info if provided, else default to notApplicable
-        "get": entity.get("get", "notApplicable"),
-        "set": entity.get("set", "notApplicable"),
-    }
-
-    # State entity: enum_values takes precedence
-    if enum_values:
-        result["enum_values"] = enum_values
-    # Sensor entity: add MRA fields if present
+    if enum_values_raw:
+        enum_tuple = tuple(
+            EnumValue(
+                edt=ev["edt"],
+                key=ev["key"],
+                name_en=ev.get("name_en", ""),
+                name_ja=ev.get("name_ja", ""),
+            )
+            for ev in enum_values_raw
+        )
     else:
-        if mra_format := entity.get("format"):
-            result["format"] = mra_format
-        if unit := entity.get("unit"):
-            result["unit"] = unit
-        if (minimum := entity.get("minimum")) is not None:
-            result["minimum"] = minimum
-        if (maximum := entity.get("maximum")) is not None:
-            result["maximum"] = maximum
-        if (multiple_of := entity.get("multipleOf")) is not None and multiple_of != 1.0:
-            result["multipleOf"] = multiple_of
+        enum_tuple = ()
 
-    # Vendor-specific fields (flattened)
-    if mfr_code is not None:
-        result["manufacturer_code"] = mfr_code
-    if entity.get("byte_offset") is not None:
-        result["byte_offset"] = entity["byte_offset"]
+    return EntityDefinition(
+        id=entity_id,
+        epc=epc,
+        name_en=entry.get("name_en", ""),
+        name_ja=entry.get("name_ja", ""),
+        get=entry.get("get", "notApplicable"),
+        set=entry.get("set", "notApplicable"),
+        format=entry.get("format") if not enum_values_raw else None,
+        unit=entry.get("unit") if not enum_values_raw else None,
+        minimum=entry.get("minimum") if not enum_values_raw else None,
+        maximum=entry.get("maximum") if not enum_values_raw else None,
+        multiple_of=(entry.get("multipleOf", 1.0) if not enum_values_raw else 1.0),
+        enum_values=enum_tuple,
+        byte_offset=entry.get("byte_offset", 0),
+        manufacturer_code=mfr_code,
+    )
 
-    return result
+
+# ============================================================================
+# Code Generation Functions
+# ============================================================================
+
+
+def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
+    """Validate an entity definition at build time."""
+    assert entity.enum_values or entity.format, (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
+    )
+    assert (
+        not entity.enum_values
+        or len(entity.enum_values) != 1
+        or entity.get == "notApplicable"
+        or entity.format is not None
+    ), (
+        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
+        " has only 1 enum_value"
+    )
+
+
+def _generate_python_source(build: _DefinitionsBuild) -> str:
+    """Render definitions as importable Python source.
+
+    Produces a module that builds the DefinitionsRegistry from dataclass
+    literals (rendered via repr), so the data is referenced directly as code
+    instead of being parsed from JSON at runtime. Common entities are emitted
+    once as ``_COMMON`` and shared by every device class.
+    """
+    # Build-time validation
+    for class_code, device_build in build.devices.items():
+        for entity in build.common + device_build.entities:
+            _validate_entity(entity, class_code)
+
+    lines: list[str] = [
+        "# ruff: noqa",
+        '"""Auto-generated ECHONET Lite definitions.',
+        "",
+        "DO NOT EDIT. Generated by scripts/generate_definitions.py.",
+        '"""',
+        "",
+        "from .definitions import (",
+        "    DefinitionsRegistry,",
+        "    DeviceDefinition,",
+        "    EntityDefinition,",
+        "    EnumValue,",
+        "    ManufacturerDefinition,",
+        ")",
+        "",
+        "_COMMON: tuple[EntityDefinition, ...] = (",
+    ]
+    lines.extend(f"    {entity!r}," for entity in build.common)
+    lines.append(")")
+    lines.append("")
+    lines.append("DEVICES: dict[int, DeviceDefinition] = {")
+    for class_code in sorted(build.devices):
+        device_build = build.devices[class_code]
+        lines.append(f"    {class_code}: DeviceDefinition(")
+        lines.append(f"        class_code={class_code},")
+        lines.append(f"        name_en={device_build.name_en!r},")
+        lines.append(f"        name_ja={device_build.name_ja!r},")
+        if device_build.entities:
+            lines.append("        entities=_COMMON + (")
+            lines.extend(f"            {entity!r}," for entity in device_build.entities)
+            lines.append("        ),")
+        else:
+            lines.append("        entities=_COMMON,")
+        lines.append("    ),")
+    lines.append("}")
+    lines.append("")
+    lines.append("MANUFACTURERS: dict[int, ManufacturerDefinition] = {")
+    lines.extend(
+        f"    {code}: {build.manufacturers[code]!r},"
+        for code in sorted(build.manufacturers)
+    )
+    lines.append("}")
+    lines.append("")
+    lines.extend(
+        [
+            "REGISTRY = DefinitionsRegistry(",
+            f"    version={build.version!r},",
+            f"    mra_version={build.mra_version!r},",
+            "    devices=DEVICES,",
+            "    entities={cc: d.entities for cc, d in DEVICES.items()},",
+            "    manufacturers=MANUFACTURERS,",
+            ")",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 # ============================================================================
@@ -734,7 +805,7 @@ def main() -> None:
 
     print(f"Using MRA data from: {MRA_DIR}")
     print("Generating definitions...")
-    definitions = generate_definitions(MRA_DIR)
+    build = generate_definitions(MRA_DIR)
 
     # Load and merge custom vendor definitions
     if CUSTOM_DEFINITIONS_FILE.exists():
@@ -743,34 +814,23 @@ def main() -> None:
         # Snapshot MRA EPCs before custom processing so ADD/UPDATE detection
         # is based on the original MRA data, not entities added by merging.
         mra_epcs_by_class = {
-            class_code: frozenset(e["epc"] for e in dev["entities"])
-            for class_code, dev in definitions.get("devices", {}).items()
+            class_code: frozenset(e.epc for e in device_build.entities)
+            for class_code, device_build in build.devices.items()
         }
-        definitions = _merge_custom_definitions(  # ADD first
-            definitions, custom, mra_epcs_by_class
-        )
-        definitions = _apply_overrides(  # then UPDATE
-            definitions, custom, mra_epcs_by_class
-        )
+        _merge_custom_definitions(build, custom, mra_epcs_by_class)  # ADD first
+        _apply_overrides(build, custom, mra_epcs_by_class)  # then UPDATE
 
-    # Write definitions.json
-    definitions_path = PYHEMS_DIR / "definitions.json"
-    # Round-trip through JSON to normalize integer keys to strings,
-    # ensuring sort_keys produces the same order as pretty-format-json.
-    normalized = json.loads(json.dumps(definitions))
-    with definitions_path.open("w", encoding="utf-8") as f:
-        json.dump(normalized, f, indent=2, ensure_ascii=False, sort_keys=True)
-        f.write("\n")
-    print(f"\nGenerated: {definitions_path}")
+    generated_source = _generate_python_source(build)
+    generated_path = PYHEMS_DIR / "_definitions_generated.py"
+    with generated_path.open("w", encoding="utf-8") as f:
+        f.write(generated_source)
+    print(f"\nGenerated: {generated_path}")
 
-    # Print summary
-    device_count = len(definitions.get("devices", {}))
-    entity_count = sum(
-        len(d.get("entities", [])) for d in definitions.get("devices", {}).values()
-    )
-    manufacturer_count = len(definitions.get("manufacturers", {}))
+    device_count = len(build.devices)
+    entity_count = sum(len(db.entities) for db in build.devices.values())
+    manufacturer_count = len(build.manufacturers)
     print("\nSummary:")
-    print(f"  MRA version: {definitions.get('mra_version', 'unknown')}")
+    print(f"  MRA version: {build.mra_version}")
     print(f"  Devices: {device_count}")
     print(f"  Entities: {entity_count}")
     print(f"  Manufacturers: {manufacturer_count}")

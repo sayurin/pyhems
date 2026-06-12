@@ -1,31 +1,22 @@
 """ECHONET Lite definitions for entity creation.
 
-This module provides:
+This module provides the dataclasses describing ECHONET Lite devices:
 - EntityDefinition for entity configuration
 - DeviceDefinition for device class configuration
 - DefinitionsRegistry for managing all definitions
 
-Usage:
-    from pyhems import load_definitions_registry
+The concrete data is generated as code in ``_definitions_generated.py`` and
+exposed as the :data:`pyhems.REGISTRY` constant.
 
-    registry = load_definitions_registry()
-    entities = registry.get_entities("sensor")
+Usage:
+    from pyhems import REGISTRY
+
+    entities = REGISTRY.entities
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-
-_LOGGER = logging.getLogger(__name__)
-
-
-class DefinitionsLoadError(Exception):
-    """Raised when definitions cannot be loaded."""
-
 
 # ============================================================================
 # Entity and Device Definitions
@@ -168,7 +159,7 @@ class DefinitionsRegistry:
     This is an immutable data container holding definitions loaded from
     definitions.json (generated from MRA data).
 
-    Use load_definitions_registry() or async_load_definitions_registry() to create.
+    Use the :data:`pyhems.REGISTRY` constant to access the pre-built registry.
 
     Attributes:
         version: Definitions format version
@@ -183,230 +174,3 @@ class DefinitionsRegistry:
     devices: dict[int, DeviceDefinition]
     entities: dict[int, tuple[EntityDefinition, ...]]
     manufacturers: dict[int, ManufacturerDefinition]
-
-
-# ============================================================================
-# Definition Loading Functions
-# ============================================================================
-
-# Default definitions file path (in package directory)
-DEFINITIONS_FILE = Path(__file__).parent / "definitions.json"
-
-
-def _get_definitions_data(definitions_file: Path | None = None) -> dict[str, Any]:
-    """Get raw definitions data from definitions.json.
-
-    Args:
-        definitions_file: Path to definitions.json. If None, uses bundled file.
-
-    Returns:
-        Parsed definitions.json dictionary containing:
-        - version: Definitions format version
-        - mra_version: MRA specification version
-        - devices: Device definitions with entities
-
-    Raises:
-        DefinitionsLoadError: If the file cannot be loaded.
-    """
-    path = definitions_file or DEFINITIONS_FILE
-    if not path.exists():
-        raise DefinitionsLoadError(f"Definitions file not found: {path}")
-
-    try:
-        with path.open(encoding="utf-8") as f:
-            result: dict[str, Any] = json.load(f)
-            return result
-    except (json.JSONDecodeError, OSError) as ex:
-        raise DefinitionsLoadError(f"Failed to load definitions: {ex}") from ex
-
-
-def _parse_entity(entity_data: dict[str, Any]) -> EntityDefinition:
-    """Parse a single entity definition.
-
-    Args:
-        entity_data: Entity definition dictionary.
-
-    Returns:
-        EntityDefinition.
-    """
-    # EPC is always int in normalized definitions.json
-    epc: int = entity_data["epc"]
-
-    # Parse enum values
-    enum_values = tuple(
-        EnumValue(
-            edt=item["edt"],
-            key=item["key"],
-            name_en=item["name_en"],
-            name_ja=item["name_ja"],
-        )
-        for item in entity_data.get("enum_values", [])
-    )
-
-    # Get MRA fields (None if not present)
-    mra_format = entity_data.get("format")
-    unit = entity_data.get("unit")
-    minimum = entity_data.get("minimum")
-    maximum = entity_data.get("maximum")
-    multiple_of = entity_data.get("multipleOf", 1.0)
-
-    # Must have either format (sensor) or enum_values (binary/select)
-    assert mra_format or enum_values, (
-        f"Entity EPC 0x{epc:02X} has neither format nor enum_values"
-    )
-
-    # Vendor-specific fields (flattened)
-    manufacturer_code = entity_data.get("manufacturer_code")
-    byte_offset = entity_data.get("byte_offset", 0)
-
-    return EntityDefinition(
-        id=entity_data["id"],
-        epc=epc,
-        name_en=entity_data["name_en"],
-        name_ja=entity_data["name_ja"],
-        get=entity_data["get"],
-        set=entity_data["set"],
-        format=mra_format,
-        unit=unit,
-        minimum=minimum,
-        maximum=maximum,
-        multiple_of=multiple_of,
-        enum_values=enum_values,
-        byte_offset=byte_offset,
-        manufacturer_code=manufacturer_code,
-    )
-
-
-def _load_devices(
-    devices_data: dict[str, Any],
-    common_data: list[dict[str, Any]],
-) -> dict[int, DeviceDefinition]:
-    """Load device definitions from parsed JSON data.
-
-    Args:
-        devices_data: Dictionary of class_code to device data.
-        common_data: List of common entity definitions.
-
-    Returns:
-        Dictionary of class_code to DeviceDefinition.
-    """
-    common_entities = [_parse_entity(entity_data) for entity_data in common_data]
-    devices: dict[int, DeviceDefinition] = {}
-
-    for class_code_key, device_data in devices_data.items():
-        try:
-            class_code = int(class_code_key)
-        except ValueError:
-            continue
-
-        device_entities = [
-            _parse_entity(entity_data)
-            for entity_data in device_data.get("entities", [])
-        ]
-
-        devices[class_code] = DeviceDefinition(
-            class_code=class_code,
-            name_en=device_data["name_en"],
-            name_ja=device_data["name_ja"],
-            entities=tuple(common_entities + device_entities),
-        )
-
-    return devices
-
-
-def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
-    """Validate that an entity definition is complete.
-
-    Args:
-        entity: Entity definition to validate.
-        class_code: Device class code for logging.
-
-    Raises:
-        AssertionError: If the entity definition is invalid.
-    """
-    # Must have format or enum_values (or both)
-    assert entity.enum_values or entity.format, (
-        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
-    )
-
-    # Enum-only entities with 1 value are only valid as:
-    # - write-only buttons (get == notApplicable)
-    # - hybrid entities with format (numeric primary, enum as special value)
-    assert (
-        not entity.enum_values
-        or len(entity.enum_values) != 1
-        or entity.get == "notApplicable"
-        or entity.format is not None
-    ), (
-        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
-        " has only 1 enum_value"
-    )
-
-
-def _build_entities(
-    devices: dict[int, DeviceDefinition],
-) -> dict[int, tuple[EntityDefinition, ...]]:
-    """Build entities from loaded definitions.
-
-    Args:
-        devices: Device definitions.
-
-    Returns:
-        Mapping of class_code to tuples of EntityDefinition.
-    """
-    for cc, device in devices.items():
-        for entity in device.entities:
-            _validate_entity(entity, cc)
-    return {cc: device.entities for cc, device in devices.items()}
-
-
-def load_definitions_registry(
-    definitions_file: Path | None = None,
-) -> DefinitionsRegistry:
-    """Load and create a DefinitionsRegistry.
-
-    Args:
-        definitions_file: Path to definitions.json. If None, uses bundled file.
-
-    Returns:
-        Populated DefinitionsRegistry instance.
-
-    Raises:
-        DefinitionsLoadError: If definitions.json cannot be loaded.
-    """
-    data = _get_definitions_data(definitions_file)
-
-    version = data.get("version", "unknown")
-    mra_version = data.get("mra_version", "unknown")
-    devices = _load_devices(data.get("devices", {}), data.get("common", []))
-
-    _LOGGER.debug(
-        "Loaded %d device definitions (MRA version: %s)", len(devices), mra_version
-    )
-
-    entities = _build_entities(devices)
-    manufacturers = _load_manufacturers(data.get("manufacturers", {}))
-
-    return DefinitionsRegistry(
-        version=version,
-        mra_version=mra_version,
-        devices=devices,
-        entities=entities,
-        manufacturers=manufacturers,
-    )
-
-
-def _load_manufacturers(
-    manufacturers_data: dict[str, Any],
-) -> dict[int, ManufacturerDefinition]:
-    """Parse manufacturers section of definitions.json.
-
-    Keys in JSON are strings; convert to int codes.
-    """
-    return {
-        int(code_key): ManufacturerDefinition(
-            name_en=entry.get("name_en") or "",
-            name_ja=entry.get("name_ja") or "",
-        )
-        for code_key, entry in manufacturers_data.items()
-    }
