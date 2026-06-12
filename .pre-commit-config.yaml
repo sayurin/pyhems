@@ -28,6 +28,5 @@ repos:
         additional_dependencies:
           - bidict
           - pytest
-          - pydantic
           - types-PyYAML
 exclude: ^(mra/|src/pyhems/_definitions_generated\.py)

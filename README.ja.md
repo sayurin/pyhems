@@ -1,6 +1,6 @@
 # pyhems
 
-[![Python Version](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 HEMS（Home Energy Management System）向け ECHONET Lite 通信ライブラリ。
@@ -32,7 +32,7 @@ pyhems は ECHONET Lite 機器との通信を行うための Python ライブラ
 
 ## 動作要件
 
-- Python 3.13 以上
+- Python 3.14 以上
 - bidict >= 0.23.0
 
 ## ライセンス

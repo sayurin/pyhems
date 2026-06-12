@@ -17,9 +17,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "bidict>=0.23.0",
 ]
@@ -80,7 +80,6 @@ ignore = [
 convention = "google"
 
 [tool.mypy]
-python_version = "3.13"
 strict = true
 
 [[tool.mypy.overrides]]
