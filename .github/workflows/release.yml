@@ -1,71 +1,73 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
-      target:
-        description: "Publish target"
-        type: choice
-        options:
-          - testpypi
-          - pypi
-        default: testpypi
+      version:
+        description: "Version (e.g. 0.6.1)"
+        required: true
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format. Use semver (e.g. 0.6.1)"
+            exit 1
+          fi
+
+      - name: Check tag does not already exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Update pyproject.toml version
+        run: |
+          sed -i 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' pyproject.toml
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "Release v${{ inputs.version }}"
+          git tag "v${{ inputs.version }}"
+          git push origin HEAD --tags
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8
 
       - name: Build package
         run: uv build
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
-
-  publish-testpypi:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
-    needs: build
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
-    needs: build
+    needs: prepare
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -74,22 +76,20 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:
-    if: github.event_name == 'push'
-    needs: build
+    needs: [prepare, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
+          tag_name: "v${{ inputs.version }}"
           files: dist/*
           generate_release_notes: true
