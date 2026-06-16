@@ -75,6 +75,30 @@ class TestBinaryCodec:
         assert codec.decode(b"") is None
         assert codec.decode(b"\x42") is None
 
+    def test_decode_with_byte_offset(self) -> None:
+        """``byte_offset`` selects the correct byte from a packed EDT."""
+        codec = BinaryCodec(on_edt=0x00, off_edt=0x01, byte_offset=1)
+        # byte at offset 1 is 0x00 → True (bright)
+        assert codec.decode(b"\x62\x00\xc6") is True
+        # byte at offset 1 is 0x01 → False (dark)
+        assert codec.decode(b"\x62\x01\xc6") is False
+        # EDT too short for offset → None
+        assert codec.decode(b"\x62") is None
+
+    def test_get_codec_propagates_byte_offset(self) -> None:
+        """``get_codec`` passes ``byte_offset`` through to :class:`BinaryCodec`."""
+        entity = _make_entity(
+            byte_offset=1,
+            enum_values=(
+                EnumValue(edt=0x00, key="true", name_en="Bright", name_ja="明るい"),
+                EnumValue(edt=0x01, key="false", name_en="Dark", name_ja="暗い"),
+            ),
+        )
+        codec = get_codec(entity)
+        assert isinstance(codec, BinaryCodec)
+        assert codec.byte_offset == 1
+        assert codec.decode(b"\x62\x00\xc6") is True
+
 
 class TestEnumCodec:
     """Tests for :class:`EnumCodec` selection and round-trip."""
@@ -104,6 +128,33 @@ class TestEnumCodec:
         codec = EnumCodec(by_key={"a": 0x10}, by_edt={0x10: "a"})
         assert codec.decode(b"") is None
         assert codec.decode(b"\x99") is None
+
+    def test_decode_with_byte_offset(self) -> None:
+        """``byte_offset`` selects the correct byte from a packed EDT."""
+        codec = EnumCodec(
+            by_key={"auto": 0x41, "cool": 0x42},
+            by_edt={0x41: "auto", 0x42: "cool"},
+            byte_offset=2,
+        )
+        assert codec.decode(b"\x00\x00\x42") == "cool"
+        assert codec.decode(b"\x00\x00\x41") == "auto"
+        # EDT too short for offset → None
+        assert codec.decode(b"\x00\x00") is None
+
+    def test_get_codec_propagates_byte_offset_to_enum(self) -> None:
+        """``get_codec`` passes ``byte_offset`` through to :class:`EnumCodec`."""
+        entity = _make_entity(
+            byte_offset=2,
+            enum_values=(
+                EnumValue(edt=0x41, key="auto", name_en="Auto", name_ja="自動"),
+                EnumValue(edt=0x42, key="cool", name_en="Cool", name_ja="冷房"),
+                EnumValue(edt=0x43, key="heat", name_en="Heat", name_ja="暖房"),
+            ),
+        )
+        codec = get_codec(entity)
+        assert isinstance(codec, EnumCodec)
+        assert codec.byte_offset == 2
+        assert codec.decode(b"\x00\x00\x42") == "cool"
 
 
 class TestNumericCodec:

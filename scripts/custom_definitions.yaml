@@ -45,6 +45,21 @@ devices:
   0x0135:
     - epc: 0xF1
       manufacturer_code: 0x000005
+      byte_offset: 1
+      enum_values:
+        - edt: 0x00
+          key: "true"
+          name_en: "Bright"
+          name_ja: "明るい"
+        - edt: 0x01
+          key: "false"
+          name_en: "Dark"
+          name_ja: "暗い"
+      get: optional
+      name_en: "Illuminance"
+      name_ja: "照度"
+    - epc: 0xF1
+      manufacturer_code: 0x000005
       byte_offset: 3
       format: int8
       unit: Celsius
