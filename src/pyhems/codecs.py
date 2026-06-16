@@ -70,15 +70,16 @@ class BinaryCodec:
 
     on_edt: int
     off_edt: int
+    byte_offset: int = 0
 
     def decode(self, edt: bytes) -> bool | None:
         """Return ``True``/``False`` for the configured ON/OFF bytes."""
-        if not edt:
+        if not edt or self.byte_offset >= len(edt):
             return None
-        first = edt[0]
-        if first == self.on_edt:
+        val = edt[self.byte_offset]
+        if val == self.on_edt:
             return True
-        if first == self.off_edt:
+        if val == self.off_edt:
             return False
         return None
 
@@ -93,6 +94,7 @@ class EnumCodec:
 
     by_key: dict[str, int]
     by_edt: dict[int, str]
+    byte_offset: int = 0
 
     @classmethod
     def from_mapping(cls, forward: dict[str, int]) -> EnumCodec:
@@ -103,10 +105,10 @@ class EnumCodec:
         return cls(by_key=forward, by_edt={v: k for k, v in forward.items()})
 
     def decode(self, edt: bytes) -> str | None:
-        """Return the ``key`` matching the first EDT byte, or ``None``."""
-        if not edt:
+        """Return the ``key`` matching the EDT byte at ``byte_offset``, or ``None``."""
+        if not edt or self.byte_offset >= len(edt):
             return None
-        return self.by_edt.get(edt[0])
+        return self.by_edt.get(edt[self.byte_offset])
 
     def encode(self, value: str) -> bytes:
         """Encode a ``key`` from ``enum_values`` to the matching byte."""
@@ -217,10 +219,15 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
     if entity_def.enum_values:
         if len(entity_def.enum_values) == 2:
             on_edt, off_edt = entity_def.get_binary_values()
-            return BinaryCodec(on_edt=on_edt[0], off_edt=off_edt[0])
+            return BinaryCodec(
+                on_edt=on_edt[0],
+                off_edt=off_edt[0],
+                byte_offset=entity_def.byte_offset,
+            )
         return EnumCodec(
             by_key={ev.key: ev.edt for ev in entity_def.enum_values},
             by_edt={ev.edt: ev.key for ev in entity_def.enum_values},
+            byte_offset=entity_def.byte_offset,
         )
 
     if entity_def.format:
