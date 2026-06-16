@@ -632,14 +632,13 @@ def _merge_custom_definitions(
             continue
 
         mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
-        epc_counts: dict[int, int] = {}
 
         for entry in entries:
             epc: int = entry["epc"]
             if epc in mra_epcs:
                 continue  # Override — handled by _apply_overrides
 
-            entity = _build_custom_entity(class_code, entry, epc_counts)
+            entity = _build_custom_entity(class_code, entry)
             build.devices[class_code].entities.append(entity)
             custom_entity_count += 1
 
@@ -650,26 +649,20 @@ def _merge_custom_definitions(
 def _build_custom_entity(
     class_code: int,
     entry: dict[str, Any],
-    epc_counts: dict[int, int],
 ) -> EntityDefinition:
     """Build a custom EntityDefinition from a YAML entry."""
     epc: int = entry["epc"]
     mfr_code: int | None = entry.get("manufacturer_code")
+    byte_offset: int = entry.get("byte_offset", 0)
     enum_values_raw = entry.get("enum_values")
 
-    epc_counts.setdefault(epc, 0)
-    epc_counts[epc] += 1
-    index = epc_counts[epc]
-
-    if mfr_code is not None:
-        entity_id = (
-            f"class_{class_code:04x}_custom_{mfr_code:06x}_epc_{epc:02x}_{index}"
-        )
-    else:
-        entity_id = f"class_{class_code:04x}_custom_epc_{epc:02x}_{index}"
-
-    if enum_values_raw:
-        enum_tuple = tuple(
+    entity_id = (
+        f"class_{class_code:04x}_epc_{epc:02x}_custom_{mfr_code:06x}_{byte_offset:02x}"
+        if mfr_code is not None
+        else f"class_{class_code:04x}_epc_{epc:02x}_custom_{byte_offset:02x}"
+    )
+    enum_tuple = (
+        tuple(
             EnumValue(
                 edt=ev["edt"],
                 key=ev["key"],
@@ -678,8 +671,9 @@ def _build_custom_entity(
             )
             for ev in enum_values_raw
         )
-    else:
-        enum_tuple = ()
+        if enum_values_raw
+        else ()
+    )
 
     return EntityDefinition(
         id=entity_id,
