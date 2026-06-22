@@ -32,6 +32,15 @@ from .transport import EchonetLiteProtocol, create_multicast_socket
 _LOGGER = logging.getLogger(__name__)
 
 
+def _format_frame(frame: Frame) -> str:
+    """Format frame metadata for debug logging without dumping EDT payloads."""
+    epcs = " ".join(f"{prop.epc:02X}" for prop in frame.properties)
+    return (
+        f"TID=0x{frame.tid:04X} SEOJ={frame.seoj!r} DEOJ={frame.deoj!r} "
+        f"ESV=0x{frame.esv:02X} EPCs=[{epcs}]"
+    )
+
+
 @dataclass(slots=True)
 class RuntimeEvent:
     """Base class for runtime events."""
@@ -336,9 +345,16 @@ class HemsClient:
         try:
             frame = Frame.decode(data)
             address = addr[0]
+            _LOGGER.debug(
+                "Received ECHONET Lite frame from %s:%d: %s",
+                addr[0],
+                addr[1],
+                _format_frame(frame),
+            )
 
             # Discard request ESVs (0x60-0x6F) - loopback or other node requests
             if 0x60 <= frame.esv <= 0x6F:
+                _LOGGER.debug("Discarding request frame: %s", _format_frame(frame))
                 return
 
             # Check if this is a response to a pending get request
@@ -349,7 +365,20 @@ class HemsClient:
                 pending_get = self._pending_gets.pop(frame.tid)
                 req_address, _req_deoj, _req_epcs, future = pending_get
                 if address == req_address and not future.done():
+                    _LOGGER.debug(
+                        "Matched pending Get response from %s: %s",
+                        address,
+                        _format_frame(frame),
+                    )
                     future.set_result(frame.properties)
+                elif address != req_address:
+                    _LOGGER.debug(
+                        "Ignoring pending Get response from unexpected address %s "
+                        "(expected %s): %s",
+                        address,
+                        req_address,
+                        _format_frame(frame),
+                    )
                 # Continue processing to also dispatch the event
 
             # Handle node profile responses (identification and instance list)
@@ -554,6 +583,11 @@ class HemsClient:
             frame.tid = Frame.next_tid()
 
         try:
+            _LOGGER.debug(
+                "Sending ECHONET Lite frame to %s: %s",
+                address,
+                _format_frame(frame),
+            )
             self._protocol.send(frame.encode(), address)
         except OSError:
             _LOGGER.exception("Failed to send frame to %s", address)

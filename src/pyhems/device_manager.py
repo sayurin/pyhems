@@ -500,12 +500,21 @@ class DeviceManager:
         )
 
         try:
-            await self._client.send(node.node_id, frame)
+            sent = await self._client.send(node.node_id, frame)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to send initial notifications for node %s: %s",
                 device_key,
                 err,
+            )
+        else:
+            _LOGGER.debug(
+                "Initial 0x63 notification request to node %s sent=%s "
+                "TID=0x%04X EPCs=[%s]",
+                device_key,
+                sent,
+                frame.tid,
+                " ".join(f"{epc:02X}" for epc in sorted(epcs)),
             )
 
     async def poll_device(self, device_key: str) -> bool:
