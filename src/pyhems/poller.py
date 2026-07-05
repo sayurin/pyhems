@@ -126,6 +126,13 @@ class PropertyPoller:
     :meth:`_continue_chunked_poll`). Immediate polls
     (:meth:`schedule_immediate_poll`) are not chunked or tracked this way,
     since they are a one-shot best-effort request.
+
+    Both tiers request ``device_manager.effective_poll_epcs()`` /
+    ``effective_fast_poll_epcs()`` rather than the raw
+    ``NodeState.poll_epcs``/``fast_poll_epcs``: callers can narrow the set of
+    EPCs actually polled per device via ``DeviceManager.subscribe_epcs()``
+    (e.g. Home Assistant unsubscribing a disabled Entity's EPC). A device
+    with no active subscribers for a tier is skipped entirely for that tier.
     """
 
     def __init__(
@@ -292,6 +299,9 @@ class PropertyPoller:
         for device_key, node in self._device_manager.data.items():
             if not node.poll_epcs:
                 continue
+            effective_epcs = self._device_manager.effective_poll_epcs(device_key)
+            if not effective_epcs:
+                continue
             if device_key in self._pending or device_key in self._scheduled:
                 continue
             if self._is_awaiting(device_key):
@@ -303,7 +313,7 @@ class PropertyPoller:
                 and now - last_polled_at < self._effective_interval(device_key)
             ):
                 continue
-            self._fire_poll(device_key, epcs=node.poll_epcs)
+            self._fire_poll(device_key, epcs=effective_epcs)
 
     def schedule_fast_polls(self) -> None:
         """Enqueue fast-tier poll requests (e.g. instantaneous values).
@@ -316,6 +326,9 @@ class PropertyPoller:
         for device_key, node in self._device_manager.data.items():
             if not node.fast_poll_epcs:
                 continue
+            effective_epcs = self._device_manager.effective_fast_poll_epcs(device_key)
+            if not effective_epcs:
+                continue
             if device_key in self._pending or device_key in self._scheduled:
                 continue
             if self._is_awaiting(device_key):
@@ -327,7 +340,7 @@ class PropertyPoller:
                 and now - last_polled_at < self._effective_fast_interval(device_key)
             ):
                 continue
-            self._fire_poll(device_key, epcs=node.fast_poll_epcs, fast=True)
+            self._fire_poll(device_key, epcs=effective_epcs, fast=True)
 
     def _scheduled_fire(self, device_key: str) -> None:
         self._scheduled.pop(device_key, None)

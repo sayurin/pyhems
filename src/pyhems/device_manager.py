@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -221,6 +222,16 @@ class DeviceManager:
         self._pending_setups: set[str] = set()
         self._node_profile_info: dict[str, tuple[str | None, str | None]] = {}
 
+        # device_key -> EPC -> number of active subscribers. See
+        # :meth:`subscribe_epcs`/:meth:`effective_poll_epcs`.
+        self._subscribed_epcs: dict[str, Counter[int]] = {}
+        # device_keys for which subscribe_epcs() has been called at least
+        # once. Until a device appears here, effective_poll_epcs()/
+        # effective_fast_poll_epcs() return the full unfiltered candidate
+        # set as a race-safe fallback (e.g. right after platform setup,
+        # before any caller has finished registering its subscriptions).
+        self._subscription_confirmed: set[str] = set()
+
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
         self._on_frame_received: list[FrameReceivedCallback] = []
@@ -285,6 +296,97 @@ class DeviceManager:
                 self._on_frame_received.remove(callback)
 
         return unsub
+
+    def subscribe_epcs(
+        self, device_key: str, epcs: frozenset[int]
+    ) -> Callable[[], None]:
+        """Register a caller's interest in specific EPCs for a device.
+
+        Used by callers that want polling to reflect fine-grained interest
+        (e.g. Home Assistant Entity lifecycle: an Entity subscribes to its
+        EPC(s) in ``async_added_to_hass()`` and unsubscribes in
+        ``async_will_remove_from_hass()``, so a disabled Entity's EPC stops
+        being polled). This is a generic reference-counted API: an EPC
+        remains "subscribed" as long as at least one caller has an active
+        subscription for it, since multiple callers may be interested in the
+        same EPC. See :meth:`effective_poll_epcs`.
+
+        Calling this method (even with an empty ``epcs``) marks the device
+        as having a confirmed subscriber, which disables the race-safe
+        unfiltered fallback described in :meth:`effective_poll_epcs`.
+
+        Args:
+            device_key: The device key to subscribe to.
+            epcs: EPCs the caller is interested in.
+
+        Returns:
+            Unsubscribe function. Idempotent; safe to call more than once.
+        """
+        counts = self._subscribed_epcs.setdefault(device_key, Counter())
+        counts.update(epcs)
+        self._subscription_confirmed.add(device_key)
+
+        unsubscribed = False
+
+        def unsub() -> None:
+            nonlocal unsubscribed
+            if unsubscribed:
+                return
+            unsubscribed = True
+            counts = self._subscribed_epcs.get(device_key)
+            if counts is None:
+                return
+            counts.subtract(epcs)
+            for epc in epcs:
+                if counts[epc] <= 0:
+                    del counts[epc]
+
+        return unsub
+
+    def effective_poll_epcs(self, device_key: str) -> frozenset[int]:
+        """Return the normal-tier EPCs actually being polled for a device.
+
+        This is ``NodeState.poll_epcs`` narrowed to the EPCs currently
+        subscribed via :meth:`subscribe_epcs` (see that method for the race-
+        safe fallback behavior before any subscription has been registered).
+
+        Args:
+            device_key: The device key to compute the effective set for.
+
+        Returns:
+            The EPCs that should actually be requested, or an empty set if
+            the device is unknown.
+        """
+        node = self.data.get(device_key)
+        if node is None:
+            return frozenset()
+        return self._effective_epcs(device_key, node.poll_epcs)
+
+    def effective_fast_poll_epcs(self, device_key: str) -> frozenset[int]:
+        """Return the fast-tier EPCs actually being polled for a device.
+
+        Same as :meth:`effective_poll_epcs`, but narrows
+        ``NodeState.fast_poll_epcs`` instead.
+
+        Args:
+            device_key: The device key to compute the effective set for.
+
+        Returns:
+            The EPCs that should actually be requested, or an empty set if
+            the device is unknown.
+        """
+        node = self.data.get(device_key)
+        if node is None:
+            return frozenset()
+        return self._effective_epcs(device_key, node.fast_poll_epcs)
+
+    def _effective_epcs(
+        self, device_key: str, candidate_epcs: frozenset[int]
+    ) -> frozenset[int]:
+        if device_key not in self._subscription_confirmed:
+            return candidate_epcs
+        subscribed = frozenset(self._subscribed_epcs.get(device_key, ()))
+        return candidate_epcs & subscribed
 
     def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.

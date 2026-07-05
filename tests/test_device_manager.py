@@ -765,3 +765,137 @@ class TestPollDevice:
         result = await dm.poll_device(node.device_key, frozenset())
         assert result is False
         client.send.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# subscribe_epcs / effective_poll_epcs / effective_fast_poll_epcs
+# ---------------------------------------------------------------------------
+
+
+class TestSubscribeEpcs:
+    """Tests for DeviceManager.subscribe_epcs and effective_*_poll_epcs."""
+
+    def test_effective_poll_epcs_unfiltered_before_any_subscription(self) -> None:
+        """Before any subscribe_epcs() call, the full candidate set is returned."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80, 0xB0})
+
+    def test_effective_poll_epcs_unknown_device(self) -> None:
+        """An unknown device_key returns an empty set."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        assert dm.effective_poll_epcs("unknown-device") == frozenset()
+
+    def test_effective_fast_poll_epcs_unknown_device(self) -> None:
+        """An unknown device_key returns an empty set for the fast tier too."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        assert dm.effective_fast_poll_epcs("unknown-device") == frozenset()
+
+    def test_effective_poll_epcs_narrowed_by_subscription(self) -> None:
+        """After subscribing, only the subscribed EPCs are returned."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0, 0xE0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0x80, 0xE0}))
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80, 0xE0})
+
+    def test_effective_poll_epcs_excludes_unsubscribed_candidate(self) -> None:
+        """An EPC in poll_epcs but never subscribed to is excluded."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80})
+
+    def test_effective_poll_epcs_empty_after_subscribing_to_nothing(self) -> None:
+        """Subscribing with an empty set still confirms the device (no fallback)."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset())
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_unsubscribe_removes_epc_from_effective_set(self) -> None:
+        """Unsubscribing removes the EPC once no subscriber remains."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        unsub = dm.subscribe_epcs(node.device_key, frozenset({0x80, 0xB0}))
+        unsub()
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_unsubscribe_is_idempotent(self) -> None:
+        """Calling the unsubscribe function twice has no additional effect."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        unsub = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+        unsub()
+        unsub()
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_reference_counted_shared_epc(self) -> None:
+        """An EPC subscribed by two callers stays subscribed until both unsub."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        unsub1 = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+        unsub2 = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+
+        unsub1()
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80})
+
+        unsub2()
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_effective_fast_poll_epcs_narrowed_by_subscription(self) -> None:
+        """effective_fast_poll_epcs narrows fast_poll_epcs the same way."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(fast_poll_epcs=frozenset({0xE0, 0xE7}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0xE7}))
+
+        assert dm.effective_fast_poll_epcs(node.device_key) == frozenset({0xE7})
+
+    def test_subscription_on_one_device_does_not_affect_another(self) -> None:
+        """Subscriptions are scoped per device_key."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node1 = _make_node(node_id="node1", poll_epcs=frozenset({0x80}))
+        node2 = _make_node(node_id="node2", poll_epcs=frozenset({0x80}))
+        dm.data[node1.device_key] = node1
+        dm.data[node2.device_key] = node2
+
+        dm.subscribe_epcs(node1.device_key, frozenset({0x80}))
+
+        assert dm.effective_poll_epcs(node1.device_key) == frozenset({0x80})
+        # node2 has no confirmed subscription yet: unfiltered fallback.
+        assert dm.effective_poll_epcs(node2.device_key) == frozenset({0x80})
+        dm.subscribe_epcs(node2.device_key, frozenset())
+        assert dm.effective_poll_epcs(node2.device_key) == frozenset()

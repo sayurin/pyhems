@@ -163,6 +163,7 @@ class TestSchedulePolls:
         dm = MagicMock(spec=DeviceManager)
         dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0}))}
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0}))
         poller = PropertyPoller(dm, poll_interval=60)
 
         poller.schedule_polls()
@@ -331,6 +332,7 @@ class TestAwaitingResponse:
         dm = MagicMock(spec=DeviceManager)
         dm.data = {"k1": _make_node("k1")}
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0}))
         poller = PropertyPoller(dm, poll_interval=60, awaiting_timeout=0.01)
         _set_state(poller, "k1", awaiting_since=time.monotonic() - 1.0)
 
@@ -480,6 +482,7 @@ class TestAdaptiveInterval:
         dm = MagicMock(spec=DeviceManager)
         dm.data = {"k1": _make_node("k1")}
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0}))
         poller = PropertyPoller(dm, poll_interval=60, safety_factor=2.0)
         _set_state(
             poller,
@@ -584,6 +587,7 @@ class TestFastPollTier:
         dm = MagicMock(spec=DeviceManager)
         dm.data = {"k1": _make_node("k1", fast_poll_epcs=frozenset({0xE7}))}
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset({0xE7}))
         poller = PropertyPoller(dm, poll_interval=60, fast_poll_interval=10)
 
         poller.schedule_fast_polls()
@@ -876,6 +880,7 @@ class TestBatchCapacity:
         dm = MagicMock(spec=DeviceManager)
         dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         poller = PropertyPoller(dm, poll_interval=60)
         _set_state(poller, "k1", observed_batch_capacity=1)
 
@@ -896,6 +901,7 @@ class TestBatchCapacity:
         dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         poller = PropertyPoller(dm, poll_interval=60)
         _set_state(poller, "k1", observed_batch_capacity=1)
 
@@ -938,3 +944,65 @@ class TestBatchCapacity:
         poller._cleanup_stale()
 
         assert "gone" not in poller._state
+
+
+class TestSubscriptionFiltering:
+    """Tests for effective_poll_epcs/effective_fast_poll_epcs use (Step 6)."""
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_uses_effective_poll_epcs(self) -> None:
+        """The GET is sent for the device manager's effective (narrowed) set."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
+        dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0}))
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        poller.schedule_polls()
+        await asyncio.sleep(0)
+
+        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_skips_device_with_no_effective_epcs(self) -> None:
+        """A device with a non-empty poll_epcs but no subscribed EPCs is skipped."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0}))}
+        dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset())
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        poller.schedule_polls()
+
+        assert "k1" not in poller._pending
+        dm.poll_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_schedule_fast_polls_uses_effective_fast_poll_epcs(self) -> None:
+        """The fast-tier GET is sent for the device manager's narrowed set."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", fast_poll_epcs=frozenset({0xE0, 0xE7}))}
+        dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset({0xE7}))
+        poller = PropertyPoller(dm, poll_interval=60, fast_poll_interval=10)
+
+        poller.schedule_fast_polls()
+        await asyncio.sleep(0)
+
+        dm.poll_device.assert_called_once_with("k1", frozenset({0xE7}))
+
+    @pytest.mark.asyncio
+    async def test_schedule_fast_polls_skips_device_with_no_effective_epcs(
+        self,
+    ) -> None:
+        """A device with fast_poll_epcs but no subscribed fast EPCs is skipped."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", fast_poll_epcs=frozenset({0xE7}))}
+        dm.poll_device = AsyncMock(return_value=True)
+        dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset())
+        poller = PropertyPoller(dm, poll_interval=60, fast_poll_interval=10)
+
+        poller.schedule_fast_polls()
+
+        assert "k1" not in poller._pending
+        dm.poll_device.assert_not_called()
