@@ -124,6 +124,7 @@ class TestNodeState:
             set_epcs=frozenset(),
             inf_epcs=frozenset(),
             poll_epcs=frozenset(),
+            fast_poll_epcs=frozenset(),
             product_code=None,
             serial_number=None,
         )
@@ -205,6 +206,7 @@ def _make_node(
     set_epcs: frozenset[int] | None = None,
     inf_epcs: frozenset[int] | None = None,
     poll_epcs: frozenset[int] | None = None,
+    fast_poll_epcs: frozenset[int] | None = None,
 ) -> NodeState:
     return NodeState(
         eoj=EOJ(eoj),
@@ -218,6 +220,7 @@ def _make_node(
         set_epcs=set_epcs if set_epcs is not None else frozenset(),
         inf_epcs=inf_epcs if inf_epcs is not None else frozenset(),
         poll_epcs=poll_epcs if poll_epcs is not None else frozenset({0x80}),
+        fast_poll_epcs=fast_poll_epcs if fast_poll_epcs is not None else frozenset(),
         product_code=None,
         serial_number=None,
     )
@@ -488,6 +491,86 @@ class TestProcessInstanceListEvent:
         assert node.inf_epcs == inf_epcs
         # poll_epcs = (monitored & get) - inf = {0xB0}
         assert node.poll_epcs == frozenset({0xB0})
+        assert node.fast_poll_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_setup_new_device_splits_fast_poll_epcs(self) -> None:
+        """fast_epcs are split out of poll_epcs into fast_poll_epcs."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0, 0xE0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+            Property(epc=0xE0, edt=b"\x00\x64"),
+        ]
+
+        monitored_epcs = {0x0130: frozenset({0x80, 0xB0, 0xE0})}
+        fast_epcs = {0x0130: frozenset({0xE0})}
+        dm = DeviceManager(client, monitored_epcs, fast_epcs=fast_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        # poll_epcs = (monitored & get) - inf - fast = {0xB0}
+        assert node.poll_epcs == frozenset({0xB0})
+        # fast_poll_epcs = (monitored & get) - inf, intersected with fast_epcs
+        assert node.fast_poll_epcs == frozenset({0xE0})
+
+    @pytest.mark.asyncio
+    async def test_fast_epcs_not_in_monitored_epcs_are_ignored(self) -> None:
+        """fast_epcs entries outside monitored_epcs never appear anywhere."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xE0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xE0, edt=b"\x00\x64"),
+        ]
+
+        # 0xE0 is a fast candidate but is NOT in monitored_epcs, so it should
+        # not be polled at all (neither poll_epcs nor fast_poll_epcs).
+        monitored_epcs = {0x0130: frozenset({0x80})}
+        fast_epcs = {0x0130: frozenset({0xE0})}
+        dm = DeviceManager(client, monitored_epcs, fast_epcs=fast_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        assert node.poll_epcs == frozenset()
+        assert node.fast_poll_epcs == frozenset()
 
     @pytest.mark.asyncio
     async def test_skips_existing_device(self) -> None:
@@ -637,3 +720,28 @@ class TestPollDevice:
 
         result = await dm.poll_device(node.device_key)
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_poll_device_with_explicit_epcs(self) -> None:
+        """An explicit epcs argument overrides the device's poll_epcs."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        result = await dm.poll_device(node.device_key, frozenset({0xE0}))
+        assert result is True
+        _node_id, frame = client.send.call_args.args
+        assert {p.epc for p in frame.properties} == {0xE0}
+
+    @pytest.mark.asyncio
+    async def test_poll_device_with_empty_explicit_epcs(self) -> None:
+        """An explicit empty epcs argument returns False without sending."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        result = await dm.poll_device(node.device_key, frozenset())
+        assert result is False
+        client.send.assert_not_called()

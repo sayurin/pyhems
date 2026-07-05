@@ -141,6 +141,7 @@ class NodeState:
     set_epcs: frozenset[int]
     inf_epcs: frozenset[int]
     poll_epcs: frozenset[int]
+    fast_poll_epcs: frozenset[int]
     product_code: str | None
     serial_number: str | None
     class_name_en: str | None = None
@@ -189,6 +190,7 @@ class DeviceManager:
         client: HemsClient,
         monitored_epcs: Mapping[int, frozenset[int]],
         class_code_filter: frozenset[int] | None = None,
+        fast_epcs: Mapping[int, frozenset[int]] | None = None,
     ) -> None:
         """Initialize the device manager.
 
@@ -197,10 +199,16 @@ class DeviceManager:
             monitored_epcs: Mapping of class_code -> EPCs to monitor.
             class_code_filter: If set, only these class codes are accepted.
                 If None, all class codes are accepted.
+            fast_epcs: Mapping of class_code -> EPCs that should be polled at
+                a higher frequency (e.g. instantaneous power). These must be
+                a subset of the corresponding ``monitored_epcs`` entry; any
+                EPC not present in ``monitored_epcs`` is ignored. Defaults to
+                no fast-poll EPCs for any class.
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
         self._class_code_filter = class_code_filter
+        self._fast_epcs = fast_epcs or {}
 
         self.data: dict[str, NodeState] = {}
         self.last_frame_received_at: float | None = None
@@ -430,6 +438,10 @@ class DeviceManager:
                     serial_number = np_serial_number
 
             poll_epcs = frozenset((initial_epcs & get_epcs) - inf_epcs)
+            fast_poll_epcs = poll_epcs & self._fast_epcs.get(
+                eoj.class_code, frozenset()
+            )
+            poll_epcs -= fast_poll_epcs
 
             mfr = REGISTRY.manufacturers.get(manufacturer_code)
             manufacturer_name_en = mfr.name_en if mfr else None
@@ -448,6 +460,7 @@ class DeviceManager:
                 set_epcs=set_epcs,
                 inf_epcs=inf_epcs,
                 poll_epcs=poll_epcs,
+                fast_poll_epcs=fast_poll_epcs,
                 manufacturer_code=manufacturer_code,
                 manufacturer_name_en=manufacturer_name_en,
                 manufacturer_name_ja=manufacturer_name_ja,
@@ -523,20 +536,28 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(epcs)),
             )
 
-    async def poll_device(self, device_key: str) -> bool:
+    async def poll_device(
+        self, device_key: str, epcs: frozenset[int] | None = None
+    ) -> bool:
         """Send a GET request for a device's poll EPCs.
 
         Args:
             device_key: The device key to poll.
+            epcs: EPCs to request. Defaults to the device's normal-tier
+                ``poll_epcs``; pass ``node.fast_poll_epcs`` explicitly to
+                poll the high-frequency tier instead.
 
         Returns:
             True if the poll request was sent successfully.
         """
         node = self.data.get(device_key)
-        if not node or not node.poll_epcs:
+        if not node:
+            return False
+        target_epcs = node.poll_epcs if epcs is None else epcs
+        if not target_epcs:
             return False
 
-        properties = [Property(epc=epc, edt=b"") for epc in node.poll_epcs]
+        properties = [Property(epc=epc, edt=b"") for epc in target_epcs]
         frame = Frame(
             seoj=CONTROLLER_INSTANCE,
             deoj=node.eoj,
@@ -546,7 +567,7 @@ class DeviceManager:
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
-            " ".join(f"{epc:02X}" for epc in sorted(node.poll_epcs)),
+            " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
         )
         try:
             return await self._client.send(node.node_id, frame)
