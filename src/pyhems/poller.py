@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 from .device_manager import DeviceManager
 
@@ -22,6 +23,35 @@ _MAX_BACKOFF_EXPONENT = 10
 _DEFAULT_SAFETY_FACTOR = 2.5
 # Default ceiling for the adaptive interval (seconds).
 _DEFAULT_MAX_INTERVAL = 600.0
+
+
+@dataclass
+class _DeviceScheduleState:
+    """Per-device state for the adaptive polling algorithm.
+
+    Consolidates everything :class:`PropertyPoller` tracks per device (in
+    addition to ``_pending``/``_scheduled``, which are keyed the same way
+    but serve a different purpose) into a single object, instead of several
+    parallel dicts that all need to be kept in sync by hand.
+    """
+
+    # Monotonic timestamp when a poll was sent and a response is still
+    # outstanding, or None if no poll is currently in flight. Shared by both
+    # tiers: only one poll (normal or fast) may be in flight at a time.
+    awaiting_since: float | None = None
+    # Monotonic timestamp of the most recent normal-tier poll actually sent.
+    last_polled_at: float | None = None
+    # Same as above, but for the fast tier.
+    last_fast_polled_at: float | None = None
+    # Smoothed round-trip latency observed for this device, or None if no
+    # observation has been made yet. Shared by both tiers, since it reflects
+    # the device's actual responsiveness regardless of which tier triggered
+    # the poll.
+    latency_ewma: float | None = None
+    # Number of consecutive polls that timed out without a response (reset
+    # to 0 whenever any frame is received). Shared by both tiers for the
+    # same reason as ``latency_ewma``.
+    consecutive_failures: int = 0
 
 
 class PropertyPoller:
@@ -105,23 +135,10 @@ class PropertyPoller:
         self._task: asyncio.Task[None] | None = None
         self._fast_task: asyncio.Task[None] | None = None
 
-        # device_key -> monotonic timestamp when a poll was sent and a
-        # response is still outstanding. Shared by both tiers: only one poll
-        # (normal or fast) may be in flight for a device at a time.
-        self._awaiting: dict[str, float] = {}
-        # device_key -> monotonic timestamp of the most recent poll actually
-        # sent (used to space out polls according to the adaptive interval).
-        self._last_polled_at: dict[str, float] = {}
-        # Same as above, but for the fast tier.
-        self._last_fast_polled_at: dict[str, float] = {}
-        # device_key -> smoothed round-trip latency observed for that device.
-        # Shared by both tiers, since it reflects the device's actual
-        # responsiveness regardless of which tier triggered the poll.
-        self._latency_ewma: dict[str, float] = {}
-        # device_key -> number of consecutive polls that timed out without a
-        # response (reset to 0 whenever any frame is received). Shared by
-        # both tiers for the same reason as ``_latency_ewma``.
-        self._consecutive_failures: dict[str, int] = {}
+        # device_key -> per-device scheduling state (in-flight tracking,
+        # latency EWMA, backoff, last-polled timestamps). See
+        # _DeviceScheduleState.
+        self._state: dict[str, _DeviceScheduleState] = {}
         self._unsub_frame_received = device_manager.on_frame_received(
             self._on_frame_received
         )
@@ -153,11 +170,7 @@ class PropertyPoller:
             handle.cancel()
         self._scheduled.clear()
         self._pending.clear()
-        self._awaiting.clear()
-        self._last_polled_at.clear()
-        self._last_fast_polled_at.clear()
-        self._latency_ewma.clear()
-        self._consecutive_failures.clear()
+        self._state.clear()
         self._unsub_frame_received()
 
     # ------------------------------------------------------------------
@@ -220,21 +233,13 @@ class PropertyPoller:
         for device_key in list(self._scheduled):
             if device_key not in current:
                 self._scheduled.pop(device_key).cancel()
-        for device_key in list(self._awaiting):
+        for device_key in list(self._state):
             if device_key not in current:
-                self._awaiting.pop(device_key, None)
-        for device_key in list(self._last_polled_at):
-            if device_key not in current:
-                self._last_polled_at.pop(device_key, None)
-        for device_key in list(self._last_fast_polled_at):
-            if device_key not in current:
-                self._last_fast_polled_at.pop(device_key, None)
-        for device_key in list(self._latency_ewma):
-            if device_key not in current:
-                self._latency_ewma.pop(device_key, None)
-        for device_key in list(self._consecutive_failures):
-            if device_key not in current:
-                self._consecutive_failures.pop(device_key, None)
+                self._state.pop(device_key, None)
+
+    def _get_state(self, device_key: str) -> _DeviceScheduleState:
+        """Return the per-device schedule state, creating it if absent."""
+        return self._state.setdefault(device_key, _DeviceScheduleState())
 
     def schedule_polls(self) -> None:
         """Enqueue poll requests for devices that need polling."""
@@ -246,7 +251,8 @@ class PropertyPoller:
                 continue
             if self._is_awaiting(device_key):
                 continue
-            last_polled_at = self._last_polled_at.get(device_key)
+            state = self._state.get(device_key)
+            last_polled_at = state.last_polled_at if state is not None else None
             if (
                 last_polled_at is not None
                 and now - last_polled_at < self._effective_interval(device_key)
@@ -269,7 +275,8 @@ class PropertyPoller:
                 continue
             if self._is_awaiting(device_key):
                 continue
-            last_polled_at = self._last_fast_polled_at.get(device_key)
+            state = self._state.get(device_key)
+            last_polled_at = state.last_fast_polled_at if state is not None else None
             if (
                 last_polled_at is not None
                 and now - last_polled_at < self._effective_fast_interval(device_key)
@@ -303,14 +310,12 @@ class PropertyPoller:
         and counted as a failure, feeding the exponential backoff in
         :meth:`_effective_interval`.
         """
-        sent_at = self._awaiting.get(device_key)
-        if sent_at is None:
+        state = self._state.get(device_key)
+        if state is None or state.awaiting_since is None:
             return False
-        if time.monotonic() - sent_at >= self._awaiting_timeout:
-            self._awaiting.pop(device_key, None)
-            self._consecutive_failures[device_key] = (
-                self._consecutive_failures.get(device_key, 0) + 1
-            )
+        if time.monotonic() - state.awaiting_since >= self._awaiting_timeout:
+            state.awaiting_since = None
+            state.consecutive_failures += 1
             return False
         return True
 
@@ -326,14 +331,16 @@ class PropertyPoller:
         """
         interval = self._poll_interval
 
-        latency = self._latency_ewma.get(device_key)
-        if latency is not None:
-            interval = max(interval, latency * self._safety_factor)
+        state = self._state.get(device_key)
+        if state is not None:
+            if state.latency_ewma is not None:
+                interval = max(interval, state.latency_ewma * self._safety_factor)
 
-        failures = self._consecutive_failures.get(device_key, 0)
-        if failures:
-            exponent = min(failures, _MAX_BACKOFF_EXPONENT)
-            interval = max(interval, self._poll_interval * (_BACKOFF_BASE**exponent))
+            if state.consecutive_failures:
+                exponent = min(state.consecutive_failures, _MAX_BACKOFF_EXPONENT)
+                interval = max(
+                    interval, self._poll_interval * (_BACKOFF_BASE**exponent)
+                )
 
         return min(interval, self._max_interval)
 
@@ -350,28 +357,28 @@ class PropertyPoller:
         assert self._fast_poll_interval is not None
         interval = self._fast_poll_interval
 
-        latency = self._latency_ewma.get(device_key)
-        if latency is not None:
-            interval = max(interval, latency * self._safety_factor)
+        state = self._state.get(device_key)
+        if state is not None:
+            if state.latency_ewma is not None:
+                interval = max(interval, state.latency_ewma * self._safety_factor)
 
-        failures = self._consecutive_failures.get(device_key, 0)
-        if failures:
-            exponent = min(failures, _MAX_BACKOFF_EXPONENT)
-            interval = max(
-                interval, self._fast_poll_interval * (_BACKOFF_BASE**exponent)
-            )
+            if state.consecutive_failures:
+                exponent = min(state.consecutive_failures, _MAX_BACKOFF_EXPONENT)
+                interval = max(
+                    interval, self._fast_poll_interval * (_BACKOFF_BASE**exponent)
+                )
 
         interval = min(interval, self._max_interval)
         return min(interval, self._effective_interval(device_key))
 
-    def _update_latency(self, device_key: str, latency: float) -> None:
+    def _update_latency(self, state: _DeviceScheduleState, latency: float) -> None:
         """Update the smoothed (EWMA) latency estimate for a device."""
-        previous = self._latency_ewma.get(device_key)
-        if previous is None:
-            self._latency_ewma[device_key] = latency
+        if state.latency_ewma is None:
+            state.latency_ewma = latency
         else:
-            self._latency_ewma[device_key] = (
-                _LATENCY_EWMA_ALPHA * latency + (1 - _LATENCY_EWMA_ALPHA) * previous
+            state.latency_ewma = (
+                _LATENCY_EWMA_ALPHA * latency
+                + (1 - _LATENCY_EWMA_ALPHA) * state.latency_ewma
             )
 
     def _on_frame_received(self, device_key: str) -> None:
@@ -382,10 +389,12 @@ class PropertyPoller:
         frame corresponds to an outstanding poll, the observed latency also
         feeds the EWMA used by :meth:`_effective_interval`.
         """
-        sent_at = self._awaiting.pop(device_key, None)
+        state = self._get_state(device_key)
+        sent_at = state.awaiting_since
+        state.awaiting_since = None
         if sent_at is not None:
-            self._update_latency(device_key, time.monotonic() - sent_at)
-        self._consecutive_failures[device_key] = 0
+            self._update_latency(state, time.monotonic() - sent_at)
+        state.consecutive_failures = 0
 
     async def _poll_node(
         self,
@@ -402,11 +411,12 @@ class PropertyPoller:
             )
             if sent:
                 now = time.monotonic()
-                self._awaiting[device_key] = now
+                state = self._get_state(device_key)
+                state.awaiting_since = now
                 if fast:
-                    self._last_fast_polled_at[device_key] = now
+                    state.last_fast_polled_at = now
                 else:
-                    self._last_polled_at[device_key] = now
+                    state.last_polled_at = now
             else:
                 _LOGGER.debug(
                     "Failed to poll node %s: no poll EPCs or address unknown",
