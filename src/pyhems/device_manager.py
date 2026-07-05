@@ -210,6 +210,7 @@ class DeviceManager:
 
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
+        self._on_frame_received: list[DeviceCallback] = []
 
     def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
         """Register a callback for when a new device is added.
@@ -245,6 +246,30 @@ class DeviceManager:
 
         return unsub
 
+    def on_frame_received(self, callback: DeviceCallback) -> Callable[[], None]:
+        """Register a callback for when any response frame is processed for a device.
+
+        Unlike :meth:`on_device_updated`, this fires for every recognized
+        response frame from a known device, even if no property value
+        actually changed (including Set responses). It is primarily used by
+        :class:`~pyhems.poller.PropertyPoller` to know when an outstanding
+        poll request has been answered, so it can stop waiting and allow the
+        next poll to be sent.
+
+        Args:
+            callback: Called with device_key when a response frame is processed.
+
+        Returns:
+            Unsubscribe function.
+        """
+        self._on_frame_received.append(callback)
+
+        def unsub() -> None:
+            if callback in self._on_frame_received:
+                self._on_frame_received.remove(callback)
+
+        return unsub
+
     def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
 
@@ -273,6 +298,9 @@ class DeviceManager:
             return False
 
         self.last_frame_received_at = event.received_at
+
+        for cb in self._on_frame_received:
+            cb(device_key)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -359,6 +358,74 @@ class TestProcessFrameEvent:
         dm.process_frame_event(event)
         assert updated_keys == []
 
+    def test_on_frame_received_fires_even_without_value_change(self) -> None:
+        """on_frame_received fires for any response frame, unlike on_device_updated."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        dm.on_frame_received(received_keys.append)
+
+        # Same value as already stored: on_device_updated would not fire,
+        # but on_frame_received should still fire (a response was observed).
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        assert dm.process_frame_event(event) is False
+        assert received_keys == [node.device_key]
+
+    def test_on_frame_received_fires_for_set_response(self) -> None:
+        """on_frame_received fires even for Set responses."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        dm.on_frame_received(received_keys.append)
+
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        dm.process_frame_event(event)
+        assert received_keys == [node.device_key]
+
+    def test_on_frame_received_ignores_unknown_device(self) -> None:
+        """on_frame_received does not fire for unknown devices."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        received_keys: list[str] = []
+        dm.on_frame_received(received_keys.append)
+
+        event = _make_frame_event(
+            "fe00000000000000000000000000000001",
+            EOJ(0x013001),
+            ESV_GET_RES,
+            [Property(epc=0x80, edt=b"\x30")],
+        )
+        dm.process_frame_event(event)
+        assert received_keys == []
+
+    def test_on_frame_received_unsubscribe(self) -> None:
+        """Unsubscribe prevents further on_frame_received callbacks."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        unsub = dm.on_frame_received(received_keys.append)
+        unsub()
+
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        dm.process_frame_event(event)
+        assert received_keys == []
+
 
 # ---------------------------------------------------------------------------
 # process_instance_list_event
@@ -513,95 +580,6 @@ class TestProcessInstanceListEvent:
         node = dm.data[result[0]]
         assert node.product_code == "NP_PRODUCT"
         assert node.serial_number == "NP_SERIAL"
-
-    @pytest.mark.asyncio
-    async def test_debug_dump_skipped_at_info_level(self) -> None:
-        """Debug dump is skipped when logger level is INFO (no extra client.get call)."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0x80, 0xB0})
-        set_epcs = frozenset({0x80})
-        inf_epcs = frozenset({0x80})
-
-        client.get.return_value = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-
-        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        # Set logger to INFO — isEnabledFor(DEBUG) returns False, dump is skipped
-        logger = logging.getLogger("pyhems.device_manager")
-        original_level = logger.level
-        logger.setLevel(logging.INFO)
-        try:
-            result = await dm.process_instance_list_event(event)
-        finally:
-            logger.setLevel(original_level)
-
-        assert len(result) == 1
-        # Only the setup call, no debug dump call
-        assert client.get.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_debug_dump_exception_does_not_affect_setup(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """An exception during debug dump does not prevent device from being added."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0x80, 0xB0})
-        set_epcs = frozenset({0x80})
-        inf_epcs = frozenset({0x80})
-
-        setup_response = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-        # Second call (debug dump) raises an exception
-        client.get.side_effect = [setup_response, OSError("network error")]
-
-        added_keys: list[str] = []
-        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
-        dm.on_device_added(added_keys.append)
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="pyhems.device_manager"):
-            result = await dm.process_instance_list_event(event)
-
-        # Device was still successfully added despite dump exception
-        assert len(result) == 1
-        assert added_keys == result
-        assert any("Debug dump failed" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

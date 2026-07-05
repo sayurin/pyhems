@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -88,6 +89,21 @@ class TestPropertyPollerLifecycle:
         poller.stop()
         assert len(poller._pending) == 0
         assert len(poller._scheduled) == 0
+
+    @pytest.mark.asyncio
+    async def test_stop_clears_awaiting_and_unsubscribes(self) -> None:
+        """Stop clears awaiting state and unsubscribes from frame events."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        unsub = MagicMock()
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["k1"] = 0.0
+
+        poller.stop()
+
+        assert len(poller._awaiting) == 0
+        unsub.assert_called_once()
 
 
 class TestSchedulePolls:
@@ -196,6 +212,115 @@ class TestCleanupStale:
         assert "k1" in poller._pending
         assert "k1" in poller._scheduled
         handle.cancel()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_awaiting_for_removed_devices(self) -> None:
+        """Awaiting entries are removed for devices no longer present."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {}
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["gone"] = 0.0
+
+        poller._cleanup_stale()
+
+        assert "gone" not in poller._awaiting
+
+    @pytest.mark.asyncio
+    async def test_cleanup_keeps_awaiting_for_existing_devices(self) -> None:
+        """Awaiting entries are kept for devices that still exist."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["k1"] = 0.0
+
+        poller._cleanup_stale()
+
+        assert "k1" in poller._awaiting
+
+
+class TestAwaitingResponse:
+    """Tests for the in-flight / awaiting-response tracking (Step 2)."""
+
+    @pytest.mark.asyncio
+    async def test_poll_node_marks_device_awaiting_on_success(self) -> None:
+        """A successfully sent poll marks the device as awaiting a response."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        await poller._poll_node("k1")
+
+        assert "k1" in poller._awaiting
+
+    @pytest.mark.asyncio
+    async def test_poll_node_does_not_mark_awaiting_on_failure(self) -> None:
+        """A failed send does not mark the device as awaiting a response."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.poll_device = AsyncMock(return_value=False)
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        await poller._poll_node("k1")
+
+        assert "k1" not in poller._awaiting
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_skips_awaiting_device(self) -> None:
+        """A device with an outstanding poll response is not polled again."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["k1"] = time.monotonic()
+
+        poller.schedule_polls()
+
+        assert "k1" not in poller._pending
+        dm.poll_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_retries_after_awaiting_timeout(self) -> None:
+        """An expired awaiting entry no longer blocks a new poll."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60, awaiting_timeout=0.01)
+        poller._awaiting["k1"] = time.monotonic() - 1.0
+
+        poller.schedule_polls()
+
+        assert "k1" in poller._pending
+        assert "k1" not in poller._awaiting
+        await asyncio.sleep(0)
+        dm.poll_device.assert_called_once_with("k1")
+
+    @pytest.mark.asyncio
+    async def test_frame_received_clears_awaiting(self) -> None:
+        """Receiving a frame from the device clears its awaiting state."""
+        unsub = MagicMock()
+        dm = MagicMock(spec=DeviceManager)
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["k1"] = time.monotonic()
+
+        # Simulate DeviceManager invoking the registered callback.
+        callback = dm.on_frame_received.call_args.args[0]
+        callback("k1")
+
+        assert "k1" not in poller._awaiting
+
+    @pytest.mark.asyncio
+    async def test_immediate_poll_skipped_while_awaiting(self) -> None:
+        """schedule_immediate_poll does not send an overlapping GET while awaiting."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._awaiting["k1"] = time.monotonic()
+
+        poller.schedule_immediate_poll("k1", delay=0)
+
+        assert "k1" not in poller._pending
+        dm.poll_device.assert_not_called()
 
 
 class TestScheduleImmediatePoll:
