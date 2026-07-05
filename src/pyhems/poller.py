@@ -48,6 +48,9 @@ class _DeviceScheduleState:
     # outstanding, or None if no poll is currently in flight. Shared by both
     # tiers: only one poll (normal or fast) may be in flight at a time.
     awaiting_since: float | None = None
+    # Transaction ID of the poll currently in flight, used to ignore
+    # unrelated response frames from the same device.
+    awaiting_tid: int | None = None
     # Monotonic timestamp of the most recent normal-tier poll actually sent.
     last_polled_at: float | None = None
     # Same as above, but for the fast tier.
@@ -249,7 +252,7 @@ class PropertyPoller:
 
         delay = max(0.0, float(delay))
         if delay <= 0:
-            self._fire_poll(device_key)
+            self._fire_immediate_poll(device_key)
             return
 
         loop = asyncio.get_running_loop()
@@ -344,7 +347,14 @@ class PropertyPoller:
 
     def _scheduled_fire(self, device_key: str) -> None:
         self._scheduled.pop(device_key, None)
-        self._fire_poll(device_key)
+        self._fire_immediate_poll(device_key)
+
+    def _fire_immediate_poll(self, device_key: str) -> None:
+        """Fire an immediate poll using the device's current effective EPC set."""
+        effective_epcs = self._device_manager.effective_poll_epcs(device_key)
+        if not effective_epcs:
+            return
+        self._fire_poll(device_key, epcs=effective_epcs, track_requested=False)
 
     def _fire_poll(
         self,
@@ -352,12 +362,18 @@ class PropertyPoller:
         *,
         epcs: frozenset[int] | None = None,
         fast: bool = False,
+        track_requested: bool = True,
     ) -> None:
         if device_key in self._pending:
             return
         self._pending.add(device_key)
         asyncio.get_running_loop().create_task(
-            self._poll_node(device_key, epcs=epcs, fast=fast)
+            self._poll_node(
+                device_key,
+                epcs=epcs,
+                fast=fast,
+                track_requested=track_requested,
+            )
         )
 
     def _is_awaiting(self, device_key: str) -> bool:
@@ -373,6 +389,9 @@ class PropertyPoller:
             return False
         if time.monotonic() - state.awaiting_since >= self._awaiting_timeout:
             state.awaiting_since = None
+            state.awaiting_tid = None
+            state.requested_epcs = None
+            state.pending_chunks = []
             state.consecutive_failures += 1
             return False
         return True
@@ -483,7 +502,7 @@ class PropertyPoller:
         self._fire_poll(device_key, epcs=next_chunk, fast=state.pending_chunks_fast)
 
     def _on_frame_received(
-        self, device_key: str, received_epcs: frozenset[int]
+        self, device_key: str, tid: int, _esv: int, received_epcs: frozenset[int]
     ) -> None:
         """Clear the awaiting state and update backoff/batch state on any frame.
 
@@ -497,8 +516,11 @@ class PropertyPoller:
         progress for this device, the next chunk is sent immediately.
         """
         state = self._get_state(device_key)
+        if state.awaiting_tid is None or tid != state.awaiting_tid:
+            return
         sent_at = state.awaiting_since
         state.awaiting_since = None
+        state.awaiting_tid = None
         requested = state.requested_epcs
         state.requested_epcs = None
         if sent_at is not None:
@@ -515,10 +537,11 @@ class PropertyPoller:
         *,
         epcs: frozenset[int] | None = None,
         fast: bool = False,
+        track_requested: bool = True,
     ) -> None:
         send_epcs = epcs
         remaining_chunks: list[frozenset[int]] = []
-        if epcs is not None:
+        if track_requested and epcs is not None:
             capacity = self._get_state(device_key).observed_batch_capacity
             if capacity is not None and len(epcs) > capacity:
                 chunks = _chunk_epcs(epcs, capacity)
@@ -526,17 +549,18 @@ class PropertyPoller:
                 remaining_chunks = chunks[1:]
 
         try:
-            sent = (
+            sent_tid = (
                 await self._device_manager.poll_device(device_key)
                 if send_epcs is None
                 else await self._device_manager.poll_device(device_key, send_epcs)
             )
-            if sent:
+            if sent_tid is not None:
                 now = time.monotonic()
                 state = self._get_state(device_key)
                 state.awaiting_since = now
-                state.requested_epcs = send_epcs
-                state.pending_chunks = remaining_chunks
+                state.awaiting_tid = sent_tid
+                state.requested_epcs = send_epcs if track_requested else None
+                state.pending_chunks = remaining_chunks if track_requested else []
                 state.pending_chunks_fast = fast
                 if fast:
                     state.last_fast_polled_at = now

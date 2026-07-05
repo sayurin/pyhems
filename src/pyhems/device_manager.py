@@ -34,11 +34,11 @@ from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-# Fired with (device_key, epcs_in_frame) for every recognized response frame.
-# epcs_in_frame is the set of EPCs actually present in that frame, which
-# callers (e.g. PropertyPoller) can compare against the EPCs they requested
-# to detect partial responses.
-FrameReceivedCallback = Callable[[str, frozenset[int]], None]
+# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
+# response frame. epcs_in_frame is the set of EPCs actually present in that
+# frame, which callers (e.g. PropertyPoller) can compare against the EPCs
+# they requested to detect partial responses.
+FrameReceivedCallback = Callable[[str, int, int, frozenset[int]], None]
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int]:
@@ -282,9 +282,9 @@ class DeviceManager:
         the frame than were requested).
 
         Args:
-            callback: Called with (device_key, epcs_in_frame) when a response
-                frame is processed. ``epcs_in_frame`` is the set of EPCs
-                actually present in that frame (empty for Set responses).
+            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
+                response frame is processed. ``epcs_in_frame`` is the set of
+                EPCs actually present in that frame (empty for Set responses).
 
         Returns:
             Unsubscribe function.
@@ -419,7 +419,7 @@ class DeviceManager:
 
         received_epcs = frozenset(prop.epc for prop in frame.properties)
         for frame_cb in self._on_frame_received:
-            frame_cb(device_key, received_epcs)
+            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -649,7 +649,7 @@ class DeviceManager:
 
     async def poll_device(
         self, device_key: str, epcs: frozenset[int] | None = None
-    ) -> bool:
+    ) -> int | None:
         """Send a GET request for a device's poll EPCs.
 
         Args:
@@ -659,14 +659,14 @@ class DeviceManager:
                 poll the high-frequency tier instead.
 
         Returns:
-            True if the poll request was sent successfully.
+            The request TID if the poll request was sent successfully.
         """
         node = self.data.get(device_key)
         if not node:
-            return False
+            return None
         target_epcs = node.poll_epcs if epcs is None else epcs
         if not target_epcs:
-            return False
+            return None
 
         properties = [Property(epc=epc, edt=b"") for epc in target_epcs]
         frame = Frame(
@@ -675,18 +675,20 @@ class DeviceManager:
             esv=ESV_GET,
             properties=properties,
         )
+        frame.tid = Frame.next_tid()
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
             " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
         )
         try:
-            return await self._client.send(node.node_id, frame)
+            sent = await self._client.send(node.node_id, frame)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err
             )
-            return False
+            return None
+        return frame.tid if sent else None
 
 
 __all__ = ["DeviceManager", "NodeState"]

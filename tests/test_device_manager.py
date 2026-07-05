@@ -369,7 +369,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         # Same value as already stored: on_device_updated would not fire,
         # but on_frame_received should still fire (a response was observed).
@@ -387,7 +387,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_epcs: list[frozenset[int]] = []
-        dm.on_frame_received(lambda _key, epcs: received_epcs.append(epcs))
+        dm.on_frame_received(lambda _key, _tid, _esv, epcs: received_epcs.append(epcs))
 
         event = _make_frame_event(
             node.node_id,
@@ -407,7 +407,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -421,7 +421,7 @@ class TestProcessFrameEvent:
         dm = DeviceManager(client, {})
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
@@ -440,7 +440,9 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        unsub = dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
+        unsub = dm.on_frame_received(
+            lambda key, _tid, _esv, _epcs: received_keys.append(key)
+        )
         unsub()
 
         event = _make_frame_event(
@@ -702,11 +704,12 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is True
+        assert result is not None
         client.send.assert_called_once()
         _node_id, frame = client.send.call_args.args
         assert frame.esv == 0x62
         assert {p.epc for p in frame.properties} == {0x80, 0xB0}
+        assert frame.tid == result
 
     @pytest.mark.asyncio
     async def test_poll_unknown_device(self) -> None:
@@ -715,7 +718,7 @@ class TestPollDevice:
         dm = DeviceManager(client, {})
 
         result = await dm.poll_device("unknown-device")
-        assert result is False
+        assert result is None
         client.send.assert_not_called()
 
     @pytest.mark.asyncio
@@ -727,7 +730,7 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is False
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_poll_device_send_failure(self) -> None:
@@ -739,7 +742,7 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is False
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_poll_device_with_explicit_epcs(self) -> None:
@@ -750,9 +753,10 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key, frozenset({0xE0}))
-        assert result is True
+        assert result is not None
         _node_id, frame = client.send.call_args.args
         assert {p.epc for p in frame.properties} == {0xE0}
+        assert frame.tid == result
 
     @pytest.mark.asyncio
     async def test_poll_device_with_empty_explicit_epcs(self) -> None:
@@ -763,7 +767,7 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key, frozenset())
-        assert result is False
+        assert result is None
         client.send.assert_not_called()
 
 
