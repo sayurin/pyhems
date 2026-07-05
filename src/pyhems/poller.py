@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .device_manager import DeviceManager
 
@@ -23,6 +23,15 @@ _MAX_BACKOFF_EXPONENT = 10
 _DEFAULT_SAFETY_FACTOR = 2.5
 # Default ceiling for the adaptive interval (seconds).
 _DEFAULT_MAX_INTERVAL = 600.0
+# Number of consecutive full (non-partial) responses required before
+# growing observed_batch_capacity back up by one step (AIMD-style recovery).
+_BATCH_CAPACITY_GROWTH_THRESHOLD = 5
+
+
+def _chunk_epcs(epcs: frozenset[int], size: int) -> list[frozenset[int]]:
+    """Split ``epcs`` into ordered chunks of at most ``size`` EPCs each."""
+    ordered = sorted(epcs)
+    return [frozenset(ordered[i : i + size]) for i in range(0, len(ordered), size)]
 
 
 @dataclass
@@ -52,6 +61,27 @@ class _DeviceScheduleState:
     # to 0 whenever any frame is received). Shared by both tiers for the
     # same reason as ``latency_ewma``.
     consecutive_failures: int = 0
+    # Upper bound on the number of EPCs requested in a single GET, learned
+    # from observed partial responses (see :meth:`PropertyPoller.
+    # _update_batch_capacity`). None means "no observed limit" (request the
+    # full target EPC set in one frame, as before Step 5).
+    observed_batch_capacity: int | None = None
+    # Number of consecutive full (non-partial) responses observed since the
+    # last shrink, used to grow ``observed_batch_capacity`` back up.
+    consecutive_full_responses: int = 0
+    # EPCs requested by the most recently sent (still in-flight) poll, or
+    # None if that poll was sent without explicit tracking (e.g. an
+    # immediate poll after a Set) and partial-response detection does not
+    # apply to it.
+    requested_epcs: frozenset[int] | None = None
+    # Remaining chunks still to be sent for the poll cycle currently in
+    # progress (populated when the target EPC set exceeds
+    # observed_batch_capacity). Sent one at a time, each only after the
+    # previous chunk's response (or timeout) is observed.
+    pending_chunks: list[frozenset[int]] = field(default_factory=list)
+    # Whether ``pending_chunks`` belongs to the fast tier (affects which
+    # last-polled timestamp subsequent chunks update).
+    pending_chunks_fast: bool = False
 
 
 class PropertyPoller:
@@ -81,6 +111,21 @@ class PropertyPoller:
     the normal tier, so a device that turns out to be slow automatically has
     its fast-tier cadence folded back into the normal one instead of being
     hammered independently. See :meth:`_effective_fast_interval`.
+
+    ECHONET Lite does not guarantee that a multi-property GET response
+    includes every requested EPC (see spec discussion in the design doc).
+    Each scheduled poll (normal or fast tier) therefore has its requested
+    EPCs compared against the EPCs actually present in the response frame.
+    If fewer EPCs came back than were requested, the device's
+    ``observed_batch_capacity`` (max EPCs it reliably answers in one frame)
+    is shrunk immediately; a sustained run of full responses grows it back
+    gradually (AIMD-style, see :meth:`_update_batch_capacity`). Once a
+    device's capacity is below its target EPC count, subsequent polls for
+    that tier are sent as a sequence of chunks, one at a time, each only
+    after the previous chunk's response (or timeout) is observed (see
+    :meth:`_continue_chunked_poll`). Immediate polls
+    (:meth:`schedule_immediate_poll`) are not chunked or tracked this way,
+    since they are a one-shot best-effort request.
     """
 
     def __init__(
@@ -258,7 +303,7 @@ class PropertyPoller:
                 and now - last_polled_at < self._effective_interval(device_key)
             ):
                 continue
-            self._fire_poll(device_key)
+            self._fire_poll(device_key, epcs=node.poll_epcs)
 
     def schedule_fast_polls(self) -> None:
         """Enqueue fast-tier poll requests (e.g. instantaneous values).
@@ -381,20 +426,75 @@ class PropertyPoller:
                 + (1 - _LATENCY_EWMA_ALPHA) * state.latency_ewma
             )
 
-    def _on_frame_received(self, device_key: str) -> None:
-        """Clear the awaiting state and update backoff state on any frame.
+    def _update_batch_capacity(
+        self,
+        device_key: str,
+        state: _DeviceScheduleState,
+        requested: frozenset[int],
+        received: frozenset[int],
+    ) -> None:
+        """Shrink/grow ``observed_batch_capacity`` from a partial-response check.
+
+        Mirrors TCP's AIMD congestion control: any observed shortfall shrinks
+        the capacity immediately (favoring safety), while a sustained run of
+        full responses grows it back by one step at a time.
+        """
+        if not requested:
+            return
+        responded = len(requested & received)
+        if responded < len(requested):
+            previous = state.observed_batch_capacity
+            new_capacity = responded if previous is None else min(previous, responded)
+            state.observed_batch_capacity = max(1, new_capacity)
+            state.consecutive_full_responses = 0
+            _LOGGER.debug(
+                "Partial response from %s: requested %d EPCs, got %d; "
+                "observed_batch_capacity now %d",
+                device_key,
+                len(requested),
+                responded,
+                state.observed_batch_capacity,
+            )
+        elif state.observed_batch_capacity is not None:
+            state.consecutive_full_responses += 1
+            if state.consecutive_full_responses >= _BATCH_CAPACITY_GROWTH_THRESHOLD:
+                state.observed_batch_capacity += 1
+                state.consecutive_full_responses = 0
+
+    def _continue_chunked_poll(self, device_key: str) -> None:
+        """Send the next queued chunk for a poll cycle still in progress."""
+        state = self._get_state(device_key)
+        if not state.pending_chunks:
+            return
+        next_chunk = state.pending_chunks.pop(0)
+        self._fire_poll(device_key, epcs=next_chunk, fast=state.pending_chunks_fast)
+
+    def _on_frame_received(
+        self, device_key: str, received_epcs: frozenset[int]
+    ) -> None:
+        """Clear the awaiting state and update backoff/batch state on any frame.
 
         Any frame from the device is treated as evidence that it is
         responsive, so the consecutive-failure counter is reset. If the
         frame corresponds to an outstanding poll, the observed latency also
-        feeds the EWMA used by :meth:`_effective_interval`.
+        feeds the EWMA used by :meth:`_effective_interval`, and the EPCs
+        actually present in the frame are compared against the EPCs that
+        were requested to detect partial responses (see
+        :meth:`_update_batch_capacity`). If a chunked poll cycle is still in
+        progress for this device, the next chunk is sent immediately.
         """
         state = self._get_state(device_key)
         sent_at = state.awaiting_since
         state.awaiting_since = None
+        requested = state.requested_epcs
+        state.requested_epcs = None
         if sent_at is not None:
             self._update_latency(state, time.monotonic() - sent_at)
         state.consecutive_failures = 0
+
+        if requested is not None:
+            self._update_batch_capacity(device_key, state, requested, received_epcs)
+            self._continue_chunked_poll(device_key)
 
     async def _poll_node(
         self,
@@ -403,16 +503,28 @@ class PropertyPoller:
         epcs: frozenset[int] | None = None,
         fast: bool = False,
     ) -> None:
+        send_epcs = epcs
+        remaining_chunks: list[frozenset[int]] = []
+        if epcs is not None:
+            capacity = self._get_state(device_key).observed_batch_capacity
+            if capacity is not None and len(epcs) > capacity:
+                chunks = _chunk_epcs(epcs, capacity)
+                send_epcs = chunks[0]
+                remaining_chunks = chunks[1:]
+
         try:
             sent = (
                 await self._device_manager.poll_device(device_key)
-                if epcs is None
-                else await self._device_manager.poll_device(device_key, epcs)
+                if send_epcs is None
+                else await self._device_manager.poll_device(device_key, send_epcs)
             )
             if sent:
                 now = time.monotonic()
                 state = self._get_state(device_key)
                 state.awaiting_since = now
+                state.requested_epcs = send_epcs
+                state.pending_chunks = remaining_chunks
+                state.pending_chunks_fast = fast
                 if fast:
                     state.last_fast_polled_at = now
                 else:

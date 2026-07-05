@@ -33,6 +33,11 @@ from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
+# Fired with (device_key, epcs_in_frame) for every recognized response frame.
+# epcs_in_frame is the set of EPCs actually present in that frame, which
+# callers (e.g. PropertyPoller) can compare against the EPCs they requested
+# to detect partial responses.
+FrameReceivedCallback = Callable[[str, frozenset[int]], None]
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int]:
@@ -218,7 +223,7 @@ class DeviceManager:
 
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
-        self._on_frame_received: list[DeviceCallback] = []
+        self._on_frame_received: list[FrameReceivedCallback] = []
 
     def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
         """Register a callback for when a new device is added.
@@ -254,7 +259,7 @@ class DeviceManager:
 
         return unsub
 
-    def on_frame_received(self, callback: DeviceCallback) -> Callable[[], None]:
+    def on_frame_received(self, callback: FrameReceivedCallback) -> Callable[[], None]:
         """Register a callback for when any response frame is processed for a device.
 
         Unlike :meth:`on_device_updated`, this fires for every recognized
@@ -262,10 +267,13 @@ class DeviceManager:
         actually changed (including Set responses). It is primarily used by
         :class:`~pyhems.poller.PropertyPoller` to know when an outstanding
         poll request has been answered, so it can stop waiting and allow the
-        next poll to be sent.
+        next poll to be sent, and to detect partial responses (fewer EPCs in
+        the frame than were requested).
 
         Args:
-            callback: Called with device_key when a response frame is processed.
+            callback: Called with (device_key, epcs_in_frame) when a response
+                frame is processed. ``epcs_in_frame`` is the set of EPCs
+                actually present in that frame (empty for Set responses).
 
         Returns:
             Unsubscribe function.
@@ -307,8 +315,9 @@ class DeviceManager:
 
         self.last_frame_received_at = event.received_at
 
-        for cb in self._on_frame_received:
-            cb(device_key)
+        received_epcs = frozenset(prop.epc for prop in frame.properties)
+        for frame_cb in self._on_frame_received:
+            frame_cb(device_key, received_epcs)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -329,8 +338,8 @@ class DeviceManager:
                 updated = True
 
         if updated:
-            for cb in self._on_device_updated:
-                cb(device_key)
+            for updated_cb in self._on_device_updated:
+                updated_cb(device_key)
 
         return updated
 

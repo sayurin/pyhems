@@ -369,7 +369,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(received_keys.append)
+        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
 
         # Same value as already stored: on_device_updated would not fire,
         # but on_frame_received should still fire (a response was observed).
@@ -379,6 +379,26 @@ class TestProcessFrameEvent:
         assert dm.process_frame_event(event) is False
         assert received_keys == [node.device_key]
 
+    def test_on_frame_received_passes_epcs_in_frame(self) -> None:
+        """on_frame_received passes the set of EPCs present in the frame."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30"})
+        dm.data[node.device_key] = node
+
+        received_epcs: list[frozenset[int]] = []
+        dm.on_frame_received(lambda _key, epcs: received_epcs.append(epcs))
+
+        event = _make_frame_event(
+            node.node_id,
+            node.eoj,
+            ESV_GET_RES,
+            [Property(epc=0x80, edt=b"\x31"), Property(epc=0x81, edt=b"\x01")],
+        )
+        dm.process_frame_event(event)
+
+        assert received_epcs == [frozenset({0x80, 0x81})]
+
     def test_on_frame_received_fires_for_set_response(self) -> None:
         """on_frame_received fires even for Set responses."""
         client = _make_client()
@@ -387,7 +407,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(received_keys.append)
+        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -401,7 +421,7 @@ class TestProcessFrameEvent:
         dm = DeviceManager(client, {})
 
         received_keys: list[str] = []
-        dm.on_frame_received(received_keys.append)
+        dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
@@ -420,7 +440,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        unsub = dm.on_frame_received(received_keys.append)
+        unsub = dm.on_frame_received(lambda key, _epcs: received_keys.append(key))
         unsub()
 
         event = _make_frame_event(
