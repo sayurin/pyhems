@@ -10,6 +10,19 @@ from .device_manager import DeviceManager
 
 _LOGGER = logging.getLogger(__name__)
 
+# Latency EWMA smoothing factor: weight given to the newest observation.
+_LATENCY_EWMA_ALPHA = 0.3
+# Exponential backoff base for consecutive unanswered polls.
+_BACKOFF_BASE = 2.0
+# Cap on the backoff exponent to avoid pathological float growth; the actual
+# interval is separately capped by ``max_interval``.
+_MAX_BACKOFF_EXPONENT = 10
+# Default safety margin applied to observed latency when computing the
+# adaptive interval (see PropertyPoller.__init__).
+_DEFAULT_SAFETY_FACTOR = 2.5
+# Default ceiling for the adaptive interval (seconds).
+_DEFAULT_MAX_INTERVAL = 600.0
+
 
 class PropertyPoller:
     """Periodically poll devices whose monitored EPCs lack notification support.
@@ -23,6 +36,13 @@ class PropertyPoller:
     outstanding (no response frame observed yet): this avoids piling up
     overlapping GET requests on slow devices, which would otherwise make
     them fall further behind. See :meth:`_is_awaiting`.
+
+    Each device also gets its own *adaptive* polling interval on top of the
+    shared ``poll_interval`` tick: devices with a higher observed response
+    latency are polled less often (scaled by ``safety_factor``), and devices
+    that repeatedly fail to answer within ``awaiting_timeout`` are backed off
+    exponentially. Both are capped by ``max_interval``. See
+    :meth:`_effective_interval`.
     """
 
     def __init__(
@@ -31,16 +51,25 @@ class PropertyPoller:
         *,
         poll_interval: float,
         awaiting_timeout: float | None = None,
+        safety_factor: float = _DEFAULT_SAFETY_FACTOR,
+        max_interval: float | None = None,
     ) -> None:
         """Initialize the poller with a device manager and polling interval.
 
         Args:
             device_manager: The device manager to poll.
-            poll_interval: Interval between poll cycles (seconds).
+            poll_interval: Base interval between poll cycles (seconds). Also
+                the lower bound of the per-device adaptive interval.
             awaiting_timeout: How long to wait for a response to an
                 outstanding poll before giving up and allowing a new one to
                 be sent (seconds). Defaults to ``poll_interval`` so a device
                 that never answers is retried on the next regular cycle.
+            safety_factor: Multiplier applied to a device's observed latency
+                (EWMA) when computing its adaptive interval. Higher values
+                poll slow devices more conservatively.
+            max_interval: Upper bound for the per-device adaptive interval
+                (seconds), regardless of observed latency or backoff.
+                Defaults to 600 seconds (10 minutes).
         """
         self._device_manager = device_manager
         self._poll_interval = max(1.0, float(poll_interval))
@@ -48,6 +77,11 @@ class PropertyPoller:
             self._poll_interval
             if awaiting_timeout is None
             else max(0.0, float(awaiting_timeout))
+        )
+        self._safety_factor = max(1.0, float(safety_factor))
+        self._max_interval = max(
+            self._poll_interval,
+            _DEFAULT_MAX_INTERVAL if max_interval is None else float(max_interval),
         )
 
         self._pending: set[str] = set()
@@ -57,6 +91,14 @@ class PropertyPoller:
         # device_key -> monotonic timestamp when a poll was sent and a
         # response is still outstanding.
         self._awaiting: dict[str, float] = {}
+        # device_key -> monotonic timestamp of the most recent poll actually
+        # sent (used to space out polls according to the adaptive interval).
+        self._last_polled_at: dict[str, float] = {}
+        # device_key -> smoothed round-trip latency observed for that device.
+        self._latency_ewma: dict[str, float] = {}
+        # device_key -> number of consecutive polls that timed out without a
+        # response (reset to 0 whenever any frame is received).
+        self._consecutive_failures: dict[str, int] = {}
         self._unsub_frame_received = device_manager.on_frame_received(
             self._on_frame_received
         )
@@ -83,6 +125,9 @@ class PropertyPoller:
         self._scheduled.clear()
         self._pending.clear()
         self._awaiting.clear()
+        self._last_polled_at.clear()
+        self._latency_ewma.clear()
+        self._consecutive_failures.clear()
         self._unsub_frame_received()
 
     # ------------------------------------------------------------------
@@ -140,15 +185,31 @@ class PropertyPoller:
         for device_key in list(self._awaiting):
             if device_key not in current:
                 self._awaiting.pop(device_key, None)
+        for device_key in list(self._last_polled_at):
+            if device_key not in current:
+                self._last_polled_at.pop(device_key, None)
+        for device_key in list(self._latency_ewma):
+            if device_key not in current:
+                self._latency_ewma.pop(device_key, None)
+        for device_key in list(self._consecutive_failures):
+            if device_key not in current:
+                self._consecutive_failures.pop(device_key, None)
 
     def schedule_polls(self) -> None:
         """Enqueue poll requests for devices that need polling."""
+        now = time.monotonic()
         for device_key, node in self._device_manager.data.items():
             if not node.poll_epcs:
                 continue
             if device_key in self._pending or device_key in self._scheduled:
                 continue
             if self._is_awaiting(device_key):
+                continue
+            last_polled_at = self._last_polled_at.get(device_key)
+            if (
+                last_polled_at is not None
+                and now - last_polled_at < self._effective_interval(device_key)
+            ):
                 continue
             self._fire_poll(device_key)
 
@@ -167,25 +228,73 @@ class PropertyPoller:
 
         If the outstanding poll has been unanswered for longer than
         ``awaiting_timeout``, the wait is abandoned (the entry is cleared)
-        so a new poll can be sent.
+        and counted as a failure, feeding the exponential backoff in
+        :meth:`_effective_interval`.
         """
         sent_at = self._awaiting.get(device_key)
         if sent_at is None:
             return False
         if time.monotonic() - sent_at >= self._awaiting_timeout:
             self._awaiting.pop(device_key, None)
+            self._consecutive_failures[device_key] = (
+                self._consecutive_failures.get(device_key, 0) + 1
+            )
             return False
         return True
 
+    def _effective_interval(self, device_key: str) -> float:
+        """Return the current adaptive polling interval for a device.
+
+        Combines two independent signals, each capped by ``max_interval``:
+
+        - Observed round-trip latency (EWMA), scaled by ``safety_factor``,
+          so a consistently slow-but-responsive device is polled less often.
+        - Consecutive unanswered polls, backed off exponentially, so a
+          device that stops responding entirely is polled far less often.
+        """
+        interval = self._poll_interval
+
+        latency = self._latency_ewma.get(device_key)
+        if latency is not None:
+            interval = max(interval, latency * self._safety_factor)
+
+        failures = self._consecutive_failures.get(device_key, 0)
+        if failures:
+            exponent = min(failures, _MAX_BACKOFF_EXPONENT)
+            interval = max(interval, self._poll_interval * (_BACKOFF_BASE**exponent))
+
+        return min(interval, self._max_interval)
+
+    def _update_latency(self, device_key: str, latency: float) -> None:
+        """Update the smoothed (EWMA) latency estimate for a device."""
+        previous = self._latency_ewma.get(device_key)
+        if previous is None:
+            self._latency_ewma[device_key] = latency
+        else:
+            self._latency_ewma[device_key] = (
+                _LATENCY_EWMA_ALPHA * latency + (1 - _LATENCY_EWMA_ALPHA) * previous
+            )
+
     def _on_frame_received(self, device_key: str) -> None:
-        """Clear the awaiting state once any frame arrives from the device."""
-        self._awaiting.pop(device_key, None)
+        """Clear the awaiting state and update backoff state on any frame.
+
+        Any frame from the device is treated as evidence that it is
+        responsive, so the consecutive-failure counter is reset. If the
+        frame corresponds to an outstanding poll, the observed latency also
+        feeds the EWMA used by :meth:`_effective_interval`.
+        """
+        sent_at = self._awaiting.pop(device_key, None)
+        if sent_at is not None:
+            self._update_latency(device_key, time.monotonic() - sent_at)
+        self._consecutive_failures[device_key] = 0
 
     async def _poll_node(self, device_key: str) -> None:
         try:
             sent = await self._device_manager.poll_device(device_key)
             if sent:
-                self._awaiting[device_key] = time.monotonic()
+                now = time.monotonic()
+                self._awaiting[device_key] = now
+                self._last_polled_at[device_key] = now
             else:
                 _LOGGER.debug(
                     "Failed to poll node %s: no poll EPCs or address unknown",

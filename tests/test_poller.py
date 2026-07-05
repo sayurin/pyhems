@@ -323,6 +323,148 @@ class TestAwaitingResponse:
         dm.poll_device.assert_not_called()
 
 
+class TestAdaptiveInterval:
+    """Tests for the per-device adaptive polling interval (Step 3)."""
+
+    @pytest.mark.asyncio
+    async def test_effective_interval_defaults_to_poll_interval(self) -> None:
+        """With no observations, the effective interval is the base interval."""
+        dm = MagicMock(spec=DeviceManager)
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        assert poller._effective_interval("k1") == 60.0
+
+    @pytest.mark.asyncio
+    async def test_effective_interval_scales_with_latency(self) -> None:
+        """A device with high observed latency gets a longer interval."""
+        dm = MagicMock(spec=DeviceManager)
+        poller = PropertyPoller(dm, poll_interval=60, safety_factor=2.0)
+        poller._latency_ewma["k1"] = 40.0
+
+        assert poller._effective_interval("k1") == 80.0
+
+    @pytest.mark.asyncio
+    async def test_effective_interval_capped_by_max_interval(self) -> None:
+        """The adaptive interval never exceeds max_interval."""
+        dm = MagicMock(spec=DeviceManager)
+        poller = PropertyPoller(
+            dm, poll_interval=60, safety_factor=10.0, max_interval=120.0
+        )
+        poller._latency_ewma["k1"] = 1000.0
+
+        assert poller._effective_interval("k1") == 120.0
+
+    @pytest.mark.asyncio
+    async def test_effective_interval_backs_off_on_consecutive_failures(self) -> None:
+        """Consecutive unanswered polls back off the interval exponentially."""
+        dm = MagicMock(spec=DeviceManager)
+        poller = PropertyPoller(dm, poll_interval=60, max_interval=10_000)
+        poller._consecutive_failures["k1"] = 3
+
+        assert poller._effective_interval("k1") == 60.0 * (2.0**3)
+
+    @pytest.mark.asyncio
+    async def test_awaiting_timeout_increments_failure_count(self) -> None:
+        """An expired awaiting entry counts as a failure for backoff purposes."""
+        dm = MagicMock(spec=DeviceManager)
+        poller = PropertyPoller(dm, poll_interval=60, awaiting_timeout=0.01)
+        poller._awaiting["k1"] = time.monotonic() - 1.0
+
+        assert poller._is_awaiting("k1") is False
+        assert poller._consecutive_failures["k1"] == 1
+
+    @pytest.mark.asyncio
+    async def test_frame_received_updates_latency_and_resets_failures(self) -> None:
+        """Receiving a response updates the latency EWMA and resets failures."""
+        unsub = MagicMock()
+        dm = MagicMock(spec=DeviceManager)
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._consecutive_failures["k1"] = 5
+        poller._awaiting["k1"] = time.monotonic() - 5.0
+
+        callback = dm.on_frame_received.call_args.args[0]
+        callback("k1")
+
+        assert poller._consecutive_failures["k1"] == 0
+        assert poller._latency_ewma["k1"] == pytest.approx(5.0, abs=0.5)
+
+    @pytest.mark.asyncio
+    async def test_frame_received_without_outstanding_poll_only_resets_failures(
+        self,
+    ) -> None:
+        """A frame unrelated to any outstanding poll resets failures but not latency."""
+        unsub = MagicMock()
+        dm = MagicMock(spec=DeviceManager)
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._consecutive_failures["k1"] = 2
+
+        callback = dm.on_frame_received.call_args.args[0]
+        callback("k1")
+
+        assert poller._consecutive_failures["k1"] == 0
+        assert "k1" not in poller._latency_ewma
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_skips_device_within_adaptive_interval(self) -> None:
+        """A device is not re-polled before its adaptive interval elapses."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._latency_ewma["k1"] = 100.0  # effective interval > 60s
+        poller._last_polled_at["k1"] = time.monotonic()
+
+        poller.schedule_polls()
+
+        assert "k1" not in poller._pending
+        dm.poll_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_schedule_polls_fires_once_adaptive_interval_elapses(self) -> None:
+        """A device is re-polled once its adaptive interval has elapsed."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60, safety_factor=2.0)
+        poller._latency_ewma["k1"] = 40.0  # effective interval == 80s
+        poller._last_polled_at["k1"] = time.monotonic() - 81.0
+
+        poller.schedule_polls()
+
+        assert "k1" in poller._pending
+        await asyncio.sleep(0)
+        dm.poll_device.assert_called_once_with("k1")
+
+    @pytest.mark.asyncio
+    async def test_poll_node_records_last_polled_at_on_success(self) -> None:
+        """A successful poll records the last-polled timestamp."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.poll_device = AsyncMock(return_value=True)
+        poller = PropertyPoller(dm, poll_interval=60)
+
+        await poller._poll_node("k1")
+
+        assert "k1" in poller._last_polled_at
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_adaptive_state_for_removed_devices(self) -> None:
+        """Latency/failure/last-polled state is removed for missing devices."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {}
+        poller = PropertyPoller(dm, poll_interval=60)
+        poller._last_polled_at["gone"] = time.monotonic()
+        poller._latency_ewma["gone"] = 5.0
+        poller._consecutive_failures["gone"] = 2
+
+        poller._cleanup_stale()
+
+        assert "gone" not in poller._last_polled_at
+        assert "gone" not in poller._latency_ewma
+        assert "gone" not in poller._consecutive_failures
+
+
 class TestScheduleImmediatePoll:
     """Tests for schedule_immediate_poll."""
 
