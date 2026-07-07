@@ -87,6 +87,17 @@ class _DeviceScheduleState:
     pending_chunks_fast: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class DevicePollerStats:
+    """Read-only per-device snapshot of adaptive poller state."""
+
+    normal_interval: float
+    fast_interval: float | None
+    latency_ewma: float | None
+    consecutive_failures: int
+    observed_batch_capacity: int | None
+
+
 class PropertyPoller:
     """Periodically poll devices whose monitored EPCs lack notification support.
 
@@ -258,6 +269,23 @@ class PropertyPoller:
         loop = asyncio.get_running_loop()
         self._scheduled[device_key] = loop.call_later(
             delay, self._scheduled_fire, device_key
+        )
+
+    def get_device_stats(self, device_key: str) -> DevicePollerStats:
+        """Return a diagnostics-friendly snapshot for one device."""
+        state = self._state.get(device_key)
+        return DevicePollerStats(
+            normal_interval=self._effective_interval(device_key),
+            fast_interval=(
+                self._effective_fast_interval(device_key)
+                if self._fast_poll_interval is not None
+                else None
+            ),
+            latency_ewma=None if state is None else state.latency_ewma,
+            consecutive_failures=0 if state is None else state.consecutive_failures,
+            observed_batch_capacity=(
+                None if state is None else state.observed_batch_capacity
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -579,4 +607,4 @@ class PropertyPoller:
             self._pending.discard(device_key)
 
 
-__all__ = ["PropertyPoller"]
+__all__ = ["DevicePollerStats", "PropertyPoller"]
