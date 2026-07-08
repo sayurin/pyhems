@@ -26,7 +26,7 @@ pyhems は ECHONET Lite 機器との通信を行うための Python ライブラ
 - **デバイス検出**: UDP マルチキャストによる機器自動検出
 - **イベント駆動**: コールバックによるイベント購読
 - **デバイス管理**: `DeviceManager` によるノード状態管理
-- **定期ポーリング**: `PropertyPoller` による通知非対応 EPC の補完
+- **適応ポーリング**: `PropertyPoller` による通知非対応 EPC の補完
 - **エンティティ定義**: MRA ベースのデバイス/エンティティ定義
 - **型ヒント完備**: `py.typed` 対応
 
@@ -257,6 +257,14 @@ def handle_event(event):
 
 unsubscribe = client.subscribe(handle_event)
 ```
+
+`PropertyPoller` は固定周期ではなく、機器状態に応じてポーリング間隔を調整します。
+
+- TID 相関で in-flight リクエストを追跡し、遅い機器へのリクエスト詰まりを抑制
+- 応答遅延（EWMA）と連続失敗回数に応じて通常ポーリング間隔を動的に調整
+- 瞬時値向け EPC（`fast_poll_epcs`）を高頻度レーンで別スケジュール
+- 部分応答が発生した場合、観測済みバッチ上限（`observed_batch_capacity`）を学習してチャンク送信
+- `DeviceManager.subscribe_epcs(...)` により実効ポーリング対象を動的に絞り込み
 
 `NodeState`（`device_manager.data[device_key]`）には以下の情報が保持されます。
 

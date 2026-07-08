@@ -1,6 +1,7 @@
 """Tests for runtime client."""
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -169,17 +170,21 @@ class TestNodeProbe:
 
     def test_next_tid(self) -> None:
         """Test transaction ID generation."""
-        tid1 = Frame.next_tid()
-        tid2 = Frame.next_tid()
-        assert tid1 == 1
-        assert tid2 == 2
+        original_tid = Frame._tid_counter
 
-        # Test wrap around - ensure zero is not returned (we skip 0)
-        Frame._tid_counter = 0xFFFF
-        tid3 = Frame.next_tid()
-        assert tid3 != 0
-        # Reset for other tests
-        Frame._tid_counter = 0
+        try:
+            Frame._tid_counter = 0
+            tid1 = Frame.next_tid()
+            tid2 = Frame.next_tid()
+            assert tid1 == 1
+            assert tid2 == 2
+
+            # Test wrap around - ensure zero is not returned (we skip 0)
+            Frame._tid_counter = 0xFFFF
+            tid3 = Frame.next_tid()
+            assert tid3 != 0
+        finally:
+            Frame._tid_counter = original_tid
 
     @pytest.mark.asyncio
     async def test_async_probe_nodes_not_running(self) -> None:
@@ -493,9 +498,12 @@ class TestAsyncGet:
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         async def run_test() -> list[Property]:
-            return await client.get(
-                node_id, EOJ(0x013001), [0x80, 0xB0, 0xBB], request_timeout=1.0
-            )
+            return [
+                Property(epc=property.epc, edt=property.edt)
+                for property in await client.get(
+                    node_id, EOJ(0x013001), [0x80, 0xB0, 0xBB], request_timeout=1.0
+                )
+            ]
 
         get_task = asyncio.create_task(run_test())
 
@@ -551,9 +559,12 @@ class TestAsyncGet:
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         async def run_test() -> list[Property]:
-            return await client.get(
-                node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
-            )
+            return [
+                Property(epc=property.epc, edt=property.edt)
+                for property in await client.get(
+                    node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
+                )
+            ]
 
         get_task = asyncio.create_task(run_test())
 
@@ -665,10 +676,11 @@ class TestInfcHandling:
 
         # Verify that protocol.send was called for the INFC_RES response
         assert client._protocol is not None
-        assert client._protocol.send.call_count >= 1  # type: ignore[attr-defined]
+        send: Any = client._protocol.send
+        assert send.call_count >= 1
 
         # Get the response frame data from the send call
-        send_calls = list(client._protocol.send.call_args_list)  # type: ignore[attr-defined]
+        send_calls = list(send.call_args_list)
         assert len(send_calls) > 0
 
         # Decode the last sent frame to verify it's INFC_RES

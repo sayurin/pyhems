@@ -13,7 +13,7 @@ ECHONET Lite library for Home Energy Management System (HEMS).
 - UDP multicast device discovery
 - Async runtime client with event subscription
 - Device state management with `DeviceManager`
-- Poll scheduler for non-notifying properties via `PropertyPoller`
+- Adaptive poll scheduler for non-notifying properties via `PropertyPoller`
 - Entity definitions based on MRA data
 - Full type hints (`py.typed`)
 
@@ -72,6 +72,16 @@ asyncio.run(main())
 - `HemsClient.get(node_id, deoj, epcs)`: Read property values.
 - `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple properties.
+
+## Adaptive Property Polling
+
+`PropertyPoller` uses an adaptive scheduler designed for mixed ECHONET Lite devices:
+
+- TID-correlated in-flight tracking avoids request pileups on slow devices.
+- Poll cadence is adjusted from latency EWMA and failure backoff, starting from the base interval.
+- Instantaneous-value EPCs can be scheduled on a separate fast lane (`fast_poll_epcs`).
+- When devices truncate large responses, batch size is learned (`observed_batch_capacity`) and reused.
+- Poll targets can be narrowed dynamically through `DeviceManager.subscribe_epcs(...)`.
 
 ## Definitions
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -125,6 +124,7 @@ class TestNodeState:
             set_epcs=frozenset(),
             inf_epcs=frozenset(),
             poll_epcs=frozenset(),
+            fast_poll_epcs=frozenset(),
             product_code=None,
             serial_number=None,
         )
@@ -206,6 +206,7 @@ def _make_node(
     set_epcs: frozenset[int] | None = None,
     inf_epcs: frozenset[int] | None = None,
     poll_epcs: frozenset[int] | None = None,
+    fast_poll_epcs: frozenset[int] | None = None,
 ) -> NodeState:
     return NodeState(
         eoj=EOJ(eoj),
@@ -219,6 +220,7 @@ def _make_node(
         set_epcs=set_epcs if set_epcs is not None else frozenset(),
         inf_epcs=inf_epcs if inf_epcs is not None else frozenset(),
         poll_epcs=poll_epcs if poll_epcs is not None else frozenset({0x80}),
+        fast_poll_epcs=fast_poll_epcs if fast_poll_epcs is not None else frozenset(),
         product_code=None,
         serial_number=None,
     )
@@ -359,6 +361,96 @@ class TestProcessFrameEvent:
         dm.process_frame_event(event)
         assert updated_keys == []
 
+    def test_on_frame_received_fires_even_without_value_change(self) -> None:
+        """on_frame_received fires for any response frame, unlike on_device_updated."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+
+        # Same value as already stored: on_device_updated would not fire,
+        # but on_frame_received should still fire (a response was observed).
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        assert dm.process_frame_event(event) is False
+        assert received_keys == [node.device_key]
+
+    def test_on_frame_received_passes_epcs_in_frame(self) -> None:
+        """on_frame_received passes the set of EPCs present in the frame."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30"})
+        dm.data[node.device_key] = node
+
+        received_epcs: list[frozenset[int]] = []
+        dm.on_frame_received(lambda _key, _tid, _esv, epcs: received_epcs.append(epcs))
+
+        event = _make_frame_event(
+            node.node_id,
+            node.eoj,
+            ESV_GET_RES,
+            [Property(epc=0x80, edt=b"\x31"), Property(epc=0x81, edt=b"\x01")],
+        )
+        dm.process_frame_event(event)
+
+        assert received_epcs == [frozenset({0x80, 0x81})]
+
+    def test_on_frame_received_fires_for_set_response(self) -> None:
+        """on_frame_received fires even for Set responses."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        dm.process_frame_event(event)
+        assert received_keys == [node.device_key]
+
+    def test_on_frame_received_ignores_unknown_device(self) -> None:
+        """on_frame_received does not fire for unknown devices."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        received_keys: list[str] = []
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+
+        event = _make_frame_event(
+            "fe00000000000000000000000000000001",
+            EOJ(0x013001),
+            ESV_GET_RES,
+            [Property(epc=0x80, edt=b"\x30")],
+        )
+        dm.process_frame_event(event)
+        assert received_keys == []
+
+    def test_on_frame_received_unsubscribe(self) -> None:
+        """Unsubscribe prevents further on_frame_received callbacks."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31"})
+        dm.data[node.device_key] = node
+
+        received_keys: list[str] = []
+        unsub = dm.on_frame_received(
+            lambda key, _tid, _esv, _epcs: received_keys.append(key)
+        )
+        unsub()
+
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+        )
+        dm.process_frame_event(event)
+        assert received_keys == []
+
 
 # ---------------------------------------------------------------------------
 # process_instance_list_event
@@ -421,6 +513,86 @@ class TestProcessInstanceListEvent:
         assert node.inf_epcs == inf_epcs
         # poll_epcs = (monitored & get) - inf = {0xB0}
         assert node.poll_epcs == frozenset({0xB0})
+        assert node.fast_poll_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_setup_new_device_splits_fast_poll_epcs(self) -> None:
+        """fast_epcs are split out of poll_epcs into fast_poll_epcs."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0, 0xE0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+            Property(epc=0xE0, edt=b"\x00\x64"),
+        ]
+
+        monitored_epcs = {0x0130: frozenset({0x80, 0xB0, 0xE0})}
+        fast_epcs = {0x0130: frozenset({0xE0})}
+        dm = DeviceManager(client, monitored_epcs, fast_epcs=fast_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        # poll_epcs = (monitored & get) - inf - fast = {0xB0}
+        assert node.poll_epcs == frozenset({0xB0})
+        # fast_poll_epcs = (monitored & get) - inf, intersected with fast_epcs
+        assert node.fast_poll_epcs == frozenset({0xE0})
+
+    @pytest.mark.asyncio
+    async def test_fast_epcs_not_in_monitored_epcs_are_ignored(self) -> None:
+        """fast_epcs entries outside monitored_epcs never appear anywhere."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xE0})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0x80})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xE0, edt=b"\x00\x64"),
+        ]
+
+        # 0xE0 is a fast candidate but is NOT in monitored_epcs, so it should
+        # not be polled at all (neither poll_epcs nor fast_poll_epcs).
+        monitored_epcs = {0x0130: frozenset({0x80})}
+        fast_epcs = {0x0130: frozenset({0xE0})}
+        dm = DeviceManager(client, monitored_epcs, fast_epcs=fast_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        assert node.poll_epcs == frozenset()
+        assert node.fast_poll_epcs == frozenset()
 
     @pytest.mark.asyncio
     async def test_skips_existing_device(self) -> None:
@@ -514,145 +686,6 @@ class TestProcessInstanceListEvent:
         assert node.product_code == "NP_PRODUCT"
         assert node.serial_number == "NP_SERIAL"
 
-    @pytest.mark.asyncio
-    async def test_debug_dump_executed_when_debug_enabled(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Debug dump issues a second client.get call when DEBUG logging is enabled."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0x80, 0xB0})
-        set_epcs = frozenset({0x80})
-        inf_epcs = frozenset({0x80, 0xC0})  # 0xC0 is inf-only (not in get_epcs)
-
-        setup_response = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-        dump_response = [
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b""),  # no response
-        ]
-        client.get.side_effect = [setup_response, dump_response]
-
-        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="pyhems.device_manager"):
-            result = await dm.process_instance_list_event(event)
-
-        assert len(result) == 1
-        # One call for setup, one for debug dump
-        assert client.get.call_count == 2
-        dump_call_args = client.get.call_args_list[1].args
-        assert dump_call_args[0] == node_id
-        assert dump_call_args[1] == eoj
-        assert dump_call_args[2] == sorted(get_epcs)
-        assert any("Debug dump" in r.message for r in caplog.records)
-
-    @pytest.mark.asyncio
-    async def test_debug_dump_skipped_at_info_level(self) -> None:
-        """Debug dump is skipped when logger level is INFO (no extra client.get call)."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0x80, 0xB0})
-        set_epcs = frozenset({0x80})
-        inf_epcs = frozenset({0x80})
-
-        client.get.return_value = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-
-        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        # Set logger to INFO — isEnabledFor(DEBUG) returns False, dump is skipped
-        logger = logging.getLogger("pyhems.device_manager")
-        original_level = logger.level
-        logger.setLevel(logging.INFO)
-        try:
-            result = await dm.process_instance_list_event(event)
-        finally:
-            logger.setLevel(original_level)
-
-        assert len(result) == 1
-        # Only the setup call, no debug dump call
-        assert client.get.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_debug_dump_exception_does_not_affect_setup(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """An exception during debug dump does not prevent device from being added."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0x80, 0xB0})
-        set_epcs = frozenset({0x80})
-        inf_epcs = frozenset({0x80})
-
-        setup_response = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0x80, edt=b"\x30"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-        # Second call (debug dump) raises an exception
-        client.get.side_effect = [setup_response, OSError("network error")]
-
-        added_keys: list[str] = []
-        dm = DeviceManager(client, {0x0130: frozenset({0x80, 0xB0})})
-        dm.on_device_added(added_keys.append)
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="pyhems.device_manager"):
-            result = await dm.process_instance_list_event(event)
-
-        # Device was still successfully added despite dump exception
-        assert len(result) == 1
-        assert added_keys == result
-        assert any("Debug dump failed" in r.message for r in caplog.records)
-
 
 # ---------------------------------------------------------------------------
 # poll_device
@@ -671,11 +704,12 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is True
+        assert result is not None
         client.send.assert_called_once()
         _node_id, frame = client.send.call_args.args
         assert frame.esv == 0x62
         assert {p.epc for p in frame.properties} == {0x80, 0xB0}
+        assert frame.tid == result
 
     @pytest.mark.asyncio
     async def test_poll_unknown_device(self) -> None:
@@ -684,7 +718,7 @@ class TestPollDevice:
         dm = DeviceManager(client, {})
 
         result = await dm.poll_device("unknown-device")
-        assert result is False
+        assert result is None
         client.send.assert_not_called()
 
     @pytest.mark.asyncio
@@ -696,7 +730,7 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is False
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_poll_device_send_failure(self) -> None:
@@ -708,4 +742,164 @@ class TestPollDevice:
         dm.data[node.device_key] = node
 
         result = await dm.poll_device(node.device_key)
-        assert result is False
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_poll_device_with_explicit_epcs(self) -> None:
+        """An explicit epcs argument overrides the device's poll_epcs."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        result = await dm.poll_device(node.device_key, frozenset({0xE0}))
+        assert result is not None
+        _node_id, frame = client.send.call_args.args
+        assert {p.epc for p in frame.properties} == {0xE0}
+        assert frame.tid == result
+
+    @pytest.mark.asyncio
+    async def test_poll_device_with_empty_explicit_epcs(self) -> None:
+        """An explicit empty epcs argument returns False without sending."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        result = await dm.poll_device(node.device_key, frozenset())
+        assert result is None
+        client.send.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# subscribe_epcs / effective_poll_epcs / effective_fast_poll_epcs
+# ---------------------------------------------------------------------------
+
+
+class TestSubscribeEpcs:
+    """Tests for DeviceManager.subscribe_epcs and effective_*_poll_epcs."""
+
+    def test_effective_poll_epcs_unfiltered_before_any_subscription(self) -> None:
+        """Before any subscribe_epcs() call, the full candidate set is returned."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80, 0xB0})
+
+    def test_effective_poll_epcs_unknown_device(self) -> None:
+        """An unknown device_key returns an empty set."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        assert dm.effective_poll_epcs("unknown-device") == frozenset()
+
+    def test_effective_fast_poll_epcs_unknown_device(self) -> None:
+        """An unknown device_key returns an empty set for the fast tier too."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        assert dm.effective_fast_poll_epcs("unknown-device") == frozenset()
+
+    def test_effective_poll_epcs_narrowed_by_subscription(self) -> None:
+        """After subscribing, only the subscribed EPCs are returned."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0, 0xE0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0x80, 0xE0}))
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80, 0xE0})
+
+    def test_effective_poll_epcs_excludes_unsubscribed_candidate(self) -> None:
+        """An EPC in poll_epcs but never subscribed to is excluded."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80})
+
+    def test_effective_poll_epcs_empty_after_subscribing_to_nothing(self) -> None:
+        """Subscribing with an empty set still confirms the device (no fallback)."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset())
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_unsubscribe_removes_epc_from_effective_set(self) -> None:
+        """Unsubscribing removes the EPC once no subscriber remains."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        unsub = dm.subscribe_epcs(node.device_key, frozenset({0x80, 0xB0}))
+        unsub()
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_unsubscribe_is_idempotent(self) -> None:
+        """Calling the unsubscribe function twice has no additional effect."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        unsub = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+        unsub()
+        unsub()
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_reference_counted_shared_epc(self) -> None:
+        """An EPC subscribed by two callers stays subscribed until both unsub."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        unsub1 = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+        unsub2 = dm.subscribe_epcs(node.device_key, frozenset({0x80}))
+
+        unsub1()
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x80})
+
+        unsub2()
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_effective_fast_poll_epcs_narrowed_by_subscription(self) -> None:
+        """effective_fast_poll_epcs narrows fast_poll_epcs the same way."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(fast_poll_epcs=frozenset({0xE0, 0xE7}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset({0xE7}))
+
+        assert dm.effective_fast_poll_epcs(node.device_key) == frozenset({0xE7})
+
+    def test_subscription_on_one_device_does_not_affect_another(self) -> None:
+        """Subscriptions are scoped per device_key."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node1 = _make_node(node_id="node1", poll_epcs=frozenset({0x80}))
+        node2 = _make_node(node_id="node2", poll_epcs=frozenset({0x80}))
+        dm.data[node1.device_key] = node1
+        dm.data[node2.device_key] = node2
+
+        dm.subscribe_epcs(node1.device_key, frozenset({0x80}))
+
+        assert dm.effective_poll_epcs(node1.device_key) == frozenset({0x80})
+        # node2 has no confirmed subscription yet: unfiltered fallback.
+        assert dm.effective_poll_epcs(node2.device_key) == frozenset({0x80})
+        dm.subscribe_epcs(node2.device_key, frozenset())
+        assert dm.effective_poll_epcs(node2.device_key) == frozenset()

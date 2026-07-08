@@ -58,7 +58,7 @@ from .installation_location import (
     InstallationLocation,
     decode_installation_location,
 )
-from .poller import PropertyPoller
+from .poller import DevicePollerStats, PropertyPoller
 from .runtime import (
     HemsClient,
     HemsErrorEvent,
@@ -107,6 +107,7 @@ __all__ = [
     "DefinitionsRegistry",
     "DeviceDefinition",
     "DeviceManager",
+    "DevicePollerStats",
     "EchonetLiteProtocol",
     "EntityDefinition",
     "EnumCodec",

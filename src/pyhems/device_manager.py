@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -33,6 +34,11 @@ from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
+# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
+# response frame. epcs_in_frame is the set of EPCs actually present in that
+# frame, which callers (e.g. PropertyPoller) can compare against the EPCs
+# they requested to detect partial responses.
+FrameReceivedCallback = Callable[[str, int, int, frozenset[int]], None]
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int]:
@@ -141,6 +147,7 @@ class NodeState:
     set_epcs: frozenset[int]
     inf_epcs: frozenset[int]
     poll_epcs: frozenset[int]
+    fast_poll_epcs: frozenset[int]
     product_code: str | None
     serial_number: str | None
     class_name_en: str | None = None
@@ -189,6 +196,7 @@ class DeviceManager:
         client: HemsClient,
         monitored_epcs: Mapping[int, frozenset[int]],
         class_code_filter: frozenset[int] | None = None,
+        fast_epcs: Mapping[int, frozenset[int]] | None = None,
     ) -> None:
         """Initialize the device manager.
 
@@ -197,10 +205,16 @@ class DeviceManager:
             monitored_epcs: Mapping of class_code -> EPCs to monitor.
             class_code_filter: If set, only these class codes are accepted.
                 If None, all class codes are accepted.
+            fast_epcs: Mapping of class_code -> EPCs that should be polled at
+                a higher frequency (e.g. instantaneous power). These must be
+                a subset of the corresponding ``monitored_epcs`` entry; any
+                EPC not present in ``monitored_epcs`` is ignored. Defaults to
+                no fast-poll EPCs for any class.
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
         self._class_code_filter = class_code_filter
+        self._fast_epcs = fast_epcs or {}
 
         self.data: dict[str, NodeState] = {}
         self.last_frame_received_at: float | None = None
@@ -208,8 +222,19 @@ class DeviceManager:
         self._pending_setups: set[str] = set()
         self._node_profile_info: dict[str, tuple[str | None, str | None]] = {}
 
+        # device_key -> EPC -> number of active subscribers. See
+        # :meth:`subscribe_epcs`/:meth:`effective_poll_epcs`.
+        self._subscribed_epcs: dict[str, Counter[int]] = {}
+        # device_keys for which subscribe_epcs() has been called at least
+        # once. Until a device appears here, effective_poll_epcs()/
+        # effective_fast_poll_epcs() return the full unfiltered candidate
+        # set as a race-safe fallback (e.g. right after platform setup,
+        # before any caller has finished registering its subscriptions).
+        self._subscription_confirmed: set[str] = set()
+
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
+        self._on_frame_received: list[FrameReceivedCallback] = []
 
     def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
         """Register a callback for when a new device is added.
@@ -245,6 +270,124 @@ class DeviceManager:
 
         return unsub
 
+    def on_frame_received(self, callback: FrameReceivedCallback) -> Callable[[], None]:
+        """Register a callback for when any response frame is processed for a device.
+
+        Unlike :meth:`on_device_updated`, this fires for every recognized
+        response frame from a known device, even if no property value
+        actually changed (including Set responses). It is primarily used by
+        :class:`~pyhems.poller.PropertyPoller` to know when an outstanding
+        poll request has been answered, so it can stop waiting and allow the
+        next poll to be sent, and to detect partial responses (fewer EPCs in
+        the frame than were requested).
+
+        Args:
+            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
+                response frame is processed. ``epcs_in_frame`` is the set of
+                EPCs actually present in that frame (empty for Set responses).
+
+        Returns:
+            Unsubscribe function.
+        """
+        self._on_frame_received.append(callback)
+
+        def unsub() -> None:
+            if callback in self._on_frame_received:
+                self._on_frame_received.remove(callback)
+
+        return unsub
+
+    def subscribe_epcs(
+        self, device_key: str, epcs: frozenset[int]
+    ) -> Callable[[], None]:
+        """Register a caller's interest in specific EPCs for a device.
+
+        Used by callers that want polling to reflect fine-grained interest
+        (e.g. Home Assistant Entity lifecycle: an Entity subscribes to its
+        EPC(s) in ``async_added_to_hass()`` and unsubscribes in
+        ``async_will_remove_from_hass()``, so a disabled Entity's EPC stops
+        being polled). This is a generic reference-counted API: an EPC
+        remains "subscribed" as long as at least one caller has an active
+        subscription for it, since multiple callers may be interested in the
+        same EPC. See :meth:`effective_poll_epcs`.
+
+        Calling this method (even with an empty ``epcs``) marks the device
+        as having a confirmed subscriber, which disables the race-safe
+        unfiltered fallback described in :meth:`effective_poll_epcs`.
+
+        Args:
+            device_key: The device key to subscribe to.
+            epcs: EPCs the caller is interested in.
+
+        Returns:
+            Unsubscribe function. Idempotent; safe to call more than once.
+        """
+        counts = self._subscribed_epcs.setdefault(device_key, Counter())
+        counts.update(epcs)
+        self._subscription_confirmed.add(device_key)
+
+        unsubscribed = False
+
+        def unsub() -> None:
+            nonlocal unsubscribed
+            if unsubscribed:
+                return
+            unsubscribed = True
+            counts = self._subscribed_epcs.get(device_key)
+            if counts is None:
+                return
+            counts.subtract(epcs)
+            for epc in epcs:
+                if counts[epc] <= 0:
+                    del counts[epc]
+
+        return unsub
+
+    def effective_poll_epcs(self, device_key: str) -> frozenset[int]:
+        """Return the normal-tier EPCs actually being polled for a device.
+
+        This is ``NodeState.poll_epcs`` narrowed to the EPCs currently
+        subscribed via :meth:`subscribe_epcs` (see that method for the race-
+        safe fallback behavior before any subscription has been registered).
+
+        Args:
+            device_key: The device key to compute the effective set for.
+
+        Returns:
+            The EPCs that should actually be requested, or an empty set if
+            the device is unknown.
+        """
+        node = self.data.get(device_key)
+        if node is None:
+            return frozenset()
+        return self._effective_epcs(device_key, node.poll_epcs)
+
+    def effective_fast_poll_epcs(self, device_key: str) -> frozenset[int]:
+        """Return the fast-tier EPCs actually being polled for a device.
+
+        Same as :meth:`effective_poll_epcs`, but narrows
+        ``NodeState.fast_poll_epcs`` instead.
+
+        Args:
+            device_key: The device key to compute the effective set for.
+
+        Returns:
+            The EPCs that should actually be requested, or an empty set if
+            the device is unknown.
+        """
+        node = self.data.get(device_key)
+        if node is None:
+            return frozenset()
+        return self._effective_epcs(device_key, node.fast_poll_epcs)
+
+    def _effective_epcs(
+        self, device_key: str, candidate_epcs: frozenset[int]
+    ) -> frozenset[int]:
+        if device_key not in self._subscription_confirmed:
+            return candidate_epcs
+        subscribed = frozenset(self._subscribed_epcs.get(device_key, ()))
+        return candidate_epcs & subscribed
+
     def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
 
@@ -274,6 +417,10 @@ class DeviceManager:
 
         self.last_frame_received_at = event.received_at
 
+        received_epcs = frozenset(prop.epc for prop in frame.properties)
+        for frame_cb in self._on_frame_received:
+            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
+
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
             device_key,
@@ -293,8 +440,8 @@ class DeviceManager:
                 updated = True
 
         if updated:
-            for cb in self._on_device_updated:
-                cb(device_key)
+            for updated_cb in self._on_device_updated:
+                updated_cb(device_key)
 
         return updated
 
@@ -402,6 +549,10 @@ class DeviceManager:
                     serial_number = np_serial_number
 
             poll_epcs = frozenset((initial_epcs & get_epcs) - inf_epcs)
+            fast_poll_epcs = poll_epcs & self._fast_epcs.get(
+                eoj.class_code, frozenset()
+            )
+            poll_epcs -= fast_poll_epcs
 
             mfr = REGISTRY.manufacturers.get(manufacturer_code)
             manufacturer_name_en = mfr.name_en if mfr else None
@@ -420,6 +571,7 @@ class DeviceManager:
                 set_epcs=set_epcs,
                 inf_epcs=inf_epcs,
                 poll_epcs=poll_epcs,
+                fast_poll_epcs=fast_poll_epcs,
                 manufacturer_code=manufacturer_code,
                 manufacturer_name_en=manufacturer_name_en,
                 manufacturer_name_ja=manufacturer_name_ja,
@@ -443,28 +595,6 @@ class DeviceManager:
                 bytes(sorted(set_epcs)).hex(),
                 bytes(sorted(inf_epcs)).hex(),
             )
-
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                try:
-                    dump_results = await self._client.get(
-                        node_id, eoj, sorted(node.get_epcs)
-                    )
-                    responded = sum(1 for p in dump_results if p.edt)
-                    inf_only = sorted(node.inf_epcs - node.get_epcs)
-                    lines = [
-                        f"  EPC 0x{p.epc:02X}: {p.edt.hex() if p.edt else '(no response)'}"
-                        for p in dump_results
-                    ] + [f"  EPC 0x{epc:02X}: (inf-only)" for epc in inf_only]
-                    _LOGGER.debug(
-                        "Debug dump for %s: %d get_epcs, %d responded, %d inf-only\n%s",
-                        device_key,
-                        len(node.get_epcs),
-                        responded,
-                        len(inf_only),
-                        "\n".join(lines),
-                    )
-                except Exception:
-                    _LOGGER.debug("Debug dump failed for %s", device_key)
 
             for cb in self._on_device_added:
                 cb(device_key)
@@ -517,38 +647,48 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(epcs)),
             )
 
-    async def poll_device(self, device_key: str) -> bool:
+    async def poll_device(
+        self, device_key: str, epcs: frozenset[int] | None = None
+    ) -> int | None:
         """Send a GET request for a device's poll EPCs.
 
         Args:
             device_key: The device key to poll.
+            epcs: EPCs to request. Defaults to the device's normal-tier
+                ``poll_epcs``; pass ``node.fast_poll_epcs`` explicitly to
+                poll the high-frequency tier instead.
 
         Returns:
-            True if the poll request was sent successfully.
+            The request TID if the poll request was sent successfully.
         """
         node = self.data.get(device_key)
-        if not node or not node.poll_epcs:
-            return False
+        if not node:
+            return None
+        target_epcs = node.poll_epcs if epcs is None else epcs
+        if not target_epcs:
+            return None
 
-        properties = [Property(epc=epc, edt=b"") for epc in node.poll_epcs]
+        properties = [Property(epc=epc, edt=b"") for epc in target_epcs]
         frame = Frame(
             seoj=CONTROLLER_INSTANCE,
             deoj=node.eoj,
             esv=ESV_GET,
             properties=properties,
         )
+        frame.tid = Frame.next_tid()
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
-            " ".join(f"{epc:02X}" for epc in sorted(node.poll_epcs)),
+            " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
         )
         try:
-            return await self._client.send(node.node_id, frame)
+            sent = await self._client.send(node.node_id, frame)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err
             )
-            return False
+            return None
+        return frame.tid if sent else None
 
 
 __all__ = ["DeviceManager", "NodeState"]
