@@ -99,6 +99,8 @@ class _MRAProperty:
     epc: int
     name_en: str
     name_ja: str
+    description_en: str | None
+    description_ja: str | None
     get: str
     set: str
     data_type: str | None
@@ -160,6 +162,9 @@ def _parse_mra_property(
     name_data = prop_data["propertyName"]
     name_en = _normalize_trailing_number(name_data["en"])
     name_ja = name_data["ja"]
+    descriptions_data = prop_data["descriptions"]
+    description_en = descriptions_data["en"]
+    description_ja = descriptions_data["ja"]
 
     # Parse access rules
     access = prop_data["accessRule"]
@@ -259,6 +264,8 @@ def _parse_mra_property(
         epc=epc,
         name_en=name_en,
         name_ja=name_ja,
+        description_en=description_en,
+        description_ja=description_ja,
         get=get_val,
         set=set_val,
         data_type=data_type,
@@ -337,6 +344,8 @@ def _build_entity_from_property(
         name_ja=prop.name_ja,
         get=prop.get,
         set=prop.set,
+        description_en=prop.description_en,
+        description_ja=prop.description_ja,
         format=prop.mra_format if is_sensor else None,
         unit=prop.mra_unit if is_sensor else None,
         minimum=prop.mra_minimum if is_sensor else None,
@@ -678,10 +687,12 @@ def _build_custom_entity(
     return EntityDefinition(
         id=entity_id,
         epc=epc,
-        name_en=entry.get("name_en", ""),
-        name_ja=entry.get("name_ja", ""),
-        get=entry.get("get", "notApplicable"),
+        name_en=entry["name_en"],
+        name_ja=entry["name_ja"],
+        get=entry["get"],
         set=entry.get("set", "notApplicable"),
+        description_en=entry.get("description_en"),
+        description_ja=entry.get("description_ja"),
         format=entry.get("format") if not enum_values_raw else None,
         unit=entry.get("unit") if not enum_values_raw else None,
         minimum=entry.get("minimum") if not enum_values_raw else None,
