@@ -56,6 +56,8 @@ class EntityDefinition:
           "optional", or "notApplicable")
         set: Access rule for SET (one of "required", "required_c", "required_o",
           "optional", or "notApplicable")
+        description_en: English description text from MRA
+        description_ja: Japanese description text from MRA
         format: MRA format string for numeric values ("uint8", "int16", etc.)
         unit: MRA unit of measurement ("W", "Celsius", "%RH", etc.)
         minimum: MRA minimum valid value (before scale)
@@ -72,6 +74,8 @@ class EntityDefinition:
     name_ja: str
     get: str
     set: str
+    description_en: str | None = None
+    description_ja: str | None = None
     format: str | None = None
     unit: str | None = None
     minimum: float | None = None
