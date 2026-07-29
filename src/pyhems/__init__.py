@@ -6,6 +6,7 @@ from .codecs import (
     EnumCodec,
     InstallationLocationCodec,
     NumericCodec,
+    NumericValueCodec,
     PropertyCodec,
     get_codec,
     get_codec_for_epc,
@@ -49,6 +50,7 @@ from .definitions import (
     EntityDefinition,
     EnumValue,
     ManufacturerDefinition,
+    NumericValueEntry,
 )
 from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
@@ -122,6 +124,8 @@ __all__ = [
     "ManufacturerDefinition",
     "NodeState",
     "NumericCodec",
+    "NumericValueCodec",
+    "NumericValueEntry",
     "Property",
     "PropertyCodec",
     "PropertyPoller",

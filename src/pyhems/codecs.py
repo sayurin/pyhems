@@ -20,11 +20,14 @@ Typical usage::
 
 from __future__ import annotations
 
+import functools
+import math
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ._definitions_generated import REGISTRY
 from .definitions import EntityDefinition
+from .device_manager import NodeState
 from .installation_location import (
     INSTALLATION_LOCATIONS,
     InstallationLocation,
@@ -125,6 +128,14 @@ class NumericCodec:
     Handles MRA ``format`` (``uint8``/``int16``/...), ``minimum``/``maximum``
     range checks, and ``multipleOf`` scaling. ``byte_offset`` lets a single
     EPC expose several numeric fields packed in one EDT.
+
+    ``coefficient_epcs`` handles the MRA ``coefficient`` pattern (e.g. EPC
+    0xC2 "Unit for cumulative amounts of electric energy"): the true value is
+    this codec's raw value multiplied by the *current* value of one or more
+    sibling EPCs. Resolving it requires the owning node's state, so ``decode``
+    accepts an optional ``node`` argument used only when ``coefficient_epcs``
+    is non-empty; without it (or when the coefficient EPC is not yet known),
+    ``None`` is returned rather than an unscaled, potentially wrong value.
     """
 
     mra_format: str
@@ -132,9 +143,15 @@ class NumericCodec:
     minimum: float | None
     maximum: float | None
     byte_offset: int
+    coefficient_epcs: tuple[int, ...] = ()
 
-    def decode(self, edt: bytes) -> int | float | None:
-        """Decode EDT bytes to a (scaled) numeric value."""
+    def decode(self, edt: bytes, node: NodeState | None = None) -> int | float | None:
+        """Decode EDT bytes to a (scaled) numeric value.
+
+        ``node`` supplies the current values of ``coefficient_epcs`` when
+        this property's unit depends on a sibling property; it is ignored
+        when ``coefficient_epcs`` is empty.
+        """
         format_info = _FORMAT_INFO.get(self.mra_format)
         if not format_info:
             return None
@@ -149,7 +166,23 @@ class NumericCodec:
             return None
         if self.maximum is not None and raw > self.maximum:
             return None
-        return raw if self.scale == 1.0 else raw * self.scale
+        value = raw if self.scale == 1.0 else raw * self.scale
+        if not self.coefficient_epcs:
+            return value
+        if node is None:
+            return None
+        coefficient = 1.0
+        for coef_epc in self.coefficient_epcs:
+            coef_edt = node.properties.get(coef_epc)
+            if coef_edt is None:
+                return None
+            coef_value = get_codec_for_epc(node.eoj.class_code, coef_epc).decode(
+                coef_edt
+            )
+            if coef_value is None:
+                return None
+            coefficient *= coef_value
+        return value * coefficient
 
     def encode(self, value: int | float) -> bytes:
         """Encode a numeric value to EDT bytes.
@@ -158,6 +191,12 @@ class NumericCodec:
         of a multi-field EDT requires merging with the device's current
         value, which is the caller's responsibility.
         """
+        if self.coefficient_epcs:
+            raise ValueError(
+                "NumericCodec.encode does not support coefficient_epcs; "
+                "resolving the coefficient requires node state, which "
+                "encode() does not receive"
+            )
         if self.byte_offset:
             raise ValueError(
                 "NumericCodec.encode does not support byte_offset; "
@@ -174,6 +213,38 @@ class NumericCodec:
             raise ValueError(
                 f"Value {value} out of range for format {self.mra_format}"
             ) from ex
+
+
+@dataclass(frozen=True, slots=True)
+class NumericValueCodec:
+    """Codec for MRA ``numericValue`` properties exchanging ``float`` values.
+
+    Used for unit/coefficient properties (e.g. EPC 0xC2) whose EDT byte
+    selects a multiplying factor from a fixed table rather than encoding a
+    magnitude directly. Analogous to :class:`EnumCodec`, but maps to ``float``
+    values instead of ``str`` keys.
+    """
+
+    by_edt: dict[int, float]
+    byte_offset: int = 0
+
+    def decode(self, edt: bytes) -> float | None:
+        """Return the numeric value matching the EDT byte at ``byte_offset``."""
+        if not edt or self.byte_offset >= len(edt):
+            return None
+        return self.by_edt.get(edt[self.byte_offset])
+
+    def encode(self, value: float) -> bytes:
+        """Encode a numeric value to the matching EDT byte.
+
+        Matches by :func:`math.isclose` rather than exact equality, since
+        ``value`` may not be the same float object/computation that produced
+        a table entry (e.g. round-tripped through JSON or user input).
+        """
+        for edt, val in self.by_edt.items():
+            if math.isclose(val, value, rel_tol=1e-9):
+                return bytes([edt])
+        raise ValueError(f"Unknown numeric value: {value!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +277,7 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
 
     Selection rules:
 
+    * A populated ``numeric_values`` field produces a :class:`NumericValueCodec`.
     * Exactly two ``enum_values`` produces a :class:`BinaryCodec`.
       The ON/OFF assignment follows :meth:`EntityDefinition.get_binary_values`:
       ``key="true"``/``"false"`` is preferred, otherwise the first value is
@@ -214,8 +286,14 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
     * A populated ``format`` field produces a :class:`NumericCodec`.
 
     Raises :class:`ValueError` when no codec can be selected (for example
-    when both ``enum_values`` and ``format`` are absent).
+    when ``enum_values``, ``format``, and ``numeric_values`` are all absent).
     """
+    if entity_def.numeric_values:
+        return NumericValueCodec(
+            by_edt={nv.edt: nv.value for nv in entity_def.numeric_values},
+            byte_offset=entity_def.byte_offset,
+        )
+
     if entity_def.enum_values:
         if len(entity_def.enum_values) == 2:
             on_edt, off_edt = entity_def.get_binary_values()
@@ -237,14 +315,16 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
             minimum=entity_def.minimum,
             maximum=entity_def.maximum,
             byte_offset=entity_def.byte_offset,
+            coefficient_epcs=entity_def.coefficient_epcs or (),
         )
 
     raise ValueError(
         f"Cannot determine codec for EPC 0x{entity_def.epc:02X}: "
-        "neither enum_values nor format is set"
+        "neither enum_values, format, nor numeric_values is set"
     )
 
 
+@functools.cache
 def get_codec_for_epc(
     class_code: int,
     epc: int,
@@ -253,6 +333,12 @@ def get_codec_for_epc(
 
     Looks up the :class:`~pyhems.EntityDefinition` for the given EPC in
     :data:`pyhems.REGISTRY` and calls :func:`get_codec` on it.
+
+    Results are cached (keyed by ``class_code``/``epc``) since :data:`REGISTRY`
+    is an immutable singleton built once at import time; this avoids repeating
+    the linear scan and :class:`PropertyCodec` construction on every call,
+    which matters for :class:`NumericCodec`'s ``coefficient_epcs`` resolution
+    (invoked on every ``decode()`` of a coefficient-bearing property).
 
     Raises :class:`LookupError` when no definition exists for the EPC on the
     given class.  Propagates :class:`ValueError` from :func:`get_codec` when
@@ -270,6 +356,7 @@ __all__ = [
     "EnumCodec",
     "InstallationLocationCodec",
     "NumericCodec",
+    "NumericValueCodec",
     "PropertyCodec",
     "get_codec",
     "get_codec_for_epc",

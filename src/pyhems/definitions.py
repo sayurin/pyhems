@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 # ============================================================================
@@ -38,6 +39,23 @@ class EnumValue:
     key: str
     name_en: str
     name_ja: str
+
+
+@dataclass(frozen=True, slots=True)
+class NumericValueEntry:
+    """A single EDT byte -> numeric multiplier mapping (MRA ``numericValue`` type).
+
+    Used for unit/coefficient properties (e.g. EPC 0xC2 "Unit for cumulative
+    amounts of electric energy") whose EDT byte selects a multiplying factor
+    rather than encoding a magnitude directly.
+
+    Attributes:
+        edt: EDT byte value
+        value: Numeric multiplier represented by this EDT value
+    """
+
+    edt: int
+    value: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +84,12 @@ class EntityDefinition:
         enum_values: Tuple of EnumValue for state options (empty if not applicable)
         byte_offset: Byte position in EDT (0-indexed)
         manufacturer_code: Required manufacturer code (None = all)
+        numeric_values: Tuple of NumericValueEntry for MRA ``numericValue``
+          properties, or ``None`` when not applicable. Mutually exclusive
+          with ``format``/``enum_values``.
+        coefficient_epcs: EPCs of sibling properties whose decoded numeric
+          value multiplies this property's raw value (MRA ``coefficient``),
+          or ``None`` when the value is self-contained.
     """
 
     id: str
@@ -84,6 +108,25 @@ class EntityDefinition:
     enum_values: tuple[EnumValue, ...] = ()
     byte_offset: int = 0
     manufacturer_code: int | None = None
+    numeric_values: tuple[NumericValueEntry, ...] | None = None
+    coefficient_epcs: tuple[int, ...] | None = None
+
+    def __repr__(self) -> str:
+        """Render as ``EntityDefinition(...)`` source, omitting default-valued fields.
+
+        Behaves like the dataclass-generated ``repr()`` except that any field
+        whose current value equals its declared default (e.g. ``format=None``,
+        ``enum_values=()``, ``multiple_of=1.0``, ``numeric_values=None``) is
+        left out entirely, relying on the constructor's own default instead of
+        spelling it out. This keeps ``_definitions_generated.py`` compact since
+        most entities only populate a handful of the available fields.
+        """
+        parts = [
+            f"{f.name}={getattr(self, f.name)!r}"
+            for f in dataclasses.fields(self)
+            if f.default is dataclasses.MISSING or getattr(self, f.name) != f.default
+        ]
+        return f"{type(self).__name__}({', '.join(parts)})"
 
     def get_binary_values(self) -> tuple[bytes, bytes]:
         """Get ON/OFF byte values for binary entities.

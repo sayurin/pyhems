@@ -60,6 +60,7 @@ EntityDefinition: TypeAlias = _defs_mod.EntityDefinition  # noqa: UP040
 DeviceDefinition: TypeAlias = _defs_mod.DeviceDefinition  # noqa: UP040
 ManufacturerDefinition: TypeAlias = _defs_mod.ManufacturerDefinition  # noqa: UP040
 DefinitionsRegistry: TypeAlias = _defs_mod.DefinitionsRegistry  # noqa: UP040
+NumericValueEntry: TypeAlias = _defs_mod.NumericValueEntry  # noqa: UP040
 
 
 # ============================================================================
@@ -111,6 +112,8 @@ class _MRAProperty:
     mra_multiple_of: float | None  # scale factor, e.g., 0.1 for tenths
     enum_values: list[EnumValue]
     has_level_enums: bool = False  # True if any level type was processed
+    numeric_values: tuple[NumericValueEntry, ...] = ()
+    coefficient_epcs: tuple[int, ...] = ()
 
 
 # ============================================================================
@@ -183,7 +186,9 @@ def _parse_mra_property(
     else:
         data_specs_to_process.append(data_spec)
 
-    # Resolve $ref and collect all resolved specs
+    # Resolve $ref (merging sibling keys such as "coefficient" that MRA places
+    # alongside "$ref" rather than inside the referenced definition) and
+    # collect all resolved specs
     resolved_specs: list[dict[str, Any]] = []
     for spec in data_specs_to_process:
         if "$ref" in spec:
@@ -191,7 +196,12 @@ def _parse_mra_property(
             if ref.startswith("#/definitions/"):
                 def_name = ref.replace("#/definitions/", "")
                 if def_name in definitions:
-                    resolved_specs.append(definitions[def_name])
+                    resolved_specs.append(
+                        {
+                            **definitions[def_name],
+                            **{k: v for k, v in spec.items() if k != "$ref"},
+                        }
+                    )
         else:
             resolved_specs.append(spec)
 
@@ -206,6 +216,7 @@ def _parse_mra_property(
     mra_minimum: float | None = None
     mra_maximum: float | None = None
     mra_multiple_of: float | None = None
+    coefficient_epcs: tuple[int, ...] = ()
 
     if data_type == "number":
         mra_format = data_spec.get("format")
@@ -213,6 +224,17 @@ def _parse_mra_property(
         mra_minimum = data_spec.get("minimum")
         mra_maximum = data_spec.get("maximum")
         mra_multiple_of = data_spec.get("multiple") or data_spec.get("multipleOf")
+        coefficient_epcs = tuple(int(c, 16) for c in data_spec.get("coefficient", []))
+
+    # MRA "numericValue" type: edt byte -> float multiplier table (e.g. EPC
+    # 0xC2 "Unit for cumulative amounts of electric energy"). Referenced by
+    # other properties via their "coefficient" array.
+    numeric_values: tuple[NumericValueEntry, ...] = ()
+    if data_type == "numericValue":
+        numeric_values = tuple(
+            NumericValueEntry(edt=int(item["edt"], 16), value=item["numericValue"])
+            for item in data_spec.get("enum", [])
+        )
 
     # Parse enum values from all specs
     enum_values: list[EnumValue] = []
@@ -276,6 +298,8 @@ def _parse_mra_property(
         mra_multiple_of=mra_multiple_of,
         enum_values=enum_values,
         has_level_enums=has_level_enums,
+        numeric_values=numeric_values,
+        coefficient_epcs=coefficient_epcs,
     )
 
 
@@ -298,8 +322,9 @@ def _build_entity_from_property(
 
     is_sensor = prop.data_type == "number" and prop.mra_unit is not None
     is_state = prop.data_type == "state"
+    is_numeric_value = prop.data_type == "numericValue"
 
-    if not is_sensor and not is_state:
+    if not is_sensor and not is_state and not is_numeric_value:
         return None
 
     # Filter out level-based properties with too many enum values (>16)
@@ -356,7 +381,139 @@ def _build_entity_from_property(
             else 1.0
         ),
         enum_values=tuple(enum_vals),
+        numeric_values=prop.numeric_values if is_numeric_value else None,
+        coefficient_epcs=(prop.coefficient_epcs or None) if is_sensor else None,
     )
+
+
+# ============================================================================
+# Fixed-layout "object" property splitting
+#
+# Some MRA properties pack several scalar numeric fields into a single EDT
+# (e.g. class 0x0287 EPC 0xD0 "Measurement channel 1": cumulative kWh + two
+# instantaneous currents). This mirrors the byte_offset pattern already used
+# for manufacturer-specific entries in custom_definitions.yaml, but derives it
+# directly from the MRA "object" type instead of hand-written YAML.
+#
+# Variable-length shapes (MRA "array" fields, e.g. the chunked channel lists
+# on EPC 0xB3/0xB5/0xC3/0xC4) are intentionally unsupported here and cause
+# _build_entities_from_object_property() to return None, leaving the
+# property dropped exactly as before this feature was added.
+# ============================================================================
+
+_OBJECT_FIELD_BYTE_SIZE: dict[str, int] = {
+    "uint8": 1,
+    "int8": 1,
+    "uint16": 2,
+    "int16": 2,
+    "uint32": 4,
+    "int32": 4,
+}
+
+
+def _resolve_ref(spec: dict[str, Any], definitions: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a single-level MRA '$ref' pointer against shared definitions.
+
+    Sibling keys placed alongside "$ref" (e.g. "coefficient", "overflowCode")
+    are merged into the resolved result rather than discarded, matching the
+    MRA convention of annotating a shared definition per use site.
+    """
+    if "$ref" in spec:
+        ref = spec["$ref"]
+        if ref.startswith("#/definitions/"):
+            resolved = definitions[ref.replace("#/definitions/", "")]
+            return {**resolved, **{k: v for k, v in spec.items() if k != "$ref"}}
+    return spec
+
+
+def _build_entities_from_object_property(
+    class_code: int,
+    epc: int,
+    prop_data: dict[str, Any],
+    definitions: dict[str, Any],
+    atomic_paired_epcs: frozenset[int],
+) -> list[EntityDefinition] | None:
+    """Split a fixed-layout MRA 'object' property into flat EntityDefinitions.
+
+    Each scalar numeric field becomes its own EntityDefinition with an
+    auto-computed byte_offset, following the same id/key scheme as
+    custom_definitions.yaml's manual byte_offset entries.
+
+    Returns None when the property is not a fixed-layout object of scalar
+    number fields (e.g. it contains a variable-length "array" field), or when
+    it participates in an MRA "atomic" pairing (e.g. EPC 0xB2's channel range
+    selector paired with EPC 0xB3's variable-length list) — the list side is
+    unsupported, so its range-selector counterpart is left dropped too rather
+    than exposing a config entity with no way to read the paired result.
+    """
+    if epc in atomic_paired_epcs:
+        return None
+
+    data_spec = _resolve_ref(prop_data["data"], definitions)
+    if data_spec.get("type") != "object":
+        return None
+
+    access = prop_data["accessRule"]
+    get_val = access["get"]
+    set_val = access["set"]
+    is_readable = get_val in ("required", "required_c", "required_o", "optional")
+    is_writable = set_val in ("required", "required_c", "required_o", "optional")
+    assert is_readable or is_writable, (
+        f"Property for class 0x{class_code:04X} EPC 0x{epc:02X} "
+        "is neither readable nor writable"
+    )
+
+    prop_name_en = _normalize_trailing_number(prop_data["propertyName"]["en"])
+    prop_name_ja = prop_data["propertyName"]["ja"]
+
+    entities: list[EntityDefinition] = []
+    byte_offset = 0
+    for field in data_spec["properties"]:
+        element = _resolve_ref(field["element"], definitions)
+        specs_to_check = element.get("oneOf", [element])
+        resolved = [_resolve_ref(s, definitions) for s in specs_to_check]
+        number_spec = next((s for s in resolved if s.get("type") == "number"), None)
+        if number_spec is None:
+            return None  # unsupported field shape (e.g. variable-length array)
+
+        mra_format = number_spec.get("format")
+        if not isinstance(mra_format, str) or mra_format not in _OBJECT_FIELD_BYTE_SIZE:
+            return None
+        byte_count = _OBJECT_FIELD_BYTE_SIZE[mra_format]
+
+        coefficient_epcs = tuple(int(c, 16) for c in number_spec.get("coefficient", []))
+        entity_id = (
+            f"class_{class_code:04x}_epc_{epc:02x}"
+            if byte_offset == 0
+            else f"class_{class_code:04x}_epc_{epc:02x}_{byte_offset:02x}"
+        )
+        entities.append(
+            EntityDefinition(
+                id=entity_id,
+                epc=epc,
+                name_en=_normalize_trailing_number(
+                    f"{prop_name_en} - {field['elementName']['en']}"
+                ),
+                name_ja=f"{prop_name_ja} {field['elementName']['ja']}",
+                get=get_val,
+                set=set_val,
+                description_en=None,
+                description_ja=None,
+                format=mra_format,
+                unit=number_spec.get("unit"),
+                minimum=number_spec.get("minimum"),
+                maximum=number_spec.get("maximum"),
+                multiple_of=(
+                    number_spec.get("multiple") or number_spec.get("multipleOf") or 1.0
+                ),
+                enum_values=(),
+                byte_offset=byte_offset,
+                coefficient_epcs=coefficient_epcs or None,
+            )
+        )
+        byte_offset += byte_count
+
+    return entities
 
 
 # ============================================================================
@@ -428,17 +585,36 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
         class_name_data = data["className"]
         entities: list[EntityDefinition] = []
 
+        # EPCs participating in an MRA "atomic" pairing (e.g. a channel-range
+        # selector paired with a variable-length list result). Both sides are
+        # excluded from object splitting; see
+        # _build_entities_from_object_property().
+        atomic_paired_epcs: frozenset[int] = frozenset(
+            epc
+            for p in data["elProperties"]
+            if "atomic" in p
+            for epc in (int(p["epc"], 16), int(p["atomic"], 16))
+        )
+
         for prop_data in data["elProperties"]:
             # Only include properties valid for the latest MRA version
             if not _is_latest_version(prop_data):
                 continue
 
-            prop = _parse_mra_property(prop_data, mra_definitions)
+            epc = int(prop_data["epc"], 16)
 
             # Skip common EPCs (they are in the common section)
-            if prop.epc in common_epcs:
+            if epc in common_epcs:
                 continue
 
+            object_entities = _build_entities_from_object_property(
+                class_code, epc, prop_data, mra_definitions, atomic_paired_epcs
+            )
+            if object_entities is not None:
+                entities.extend(object_entities)
+                continue
+
+            prop = _parse_mra_property(prop_data, mra_definitions)
             entity = _build_entity_from_property(class_code, prop)
             if entity:
                 entities.append(entity)
@@ -711,7 +887,7 @@ def _build_custom_entity(
 
 def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
     """Validate an entity definition at build time."""
-    assert entity.enum_values or entity.format, (
+    assert entity.enum_values or entity.format or entity.numeric_values, (
         f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
     )
     assert (
@@ -751,6 +927,7 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    EntityDefinition,",
         "    EnumValue,",
         "    ManufacturerDefinition,",
+        "    NumericValueEntry,",
         ")",
         "",
         "_COMMON: tuple[EntityDefinition, ...] = (",

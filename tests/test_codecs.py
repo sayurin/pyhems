@@ -13,9 +13,13 @@ from pyhems import (
     InstallationLocation,
     InstallationLocationCodec,
     NumericCodec,
+    NumericValueCodec,
+    NumericValueEntry,
     get_codec,
     get_codec_for_epc,
 )
+from pyhems.device_manager import NodeState
+from pyhems.eoj import EOJ
 
 
 def _make_entity(
@@ -42,6 +46,30 @@ def _make_entity(
         maximum=maximum,
         multiple_of=multiple_of,
         byte_offset=byte_offset,
+    )
+
+
+def _make_node(
+    *,
+    class_code: int,
+    properties: dict[int, bytes],
+) -> NodeState:
+    """Build a minimal :class:`NodeState` for coefficient-resolution tests."""
+    return NodeState(
+        eoj=EOJ((class_code << 8) | 1),
+        properties=properties,
+        last_seen=0.0,
+        node_id="node1",
+        manufacturer_code=0x000001,
+        manufacturer_name_en=None,
+        manufacturer_name_ja=None,
+        get_epcs=frozenset(),
+        set_epcs=frozenset(),
+        inf_epcs=frozenset(),
+        poll_epcs=frozenset(),
+        fast_poll_epcs=frozenset(),
+        product_code=None,
+        serial_number=None,
     )
 
 
@@ -203,6 +231,120 @@ class TestNumericCodec:
         )
         assert codec.decode(b"\xff") is None
 
+    def test_decode_with_coefficient_resolves_via_node(self) -> None:
+        """``coefficient_epcs`` multiplies by the current value of a sibling EPC.
+
+        Uses class 0x0287 (Power distribution board metering) EPC 0xC0
+        (cumulative energy, coefficient EPC 0xC2) from the real registry.
+        """
+        node = _make_node(
+            class_code=0x0287,
+            properties={0xC0: b"\x00\x00\x00\x0a", 0xC2: b"\x02"},  # unit = 0.01
+        )
+        codec = get_codec_for_epc(0x0287, 0xC0)
+        assert isinstance(codec, NumericCodec)
+        assert codec.coefficient_epcs == (0xC2,)
+        assert codec.decode(node.properties[0xC0], node) == pytest.approx(0.1)
+
+    def test_decode_with_coefficient_without_node_returns_none(self) -> None:
+        """A coefficient-bearing codec refuses to guess without ``node``."""
+        codec = get_codec_for_epc(0x0287, 0xC0)
+        assert codec.decode(b"\x00\x00\x00\x0a") is None
+
+    def test_decode_with_coefficient_missing_sibling_returns_none(self) -> None:
+        """``None`` is returned when the coefficient EPC is not yet known."""
+        node = _make_node(class_code=0x0287, properties={0xC0: b"\x00\x00\x00\x0a"})
+        codec = get_codec_for_epc(0x0287, 0xC0)
+        assert isinstance(codec, NumericCodec)
+        assert codec.decode(node.properties[0xC0], node) is None
+
+    def test_encode_with_coefficient_epcs_rejected(self) -> None:
+        """Encoding a coefficient-bearing property is not supported.
+
+        Resolving the coefficient requires node state, which ``encode()``
+        does not receive.
+        """
+        codec = NumericCodec(
+            mra_format="uint32",
+            scale=1.0,
+            minimum=None,
+            maximum=None,
+            byte_offset=0,
+            coefficient_epcs=(0xC2,),
+        )
+        with pytest.raises(ValueError, match="coefficient_epcs"):
+            codec.encode(10)
+
+
+class TestNumericValueCodec:
+    """Tests for :class:`NumericValueCodec` selection and round-trip."""
+
+    def test_get_codec_returns_numeric_value_codec_for_numeric_values(self) -> None:
+        """A populated ``numeric_values`` field selects :class:`NumericValueCodec`."""
+        entity = EntityDefinition(
+            id="class_0287_epc_c2",
+            epc=0xC2,
+            name_en="Unit for cumulative amounts of electric energy",
+            name_ja="積算電力量単位",
+            get="required",
+            set="notApplicable",
+            numeric_values=(
+                NumericValueEntry(edt=0x00, value=1.0),
+                NumericValueEntry(edt=0x01, value=0.1),
+                NumericValueEntry(edt=0x02, value=0.01),
+            ),
+        )
+        codec = get_codec(entity)
+        assert isinstance(codec, NumericValueCodec)
+        assert codec.decode(b"\x00") == 1.0
+        assert codec.decode(b"\x01") == 0.1
+        assert codec.decode(b"\x02") == 0.01
+
+    def test_decode_returns_none_for_unknown_or_empty_edt(self) -> None:
+        """Unmapped or empty EDT decodes to ``None``."""
+        codec = NumericValueCodec(by_edt={0x00: 1.0, 0x01: 0.1})
+        assert codec.decode(b"\x0a") is None
+        assert codec.decode(b"") is None
+
+    def test_encode_round_trip(self) -> None:
+        """``encode`` finds the EDT byte matching a known numeric value."""
+        codec = NumericValueCodec(by_edt={0x00: 1.0, 0x01: 0.1})
+        assert codec.encode(0.1) == b"\x01"
+
+    def test_encode_matches_via_isclose_not_exact_equality(self) -> None:
+        """A value that is very close (but not bit-identical) still matches.
+
+        E.g. a value round-tripped through a different computation than the
+        one that produced the table entry.
+        """
+        codec = NumericValueCodec(by_edt={0x03: 0.001, 0x05: 0.00001})
+        assert codec.encode(1 / 1000) == b"\x03"
+        assert codec.encode(0.001 + 1e-15) == b"\x03"
+
+    def test_encode_unknown_value_raises(self) -> None:
+        """Encoding an unmapped value raises :class:`ValueError`."""
+        codec = NumericValueCodec(by_edt={0x00: 1.0})
+        with pytest.raises(ValueError, match="Unknown numeric value"):
+            codec.encode(5.0)
+
+    def test_get_codec_prefers_numeric_value_over_format(self) -> None:
+        """``numeric_values`` takes priority even if ``format`` is also set.
+
+        These fields are mutually exclusive by construction, but the
+        selection order itself is worth pinning down explicitly.
+        """
+        entity = EntityDefinition(
+            id="x",
+            epc=0x99,
+            name_en="x",
+            name_ja="x",
+            get="required",
+            set="notApplicable",
+            format="uint8",
+            numeric_values=(NumericValueEntry(edt=0x00, value=1.0),),
+        )
+        assert isinstance(get_codec(entity), NumericValueCodec)
+
 
 class TestInstallationLocationCodec:
     """Tests for :class:`InstallationLocationCodec`."""
@@ -275,6 +417,16 @@ def test_get_codec_for_epc_raises_for_unknown_epc() -> None:
     """get_codec_for_epc raises LookupError when EPC is not in the class."""
     with pytest.raises(LookupError, match="0xFF not found"):
         get_codec_for_epc(0x0130, 0xFF)
+
+
+def test_get_codec_for_epc_is_cached() -> None:
+    """Repeat calls for the same (class_code, epc) return the cached codec.
+
+    ``REGISTRY`` is an immutable singleton, so caching avoids repeating the
+    linear scan and codec construction on every call (important for
+    ``NumericCodec``'s ``coefficient_epcs`` resolution on each ``decode()``).
+    """
+    assert get_codec_for_epc(0x0287, 0xC0) is get_codec_for_epc(0x0287, 0xC0)
 
 
 # Class codes that use EPC 0x80 (Operation Status) as a binary on/off property.
