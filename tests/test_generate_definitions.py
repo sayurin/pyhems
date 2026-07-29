@@ -82,5 +82,72 @@ def test_create_numeric_encoder_out_of_range_raises_value_error() -> None:
         codec.encode(300)
 
 
+def test_object_property_is_split_into_flat_entities() -> None:
+    """Class 0x0287 EPC 0xD0 (kWh + R/T current) splits by byte_offset.
+
+    Confirms the fixed-layout MRA "object" splitting feature: one EPC that
+    packs multiple scalar fields into a single EDT (measurement channel 1:
+    cumulative kWh + two instantaneous currents) becomes three flat
+    EntityDefinition entries instead of being dropped entirely.
+    """
+    entities = {e.id: e for e in REGISTRY.entities[0x0287] if e.epc == 0xD0}
+    assert set(entities) == {
+        "class_0287_epc_d0",
+        "class_0287_epc_d0_04",
+        "class_0287_epc_d0_06",
+    }
+
+    kwh = entities["class_0287_epc_d0"]
+    assert kwh.byte_offset == 0
+    assert kwh.format == "uint32"
+    assert kwh.unit == "kWh"
+    assert kwh.coefficient_epcs == (0xC2,)
+
+    current_r = entities["class_0287_epc_d0_04"]
+    assert current_r.byte_offset == 4
+    assert current_r.format == "int16"
+    assert current_r.unit == "A"
+    assert current_r.coefficient_epcs is None
+
+    current_t = entities["class_0287_epc_d0_06"]
+    assert current_t.byte_offset == 6
+    assert current_t.format == "int16"
+
+
+def test_coefficient_reference_epc_gets_numeric_values() -> None:
+    """EPC 0xC2 (unit for cumulative electric energy) becomes a numeric_values table."""
+    entities = {e.epc: e for e in REGISTRY.entities[0x0287]}
+    unit_entity = entities[0xC2]
+    assert unit_entity.format is None
+    assert unit_entity.enum_values == ()
+    assert unit_entity.numeric_values
+    values_by_edt = {nv.edt: nv.value for nv in unit_entity.numeric_values}
+    assert values_by_edt[0x00] == 1
+    assert values_by_edt[0x01] == 0.1
+    assert values_by_edt[0x0D] == 10000
+
+
+def test_scalar_cumulative_energy_carries_coefficient_epcs() -> None:
+    """EPC 0xC0/0xC1 (cumulative energy) reference EPC 0xC2 as their unit."""
+    entities = {e.epc: e for e in REGISTRY.entities[0x0287]}
+    assert entities[0xC0].coefficient_epcs == (0xC2,)
+    assert entities[0xC1].coefficient_epcs == (0xC2,)
+
+    # Class 0x0288 (low-voltage smart meter) references two coefficient EPCs.
+    smart_meter_entities = {e.epc: e for e in REGISTRY.entities[0x0288]}
+    assert smart_meter_entities[0xE0].coefficient_epcs == (0xD3, 0xE1)
+
+
+def test_atomic_paired_range_selector_is_not_split() -> None:
+    """EPC 0xB2 (paired with the unsupported 0xB3 channel list) stays dropped.
+
+    Object splitting must not expose a channel-range-selector config entity
+    for a list result (EPC 0xB3) that pyhems does not yet support decoding.
+    """
+    epcs = {e.epc for e in REGISTRY.entities[0x0287]}
+    assert 0xB2 not in epcs
+    assert 0xB3 not in epcs
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
