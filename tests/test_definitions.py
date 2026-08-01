@@ -1,6 +1,6 @@
 """Tests for :class:`EntityDefinition`'s custom compact ``__repr__``."""
 
-from pyhems import EntityDefinition, NumericValueEntry
+from pyhems import EntityDefinition, NumericValueEntry, PropertyRole
 
 
 def _make_entity(**overrides: object) -> EntityDefinition:
@@ -14,6 +14,16 @@ def _make_entity(**overrides: object) -> EntityDefinition:
     }
     defaults.update(overrides)
     return EntityDefinition(**defaults)  # type: ignore[arg-type]
+
+
+def test_role_defaults_to_primary() -> None:
+    """Entities without a curated role default to PRIMARY."""
+    assert _make_entity().role is PropertyRole.PRIMARY
+
+
+def test_property_role_repr_is_valid_source() -> None:
+    """PropertyRole must repr as importable source for the generated module."""
+    assert repr(PropertyRole.SETTING) == "PropertyRole.SETTING"
 
 
 def test_repr_omits_default_valued_fields() -> None:
@@ -56,5 +66,17 @@ def test_repr_round_trips_via_eval() -> None:
     rebuilt = eval(
         repr(entity),
         {"EntityDefinition": EntityDefinition, "NumericValueEntry": NumericValueEntry},
+    )
+    assert rebuilt == entity
+
+
+def test_repr_with_non_default_role_round_trips_via_eval() -> None:
+    """A non-default role is rendered and round-trips via eval()."""
+    entity = _make_entity(role=PropertyRole.SETTING)
+    text = repr(entity)
+    assert "role=PropertyRole.SETTING" in text
+    rebuilt = eval(
+        text,
+        {"EntityDefinition": EntityDefinition, "PropertyRole": PropertyRole},
     )
     assert rebuilt == entity

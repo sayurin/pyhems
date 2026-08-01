@@ -18,10 +18,50 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from enum import StrEnum
 
 # ============================================================================
 # Entity and Device Definitions
 # ============================================================================
+
+
+class PropertyRole(StrEnum):
+    """Role a property plays in the device, independent of any consumer UI.
+
+    Curated per ``(class_code, epc)`` in ``scripts/property_roles.xlsx`` (MRA
+    properties) or directly in ``scripts/custom_definitions.yaml`` (custom
+    entries), and applied by ``scripts/generate_definitions.py``. Consumers
+    (e.g. Home Assistant) map this role to their own UI concepts instead of
+    re-deriving it from ``name_en``/``name_ja``.
+
+    Members:
+        PRIMARY: State or reading belonging to the device's main function,
+          at normal cadence (e.g. cumulative energy, mode, position).
+        INSTANTANEOUS: Same as PRIMARY, but a fast-changing measurement
+          (e.g. instantaneous power/current/voltage) worth polling at a
+          higher frequency than other PRIMARY properties.
+        SETTING: Adjusts how the device operates (thresholds, schedules,
+          reservations, reset commands).
+        STATUS: Fault, maintenance or operating condition reported by the
+          device for monitoring purposes.
+        SPECIFICATION: Static fact about the hardware that does not change
+          during operation (rated values, capacities, equipment type,
+          number of significant digits).
+
+    Unreviewed properties default to ``PRIMARY`` (see ``property_roles.xlsx``
+    workflow); this is the safe assumption since it corresponds to no
+    special treatment by consumers.
+    """
+
+    PRIMARY = "primary"
+    INSTANTANEOUS = "instantaneous"
+    SETTING = "setting"
+    STATUS = "status"
+    SPECIFICATION = "specification"
+
+    def __repr__(self) -> str:
+        """Render as importable source for ``_definitions_generated.py``."""
+        return f"{type(self).__name__}.{self.name}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +130,8 @@ class EntityDefinition:
         coefficient_epcs: EPCs of sibling properties whose decoded numeric
           value multiplies this property's raw value (MRA ``coefficient``),
           or ``None`` when the value is self-contained.
+        role: Curated :class:`PropertyRole`. Defaults to ``PRIMARY`` until
+          explicitly reviewed.
     """
 
     id: str
@@ -110,6 +152,7 @@ class EntityDefinition:
     manufacturer_code: int | None = None
     numeric_values: tuple[NumericValueEntry, ...] | None = None
     coefficient_epcs: tuple[int, ...] | None = None
+    role: PropertyRole = PropertyRole.PRIMARY
 
     def __repr__(self) -> str:
         """Render as ``EntityDefinition(...)`` source, omitting default-valued fields.

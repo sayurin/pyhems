@@ -51,6 +51,7 @@ from .definitions import (
     EnumValue,
     ManufacturerDefinition,
     NumericValueEntry,
+    PropertyRole,
 )
 from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
@@ -129,6 +130,7 @@ __all__ = [
     "Property",
     "PropertyCodec",
     "PropertyPoller",
+    "PropertyRole",
     "RuntimeEvent",
     "create_multicast_socket",
     "decode_installation_location",

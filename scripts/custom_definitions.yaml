@@ -24,6 +24,13 @@
 #         # Common fields:
 #         name_en: <name>         # English name (required for strings.json)
 #         name_ja: <name>         # Optional: Japanese name
+#         role: <role>            # Optional: PropertyRole value ("primary",
+#                                 #   "instantaneous", "setting", "status",
+#                                 #   "specification"). Custom entries have no
+#                                 #   MRA (class_code, epc) row in
+#                                 #   property_roles.xlsx to be curated from,
+#                                 #   so set it directly here. Defaults to
+#                                 #   "primary" when omitted.
 #
 # Behavior is auto-detected based on whether the EPC exists in MRA:
 #   - EPC NOT in MRA → ADD: creates a new custom entity
@@ -35,7 +42,8 @@
 #
 # For UPDATE entries (overrides), any field except epc/manufacturer is applied
 # to the matching MRA entity. enum_values uses key-based merge (match by "key",
-# update name_en/name_ja).
+# update name_en/name_ja). role, if present, overrides the curated value from
+# property_roles.xlsx.
 #
 # Note: When byte_offset is specified, multiple entities can be created from
 # a single EPC. Each entity reads a slice of the EDT data.
@@ -101,6 +109,7 @@ devices:
       get: optional
       name_en: "Input Voltage 1"
       name_ja: "入力電圧1"
+      role: status
     - epc: 0xF2
       manufacturer_code: 0x000005
       byte_offset: 2
@@ -111,6 +120,7 @@ devices:
       get: optional
       name_en: "Input Voltage 2"
       name_ja: "入力電圧2"
+      role: status
     - epc: 0xF2
       manufacturer_code: 0x000005
       byte_offset: 4
@@ -121,6 +131,7 @@ devices:
       get: optional
       name_en: "Input Voltage 3"
       name_ja: "入力電圧3"
+      role: status
     - epc: 0xF2
       manufacturer_code: 0x000005
       byte_offset: 6
@@ -131,6 +142,7 @@ devices:
       get: optional
       name_en: "Input Voltage 4"
       name_ja: "入力電圧4"
+      role: status
     - epc: 0xF3
       manufacturer_code: 0x000005
       byte_offset: 0
@@ -142,6 +154,7 @@ devices:
       get: optional
       name_en: "Input Current 1"
       name_ja: "入力電流1"
+      role: status
     - epc: 0xF3
       manufacturer_code: 0x000005
       byte_offset: 1
@@ -153,6 +166,7 @@ devices:
       get: optional
       name_en: "Input Current 2"
       name_ja: "入力電流2"
+      role: status
     - epc: 0xF3
       manufacturer_code: 0x000005
       byte_offset: 2
@@ -164,6 +178,7 @@ devices:
       get: optional
       name_en: "Input Current 3"
       name_ja: "入力電流3"
+      role: status
     - epc: 0xF3
       manufacturer_code: 0x000005
       byte_offset: 3
@@ -175,6 +190,7 @@ devices:
       get: optional
       name_en: "Input Current 4"
       name_ja: "入力電流4"
+      role: status
     - epc: 0xF4
       manufacturer_code: 0x000005
       byte_offset: 0
@@ -186,6 +202,7 @@ devices:
       get: optional
       name_en: "Input Power 1"
       name_ja: "入力電力1"
+      role: status
     - epc: 0xF4
       manufacturer_code: 0x000005
       byte_offset: 2
@@ -197,6 +214,7 @@ devices:
       get: optional
       name_en: "Input Power 2"
       name_ja: "入力電力2"
+      role: status
     - epc: 0xF4
       manufacturer_code: 0x000005
       byte_offset: 4
@@ -208,6 +226,7 @@ devices:
       get: optional
       name_en: "Input Power 3"
       name_ja: "入力電力3"
+      role: status
     - epc: 0xF4
       manufacturer_code: 0x000005
       byte_offset: 6
@@ -219,6 +238,7 @@ devices:
       get: optional
       name_en: "Input Power 4"
       name_ja: "入力電力4"
+      role: status
 
   # Controller (コントローラ) - Sharp manufacturer-specific properties
   0x05FF:
@@ -232,6 +252,7 @@ devices:
       get: optional
       name_en: "Instantaneous Electric Power Sold"
       name_ja: "瞬時売電電力"
+      role: instantaneous
     - epc: 0xF3
       manufacturer_code: 0x000005
       format: uint32
@@ -242,6 +263,7 @@ devices:
       get: optional
       name_en: "Instantaneous Electric Power Bought"
       name_ja: "瞬時買電電力"
+      role: instantaneous
     - epc: 0xF4
       manufacturer_code: 0x000005
       format: uint32
