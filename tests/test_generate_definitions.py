@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pyhems import REGISTRY, EntityDefinition
+from pyhems import REGISTRY, EntityDefinition, PropertyRole
 
 ALLOWED_ACCESS_VALUES = {
     "required",
@@ -147,6 +147,41 @@ def test_atomic_paired_range_selector_is_not_split() -> None:
     epcs = {e.epc for e in REGISTRY.entities[0x0287]}
     assert 0xB2 not in epcs
     assert 0xB3 not in epcs
+
+
+def _entity(class_code: int, epc: int) -> EntityDefinition:
+    return next(e for e in REGISTRY.entities[class_code] if e.epc == epc)
+
+
+def test_role_defaults_to_primary() -> None:
+    """A property absent from property_roles.xlsx defaults to PRIMARY."""
+    assert _entity(0x0130, 0xBB).role is PropertyRole.PRIMARY  # room temperature
+
+
+def test_curated_diagnostic_property_has_status_role() -> None:
+    """A property curated in property_roles.xlsx as DIAGNOSTIC maps to STATUS."""
+    assert _entity(0x026F, 0xE7).role is PropertyRole.STATUS  # battery level
+
+
+def test_curated_config_property_has_setting_role() -> None:
+    """A property curated in property_roles.xlsx as CONFIG maps to SETTING."""
+    assert _entity(0x0130, 0x87).role is PropertyRole.SETTING  # current limit
+
+
+def test_common_instantaneous_power_has_instantaneous_role() -> None:
+    """A common fast-changing measurement is curated as INSTANTANEOUS."""
+    assert _entity(0x0130, 0x84).role is PropertyRole.INSTANTANEOUS
+
+
+def test_writable_instantaneous_named_setting_is_not_instantaneous_role() -> None:
+    """Regression: a writable setting whose name contains "instantaneous".
+
+    Must not be misclassified as a fast-poll INSTANTANEOUS role, even though
+    a name-only heuristic would match it.
+    """
+    entity = _entity(0x02A7, 0xCC)
+    assert entity.set != "notApplicable"
+    assert entity.role is PropertyRole.SETTING
 
 
 if __name__ == "__main__":

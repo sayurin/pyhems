@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
+#   "openpyxl",
 #   "pyyaml",
 # ]
 # ///
@@ -31,6 +32,7 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 import yaml
+from openpyxl import load_workbook
 
 # ============================================================================
 # Constants
@@ -40,6 +42,7 @@ PYHEMS_DIR = Path(__file__).parent.parent / "src" / "pyhems"
 MRA_DIR = Path(__file__).parent.parent / "mra"
 CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
+PROPERTY_ROLES_FILE = Path(__file__).parent / "property_roles.xlsx"
 
 # ============================================================================
 # Load definitions dataclasses from pyhems/definitions.py
@@ -61,6 +64,7 @@ DeviceDefinition: TypeAlias = _defs_mod.DeviceDefinition  # noqa: UP040
 ManufacturerDefinition: TypeAlias = _defs_mod.ManufacturerDefinition  # noqa: UP040
 DefinitionsRegistry: TypeAlias = _defs_mod.DefinitionsRegistry  # noqa: UP040
 NumericValueEntry: TypeAlias = _defs_mod.NumericValueEntry  # noqa: UP040
+PropertyRole: TypeAlias = _defs_mod.PropertyRole  # noqa: UP040
 
 
 # ============================================================================
@@ -544,6 +548,60 @@ def _is_latest_version(prop_data: dict[str, Any]) -> bool:
     return to_value == "latest"
 
 
+# ============================================================================
+# Property Roles Loading
+#
+# scripts/property_roles.xlsx is the curated source of truth for
+# EntityDefinition.role, keyed by (class_code, epc) — class_code 0 denotes a
+# common (superClass) property, matching the class_code already used for
+# `common` entities above. It is maintained via scripts/sync_property_roles.py
+# and manual review in a spreadsheet editor, not by this generator.
+# ============================================================================
+
+_ROLE_SHEET_NAME = "Roles"
+
+
+def _load_property_roles(path: Path) -> dict[tuple[int, int], PropertyRole]:
+    """Load curated (class_code, epc) -> PropertyRole from an xlsx file.
+
+    Blank ``role`` cells are omitted from the result so that callers fall
+    back to the ``EntityDefinition.role`` dataclass default (PRIMARY).
+    Returns an empty dict (all entities default to PRIMARY) if the file does
+    not exist yet.
+    """
+    if not path.exists():
+        print(f"  Warning: {path} not found; all entities default to PRIMARY")
+        return {}
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook[_ROLE_SHEET_NAME]
+    rows = sheet.iter_rows(values_only=True)
+    header = [str(c).strip() if c is not None else "" for c in next(rows)]
+    col = {name: idx for idx, name in enumerate(header)}
+
+    roles: dict[tuple[int, int], PropertyRole] = {}
+    for row in rows:
+        class_code = _parse_hex_int(row[col["class_code"]])
+        epc = _parse_hex_int(row[col["epc"]])
+        role_text = row[col["role"]]
+        if class_code is None or epc is None or not role_text:
+            continue
+        roles[class_code, epc] = PropertyRole(str(role_text).strip().lower())
+
+    workbook.close()
+    return roles
+
+
+def _apply_role(
+    entity: EntityDefinition,
+    role_map: dict[tuple[int, int], PropertyRole],
+    class_code: int,
+) -> EntityDefinition:
+    """Return ``entity`` with its curated role applied, if one is on file."""
+    role = role_map.get((class_code, entity.epc))
+    return entity if role is None else dataclasses.replace(entity, role=role)
+
+
 def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
     """Generate definitions from MRA data."""
     devices_path = mra_path / "devices"
@@ -558,6 +616,8 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
         )
 
     mra_version, mra_definitions = _load_mra_metadata(mra_path)
+    role_map = _load_property_roles(PROPERTY_ROLES_FILE)
+    print(f"  Loaded {len(role_map)} curated property role(s)")
 
     # Build common entities once (shared across all device classes)
     with (mra_path / "superClass" / "0x0000.json").open(encoding="utf-8") as f:
@@ -569,7 +629,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
         prop = _parse_mra_property(prop_data, mra_definitions)
         entity = _build_entity_from_property(0, prop)
         if entity is not None:
-            common.append(entity)
+            common.append(_apply_role(entity, role_map, 0))
 
     # EPCs already in common section (to avoid duplicates in device-specific entities)
     common_epcs = frozenset(e.epc for e in common)
@@ -611,13 +671,15 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
                 class_code, epc, prop_data, mra_definitions, atomic_paired_epcs
             )
             if object_entities is not None:
-                entities.extend(object_entities)
+                entities.extend(
+                    _apply_role(e, role_map, class_code) for e in object_entities
+                )
                 continue
 
             prop = _parse_mra_property(prop_data, mra_definitions)
             entity = _build_entity_from_property(class_code, prop)
             if entity:
-                entities.append(entity)
+                entities.append(_apply_role(entity, role_map, class_code))
 
         # Register all MRA device classes, even those without device-specific
         # entities, so common entities (e.g., operation status 0x80) are
@@ -787,6 +849,9 @@ def _apply_overrides(
                             new_evs.sort(key=lambda ev: key_index[ev.key])
 
                         changes["enum_values"] = tuple(new_evs)
+                    elif field == "role":
+                        changes["role"] = PropertyRole(value)
+                        override_count += 1
                     else:
                         attr = _YAML_TO_ATTR.get(field, field)
                         changes[attr] = value
@@ -840,6 +905,7 @@ def _build_custom_entity(
     mfr_code: int | None = entry.get("manufacturer_code")
     byte_offset: int = entry.get("byte_offset", 0)
     enum_values_raw = entry.get("enum_values")
+    role = PropertyRole(entry["role"]) if "role" in entry else PropertyRole.PRIMARY
 
     entity_id = (
         f"class_{class_code:04x}_epc_{epc:02x}_custom_{mfr_code:06x}_{byte_offset:02x}"
@@ -877,6 +943,7 @@ def _build_custom_entity(
         enum_values=enum_tuple,
         byte_offset=entry.get("byte_offset", 0),
         manufacturer_code=mfr_code,
+        role=role,
     )
 
 
@@ -928,6 +995,7 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    EnumValue,",
         "    ManufacturerDefinition,",
         "    NumericValueEntry,",
+        "    PropertyRole,",
         ")",
         "",
         "_COMMON: tuple[EntityDefinition, ...] = (",
