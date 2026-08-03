@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from pyhems import REGISTRY, EntityDefinition, PropertyRole
+from pyhems.definitions import PropertyValueDefinition
 
 ALLOWED_ACCESS_VALUES = {
     "required",
@@ -182,6 +183,136 @@ def test_writable_instantaneous_named_setting_is_not_instantaneous_role() -> Non
     entity = _entity(0x02A7, 0xCC)
     assert entity.set != "notApplicable"
     assert entity.role is PropertyRole.SETTING
+
+
+# ============================================================================
+# Structured value definitions & collection bindings (class 0x0287 branch
+# circuit metering arrays — see docs/ha-0287-epc-be-implementation-report-v2.md)
+# ============================================================================
+
+
+def test_structured_values_do_not_duplicate_scalar_entities() -> None:
+    """An EPC is never both a flat EntityDefinition and a structured value.
+
+    Properties fully represented by a scalar EntityDefinition must not also
+    get a redundant PropertyValueDefinition tree.
+    """
+    for class_code, structured in REGISTRY.structured_values.items():
+        entity_epcs = {e.epc for e in REGISTRY.entities.get(class_code, ())}
+        overlap = entity_epcs & set(structured)
+        assert not overlap, (
+            f"class 0x{class_code:04X} EPCs both scalar and structured: "
+            f"{[hex(e) for e in overlap]}"
+        )
+
+
+def test_0287_channel_count_epcs_are_plain_scalar_entities() -> None:
+    """EPC 0xB1/0xB8 (channel counts) are plain sensors, not structured values."""
+    entities = {e.epc: e for e in REGISTRY.entities[0x0287]}
+    for epc in (0xB1, 0xB8):
+        entity = entities[epc]
+        assert entity.format == "uint8"
+        assert entity.minimum == 1
+        assert entity.maximum == 252
+        assert entity.unit is None
+        assert entity.enum_values == ()
+        assert epc not in REGISTRY.structured_values.get(0x0287, {})
+
+
+def test_0287_array_properties_preserved_as_structured_values() -> None:
+    """Every 0x0287 property containing an MRA array is kept as a value tree.
+
+    These EPCs cannot become flat EntityDefinitions (variable-length lists),
+    but must not be silently dropped either.
+    """
+    expected = {0xB3, 0xB5, 0xB7, 0xBA, 0xBC, 0xBE, 0xC3, 0xC4}
+    structured = REGISTRY.structured_values[0x0287]
+    assert expected <= set(structured)
+    for epc in expected:
+        from pyhems.definitions import ArrayDefinition, ObjectDefinition
+
+        value_def = structured[epc]
+        assert isinstance(value_def, ObjectDefinition)
+        assert any(isinstance(f.value, ArrayDefinition) for f in value_def.fields)
+
+
+def test_0287_collection_bindings_match_v2_scope() -> None:
+    """Only B3/B7/BA/BE get a curated CollectionBinding (v2 HA projection scope).
+
+    B4/B5/B6/B9/BB/BC/BD (selectors + instantaneous current lists) are kept
+    as structured values but intentionally get no CollectionBinding, since
+    v2 does not project them onto HA entities.
+    """
+    bindings = {b.result_epc: b for b in REGISTRY.collection_bindings[0x0287]}
+    assert set(bindings) == {0xB3, 0xB7, 0xBA, 0xBE}
+    assert bindings[0xB3].count_epc == 0xB1
+    assert bindings[0xB7].count_epc == 0xB1
+    assert bindings[0xBA].count_epc == 0xB8
+    assert bindings[0xBE].count_epc == 0xB8
+    for binding in bindings.values():
+        assert binding.start_path == ("startChannel",)
+        assert binding.page_count_path == ("range",)
+
+
+@pytest.mark.parametrize(
+    ("class_code", "epc"),
+    [(cc, b.result_epc) for cc, bs in REGISTRY.collection_bindings.items() for b in bs],
+)
+def test_every_collection_binding_has_a_structured_value(
+    class_code: int, epc: int
+) -> None:
+    """Every curated CollectionBinding's result_epc must have a value tree."""
+    assert epc in REGISTRY.structured_values.get(class_code, {})
+
+
+def _all_value_definitions(
+    value_def: PropertyValueDefinition,
+) -> Iterator[PropertyValueDefinition]:
+    from pyhems.definitions import ArrayDefinition, ObjectDefinition, OneOfDefinition
+
+    yield value_def
+    if isinstance(value_def, ObjectDefinition):
+        for field in value_def.fields:
+            yield from _all_value_definitions(field.value)
+    elif isinstance(value_def, ArrayDefinition):
+        yield from _all_value_definitions(value_def.item)
+    elif isinstance(value_def, OneOfDefinition):
+        for option in value_def.options:
+            yield from _all_value_definitions(option)
+
+
+def test_all_structured_values_are_byte_size_consistent() -> None:
+    """Every 0x0287 structured value tree decodes without a byte-size mismatch.
+
+    Regression guard: OneOfDefinition options must agree on byte size, and
+    Scalar leaves must have a positive declared size.
+
+    Scoped to class 0x0287 (this feature's actual scope; see
+    docs/ha-0287-epc-be-implementation-report-v2.md) rather than every MRA
+    class: a handful of unrelated properties elsewhere (e.g. 0x027C EPC
+    0xD1, 0x02A7 EPC 0xD7) use an MRA ``oneOf`` between a full nested
+    schedule object and an opaque sentinel of a different total byte
+    width — a shape the current fixed-width field model does not resolve.
+    Nothing in this change set decodes those properties, so this is a
+    known, pre-existing limitation of the generic layer rather than a
+    regression.
+    """
+    from pyhems.codecs import value_definition_byte_size
+    from pyhems.definitions import ArrayDefinition, OneOfDefinition, ScalarDefinition
+
+    for epc, value_def in REGISTRY.structured_values[0x0287].items():
+        for node in _all_value_definitions(value_def):
+            if isinstance(node, ScalarDefinition):
+                assert node.size > 0, (
+                    f"class 0x0287 EPC 0x{epc:02X}: ScalarDefinition.size must be > 0"
+                )
+            elif isinstance(node, OneOfDefinition):
+                # Raises ValueError if options disagree on byte size.
+                value_definition_byte_size(node)
+            elif isinstance(node, ArrayDefinition):
+                assert node.item_size > 0, (
+                    f"class 0x0287 EPC 0x{epc:02X}: ArrayDefinition.item_size must be > 0"
+                )
 
 
 if __name__ == "__main__":

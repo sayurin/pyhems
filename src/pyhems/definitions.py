@@ -207,6 +207,163 @@ class EntityDefinition:
         return bytes([on_value]), bytes([off_value])
 
 
+# ============================================================================
+# Recursive structured value definitions
+#
+# EntityDefinition above is intentionally flat: one property maps to one
+# scalar Python value. Some MRA properties instead describe a variable-length
+# list of measurements (``type: array``), optionally wrapping named fields
+# (``type: object``) or alternative interpretations (``oneOf``), e.g. class
+# 0x0287 EPC 0xBE "Measured instantaneous power consumption list (duplex)".
+#
+# PropertyValueDefinition recursively models these shapes so a single generic
+# decoder (see ``pyhems.codecs.decode_property_value``) can walk any MRA
+# property, instead of adding a bespoke Codec per property. CollectionBinding
+# then describes how to locate the count/start/items of a paged list result
+# within such a decoded value tree.
+# ============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class ScalarDefinition:
+    """Leaf numeric/state/raw value within a recursive structured property.
+
+    Mirrors the scalar subset of :class:`EntityDefinition` (format, unit,
+    minimum/maximum, multiple_of, enum_values, numeric_values,
+    coefficient_epcs) for use as an :class:`ObjectField` value or
+    :class:`ArrayDefinition` item, where a full EntityDefinition (with its
+    own id/get/set/role) does not apply.
+
+    Attributes:
+        size: Byte width of this value within its containing EDT slice.
+        format: MRA format string for numeric values, or None.
+        unit: MRA unit of measurement, or None.
+        minimum: MRA minimum valid raw value (before scale), or None.
+        maximum: MRA maximum valid raw value (before scale), or None.
+        multiple_of: MRA scale factor.
+        enum_values: State options (empty if not applicable).
+        numeric_values: MRA numericValue table, or None.
+        coefficient_epcs: EPCs of sibling properties whose decoded value
+          multiplies this value.
+    """
+
+    size: int
+    format: str | None = None
+    unit: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    multiple_of: float = 1.0
+    enum_values: tuple[EnumValue, ...] = ()
+    numeric_values: tuple[NumericValueEntry, ...] | None = None
+    coefficient_epcs: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectField:
+    """A single named field of an :class:`ObjectDefinition`.
+
+    Attributes:
+        key: Field identifier (MRA ``shortName``).
+        name_en: English display name.
+        name_ja: Japanese display name.
+        value: The field's own (possibly nested) value definition.
+    """
+
+    key: str
+    name_en: str
+    name_ja: str
+    value: PropertyValueDefinition
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectDefinition:
+    """A fixed set of named fields (MRA ``type: object``).
+
+    Fields decode in order at increasing byte offsets. A trailing
+    :class:`ArrayDefinition` field (if any) consumes all remaining bytes of
+    the containing EDT rather than a fixed width, matching the MRA
+    convention of a variable-length list following fixed header fields (e.g.
+    ``startChannel``/``range`` before ``electricEnergy``).
+    """
+
+    fields: tuple[ObjectField, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayDefinition:
+    """A variable-length list of items (MRA ``type: array``).
+
+    Attributes:
+        item: Value definition shared by every item.
+        item_size: Byte width of a single item.
+        min_items: MRA minimum item count, or None.
+        max_items: MRA maximum item count, or None.
+    """
+
+    item: PropertyValueDefinition
+    item_size: int
+    min_items: int | None = None
+    max_items: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OneOfDefinition:
+    """An ordered set of alternative interpretations (MRA ``oneOf``).
+
+    Decoding tries each option in order and returns the first successful
+    (non-``None``) result. All options are expected to share the same byte
+    size (typically a numeric value alongside one or more sentinel states).
+    """
+
+    options: tuple[PropertyValueDefinition, ...]
+
+
+PropertyValueDefinition = (
+    ScalarDefinition | ObjectDefinition | ArrayDefinition | OneOfDefinition
+)
+
+
+class CollectionIndex(StrEnum):
+    """Semantics of the positions used to correlate collection items.
+
+    Members:
+        CHANNEL: Positions are 1-based measurement channel numbers.
+    """
+
+    CHANNEL = "channel"
+
+    def __repr__(self) -> str:
+        """Render as importable source for ``_definitions_generated.py``."""
+        return f"{type(self).__name__}.{self.name}"
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionBinding:
+    """Describes how to locate a paged list result within a structured value.
+
+    Bindings are not derived from MRA data (MRA does not document which
+    count property backs which list result); they are curated per
+    ``class_code`` in ``scripts/custom_definitions.yaml``.
+
+    Attributes:
+        result_epc: EPC of the property holding the decoded list (e.g. 0xBE).
+        count_epc: EPC of the sibling property declaring the total number of
+          items available across all pages (e.g. 0xB8), or None.
+        items_path: Path (sequence of :class:`ObjectField` keys) from the
+          decoded value root to the list of items.
+        start_path: Path to the first index (1-based) covered by this page.
+        page_count_path: Path to the declared number of items in this page.
+        index_kind: Semantics of item positions.
+    """
+
+    result_epc: int
+    count_epc: int | None
+    items_path: tuple[str, ...]
+    start_path: tuple[str, ...]
+    page_count_path: tuple[str, ...]
+    index_kind: CollectionIndex = CollectionIndex.CHANNEL
+
+
 @dataclass(frozen=True, slots=True)
 class DeviceDefinition:
     """Definition of an ECHONET Lite device class.
@@ -257,6 +414,13 @@ class DefinitionsRegistry:
         devices: Mapping of class_code to DeviceDefinition
         entities: Mapping of class_code to tuples of EntityDefinition
         manufacturers: Mapping of manufacturer code to ManufacturerDefinition
+        structured_values: Mapping of class_code to a mapping of EPC to its
+          recursive :data:`PropertyValueDefinition`, populated for
+          array/object-shaped properties (see ``ScalarDefinition`` and
+          friends). Properties fully represented by ``entities`` are not
+          duplicated here.
+        collection_bindings: Mapping of class_code to curated
+          :class:`CollectionBinding` tuples for its paged list properties.
     """
 
     version: str
@@ -264,3 +428,9 @@ class DefinitionsRegistry:
     devices: dict[int, DeviceDefinition]
     entities: dict[int, tuple[EntityDefinition, ...]]
     manufacturers: dict[int, ManufacturerDefinition]
+    structured_values: dict[int, dict[int, PropertyValueDefinition]] = (
+        dataclasses.field(default_factory=dict)
+    )
+    collection_bindings: dict[int, tuple[CollectionBinding, ...]] = dataclasses.field(
+        default_factory=dict
+    )

@@ -412,3 +412,45 @@ devices:
       enum_values:
         - key: "false"
           name_en: "Heat exchanger OFF"
+
+# Curated CollectionBinding entries (see pyhems.definitions.CollectionBinding).
+#
+# MRA does not document which count property backs which paged list result,
+# so this relationship must be curated by hand. Each entry is merged as a
+# CollectionBinding under DefinitionsRegistry.collection_bindings[class_code].
+#
+# Format:
+#   collection_bindings:
+#     - class_code: <class_code>       # 2-byte class code as hex
+#       result_epc: <epc_code>         # EPC holding the decoded list
+#       count_epc: <epc_code>          # Optional: EPC declaring total item count
+#       items_path: [<field>, ...]     # Path (ObjectField keys) to the item list
+#       start_path: [<field>, ...]     # Path to the page's first index (1-based)
+#       page_count_path: [<field>, ...] # Path to the page's declared item count
+#       index_kind: channel             # Optional: default "channel"
+collection_bindings:
+  # Power distribution board metering (分電盤メータリング)
+  - class_code: 0x0287
+    result_epc: 0xB3
+    count_epc: 0xB1
+    items_path: [electricEnergy]
+    start_path: [startChannel]
+    page_count_path: [range]
+  - class_code: 0x0287
+    result_epc: 0xB7
+    count_epc: 0xB1
+    items_path: [instantaneousElectricPower]
+    start_path: [startChannel]
+    page_count_path: [range]
+  - class_code: 0x0287
+    result_epc: 0xBA
+    count_epc: 0xB8
+    items_path: [electricEnergy]
+    start_path: [startChannel]
+    page_count_path: [range]
+  - class_code: 0x0287
+    result_epc: 0xBE
+    count_epc: 0xB8
+    items_path: [instantaneousElectricPower]
+    start_path: [startChannel]
+    page_count_path: [range]

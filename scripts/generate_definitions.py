@@ -65,6 +65,14 @@ ManufacturerDefinition: TypeAlias = _defs_mod.ManufacturerDefinition  # noqa: UP
 DefinitionsRegistry: TypeAlias = _defs_mod.DefinitionsRegistry  # noqa: UP040
 NumericValueEntry: TypeAlias = _defs_mod.NumericValueEntry  # noqa: UP040
 PropertyRole: TypeAlias = _defs_mod.PropertyRole  # noqa: UP040
+ScalarDefinition: TypeAlias = _defs_mod.ScalarDefinition  # noqa: UP040
+ObjectField: TypeAlias = _defs_mod.ObjectField  # noqa: UP040
+ObjectDefinition: TypeAlias = _defs_mod.ObjectDefinition  # noqa: UP040
+ArrayDefinition: TypeAlias = _defs_mod.ArrayDefinition  # noqa: UP040
+OneOfDefinition: TypeAlias = _defs_mod.OneOfDefinition  # noqa: UP040
+PropertyValueDefinition: TypeAlias = _defs_mod.PropertyValueDefinition  # noqa: UP040
+CollectionBinding: TypeAlias = _defs_mod.CollectionBinding  # noqa: UP040
+CollectionIndex: TypeAlias = _defs_mod.CollectionIndex  # noqa: UP040
 
 
 # ============================================================================
@@ -79,6 +87,12 @@ class _DeviceBuild:
     name_en: str
     name_ja: str
     entities: list[EntityDefinition]  # device-specific only (excludes common)
+    structured_values: dict[int, PropertyValueDefinition] = dataclasses.field(
+        default_factory=dict
+    )
+    collection_bindings: list[CollectionBinding] = dataclasses.field(
+        default_factory=list
+    )
 
 
 @dataclass
@@ -324,7 +338,12 @@ def _build_entity_from_property(
         "is neither readable nor writable"
     )
 
-    is_sensor = prop.data_type == "number" and prop.mra_unit is not None
+    # A "number" property is sensor-eligible regardless of whether MRA gives
+    # it a unit: unitless counts/indices (e.g. class 0x0287 EPC 0xB1/0xB8
+    # channel counts) are just as meaningful as unit-bearing measurements.
+    # This matches _build_entities_from_object_property(), which never
+    # required a unit for its fixed-layout object fields either.
+    is_sensor = prop.data_type == "number"
     is_state = prop.data_type == "state"
     is_numeric_value = prop.data_type == "numericValue"
 
@@ -414,6 +433,15 @@ _OBJECT_FIELD_BYTE_SIZE: dict[str, int] = {
     "int32": 4,
 }
 
+# ECHONET Lite standard time-related types (byte width per the ECHONET Lite
+# specification): "date" = year(2)+month(1)+day(1), "time" = relative
+# hour(1)+minute(1)+second(1), "date-time" = date(4)+time(3).
+_RAW_TIME_TYPE_SIZE: dict[str, int] = {
+    "date": 4,
+    "time": 3,
+    "date-time": 7,
+}
+
 
 def _resolve_ref(spec: dict[str, Any], definitions: dict[str, Any]) -> dict[str, Any]:
     """Resolve a single-level MRA '$ref' pointer against shared definitions.
@@ -428,6 +456,144 @@ def _resolve_ref(spec: dict[str, Any], definitions: dict[str, Any]) -> dict[str,
             resolved = definitions[ref.replace("#/definitions/", "")]
             return {**resolved, **{k: v for k, v in spec.items() if k != "$ref"}}
     return spec
+
+
+# ============================================================================
+# Recursive structured value-tree parsing
+#
+# Builds a PropertyValueDefinition tree (see pyhems.definitions) for any MRA
+# "data"/"element" spec, including variable-length "array" fields that
+# _build_entities_from_object_property() above cannot flatten into scalar
+# EntityDefinitions. Used to preserve properties that would otherwise be
+# dropped entirely (e.g. class 0x0287 EPC 0xB3/0xB7/0xBA/0xBE channel lists).
+# ============================================================================
+
+
+def _parse_state_enum_values(spec: dict[str, Any]) -> list[EnumValue]:
+    """Parse a resolved MRA 'state' spec's enum list into EnumValue entries."""
+    enum_values: list[EnumValue] = []
+    for item in spec.get("enum", []):
+        edt_str = item["edt"]
+        if "..." in edt_str:
+            continue
+        descriptions = item["descriptions"]
+        enum_values.append(
+            EnumValue(
+                edt=int(edt_str, 16),
+                key=item["name"],
+                name_en=_normalize_trailing_number(descriptions["en"]),
+                name_ja=descriptions["ja"],
+            )
+        )
+    return enum_values
+
+
+def _parse_value_spec(
+    spec: dict[str, Any], definitions: dict[str, Any]
+) -> PropertyValueDefinition:
+    """Recursively parse an MRA data/element spec into a value definition tree."""
+    if "oneOf" in spec:
+        return OneOfDefinition(
+            options=tuple(
+                _parse_value_spec(option, definitions) for option in spec["oneOf"]
+            )
+        )
+
+    resolved = _resolve_ref(spec, definitions)
+    data_type = resolved.get("type")
+
+    if data_type == "array":
+        return ArrayDefinition(
+            item=_parse_value_spec(resolved["items"], definitions),
+            item_size=resolved["itemSize"],
+            min_items=resolved.get("minItems"),
+            max_items=resolved.get("maxItems"),
+        )
+
+    if data_type == "object":
+        return ObjectDefinition(
+            fields=tuple(
+                ObjectField(
+                    key=field["shortName"],
+                    name_en=_normalize_trailing_number(field["elementName"]["en"]),
+                    name_ja=field["elementName"]["ja"],
+                    value=_parse_value_spec(field["element"], definitions),
+                )
+                for field in resolved["properties"]
+            )
+        )
+
+    if data_type == "numericValue":
+        return ScalarDefinition(
+            size=resolved["size"],
+            numeric_values=tuple(
+                NumericValueEntry(edt=int(item["edt"], 16), value=item["numericValue"])
+                for item in resolved.get("enum", [])
+            ),
+        )
+
+    if data_type == "state":
+        return ScalarDefinition(
+            size=resolved["size"], enum_values=tuple(_parse_state_enum_values(resolved))
+        )
+
+    if data_type == "level":
+        base = int(resolved["base"], 16)
+        maximum = resolved["maximum"]
+        enum_values = tuple(
+            EnumValue(
+                edt=base + i,
+                key=f"level_{i + 1}",
+                name_en=f"Level {i + 1}",
+                name_ja=f"レベル{i + 1}",
+            )
+            for i in range(maximum)
+            if base + i < 256
+        )
+        return ScalarDefinition(size=1, enum_values=enum_values)
+
+    if data_type == "number":
+        mra_format: str | None = resolved.get("format")
+        return ScalarDefinition(
+            size=_OBJECT_FIELD_BYTE_SIZE.get(mra_format, 1) if mra_format else 1,
+            format=mra_format,
+            unit=resolved.get("unit"),
+            minimum=resolved.get("minimum"),
+            maximum=resolved.get("maximum"),
+            multiple_of=resolved.get("multiple") or resolved.get("multipleOf") or 1.0,
+            coefficient_epcs=tuple(int(c, 16) for c in resolved.get("coefficient", [])),
+        )
+
+    # ECHONET Lite standard time-related types: fixed byte widths per the
+    # ECHONET Lite specification, not documented via a "size" key in MRA
+    # (unlike "state"/"numericValue"). Not decoded numerically here (no
+    # format), just preserved with the correct width so sibling oneOf
+    # sentinel states (e.g. state_Unknown_FFFFFFFF alongside "date") agree
+    # on byte size.
+    if data_type in _RAW_TIME_TYPE_SIZE:
+        return ScalarDefinition(size=_RAW_TIME_TYPE_SIZE[data_type])
+
+    # Raw/opaque types: best-effort byte width, no decoding.
+    return ScalarDefinition(size=resolved.get("size", 1))
+
+
+def _is_structured_data_type(
+    prop_data: dict[str, Any], definitions: dict[str, Any]
+) -> bool:
+    """Return True when a property's data spec contains an object or array.
+
+    Used to decide whether to also build a PropertyValueDefinition tree for
+    it: properties fully represented by a flat EntityDefinition (plain
+    number/state/numericValue) do not need a duplicate structured
+    representation.
+    """
+    data_spec = prop_data["data"]
+    candidates = data_spec.get("oneOf", [data_spec])
+    for candidate in candidates:
+        resolved = _resolve_ref(candidate, definitions)
+        if resolved.get("type") in ("object", "array"):
+            return True
+    return False
 
 
 def _build_entities_from_object_property(
@@ -644,6 +810,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
 
         class_name_data = data["className"]
         entities: list[EntityDefinition] = []
+        structured_values: dict[int, PropertyValueDefinition] = {}
 
         # EPCs participating in an MRA "atomic" pairing (e.g. a channel-range
         # selector paired with a variable-length list result). Both sides are
@@ -680,6 +847,17 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             entity = _build_entity_from_property(class_code, prop)
             if entity:
                 entities.append(_apply_role(entity, role_map, class_code))
+                continue
+
+            # Neither a flat scalar entity nor a fixed-layout object split
+            # could represent this property. Preserve a recursive value tree
+            # for it when it genuinely contains an array/object structure
+            # (e.g. a variable-length channel list), rather than dropping it
+            # entirely.
+            if _is_structured_data_type(prop_data, mra_definitions):
+                structured_values[epc] = _parse_value_spec(
+                    prop_data["data"], mra_definitions
+                )
 
         # Register all MRA device classes, even those without device-specific
         # entities, so common entities (e.g., operation status 0x80) are
@@ -688,6 +866,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             name_en=class_name_data["en"],
             name_ja=class_name_data["ja"],
             entities=entities,
+            structured_values=structured_values,
         )
 
     manufacturers = _load_manufacturer_codes(MANUFACTURER_CODES_FILE)
@@ -947,6 +1126,32 @@ def _build_custom_entity(
     )
 
 
+def _load_collection_bindings(
+    custom: dict[str, Any],
+) -> dict[int, list[CollectionBinding]]:
+    """Load curated CollectionBinding entries from custom_definitions.yaml.
+
+    MRA does not document which count property backs which paged list
+    result (e.g. that class 0x0287 EPC 0xBE is paged using EPC 0xB8's
+    channel count), so this relationship is curated by hand under the
+    top-level ``collection_bindings`` key.
+    """
+    bindings: dict[int, list[CollectionBinding]] = {}
+    for entry in custom.get("collection_bindings", []):
+        class_code: int = entry["class_code"]
+        bindings.setdefault(class_code, []).append(
+            CollectionBinding(
+                result_epc=entry["result_epc"],
+                count_epc=entry.get("count_epc"),
+                items_path=tuple(entry["items_path"]),
+                start_path=tuple(entry["start_path"]),
+                page_count_path=tuple(entry["page_count_path"]),
+                index_kind=CollectionIndex(entry.get("index_kind", "channel")),
+            )
+        )
+    return bindings
+
+
 # ============================================================================
 # Code Generation Functions
 # ============================================================================
@@ -989,13 +1194,21 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         '"""',
         "",
         "from .definitions import (",
+        "    ArrayDefinition,",
+        "    CollectionBinding,",
+        "    CollectionIndex,",
         "    DefinitionsRegistry,",
         "    DeviceDefinition,",
         "    EntityDefinition,",
         "    EnumValue,",
         "    ManufacturerDefinition,",
         "    NumericValueEntry,",
+        "    ObjectDefinition,",
+        "    ObjectField,",
+        "    OneOfDefinition,",
         "    PropertyRole,",
+        "    PropertyValueDefinition,",
+        "    ScalarDefinition,",
         ")",
         "",
         "_COMMON: tuple[EntityDefinition, ...] = (",
@@ -1026,6 +1239,27 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
     )
     lines.append("}")
     lines.append("")
+    lines.append("STRUCTURED_VALUES: dict[int, dict[int, PropertyValueDefinition]] = {")
+    for class_code in sorted(build.devices):
+        structured_values = build.devices[class_code].structured_values
+        if not structured_values:
+            continue
+        lines.append(f"    {class_code}: {{")
+        for epc in sorted(structured_values):
+            lines.append(f"        {epc}: {structured_values[epc]!r},")
+        lines.append("    },")
+    lines.append("}")
+    lines.append("")
+    lines.append("COLLECTION_BINDINGS: dict[int, tuple[CollectionBinding, ...]] = {")
+    for class_code in sorted(build.devices):
+        collection_bindings = build.devices[class_code].collection_bindings
+        if not collection_bindings:
+            continue
+        lines.append(f"    {class_code}: (")
+        lines.extend(f"        {binding!r}," for binding in collection_bindings)
+        lines.append("    ),")
+    lines.append("}")
+    lines.append("")
     lines.extend(
         [
             "REGISTRY = DefinitionsRegistry(",
@@ -1034,6 +1268,8 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
             "    devices=DEVICES,",
             "    entities={cc: d.entities for cc, d in DEVICES.items()},",
             "    manufacturers=MANUFACTURERS,",
+            "    structured_values=STRUCTURED_VALUES,",
+            "    collection_bindings=COLLECTION_BINDINGS,",
             ")",
             "",
         ]
@@ -1069,6 +1305,14 @@ def main() -> None:
         }
         _merge_custom_definitions(build, custom, mra_epcs_by_class)  # ADD first
         _apply_overrides(build, custom, mra_epcs_by_class)  # then UPDATE
+
+        for class_code, bindings in _load_collection_bindings(custom).items():
+            if class_code not in build.devices:
+                print(
+                    f"  Warning: collection_bindings target class 0x{class_code:04X} not found"
+                )
+                continue
+            build.devices[class_code].collection_bindings.extend(bindings)
 
     generated_source = _generate_python_source(build)
     generated_path = PYHEMS_DIR / "_definitions_generated.py"
