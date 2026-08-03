@@ -26,7 +26,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ._definitions_generated import REGISTRY
-from .definitions import EntityDefinition
+from .definitions import (
+    ArrayDefinition,
+    CollectionBinding,
+    EntityDefinition,
+    ObjectDefinition,
+    OneOfDefinition,
+    PropertyValueDefinition,
+    ScalarDefinition,
+)
 from .device_manager import NodeState
 from .installation_location import (
     INSTALLATION_LOCATIONS,
@@ -351,13 +359,263 @@ def get_codec_for_epc(
     raise LookupError(f"EPC 0x{epc:02X} not found for class 0x{class_code:04X}")
 
 
+# ============================================================================
+# Generic structured value decoding
+#
+# Complements the scalar EntityDefinition/PropertyCodec model above with a
+# recursive decoder for MRA properties that describe a variable-length list,
+# optionally wrapping named fields or alternative interpretations (see
+# pyhems.definitions.PropertyValueDefinition). A single generic decoder walks
+# any such tree instead of adding a bespoke Codec per property.
+# ============================================================================
+
+
+def _scalar_byte_size(value_def: ScalarDefinition) -> int:
+    """Return the byte width declared for a scalar leaf value."""
+    return value_def.size
+
+
+def value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
+    """Return the fixed byte width of *value_def*.
+
+    Raises :class:`ValueError` when *value_def* has no fixed width (i.e. it
+    is, or contains, an :class:`ArrayDefinition`) or when a
+    :class:`OneOfDefinition`'s options disagree on their byte width.
+    """
+    if isinstance(value_def, ScalarDefinition):
+        return _scalar_byte_size(value_def)
+    if isinstance(value_def, OneOfDefinition):
+        sizes = {value_definition_byte_size(option) for option in value_def.options}
+        if len(sizes) != 1:
+            raise ValueError("oneOf options must share the same byte size")
+        return next(iter(sizes))
+    if isinstance(value_def, ObjectDefinition):
+        return sum(value_definition_byte_size(f.value) for f in value_def.fields)
+    raise ValueError("ArrayDefinition has no fixed byte size")
+
+
+def _decode_scalar(
+    value_def: ScalarDefinition, chunk: bytes, node: NodeState | None
+) -> Any:
+    """Decode a single scalar leaf value from *chunk*."""
+    if len(chunk) != value_def.size:
+        return None
+    if value_def.numeric_values is not None:
+        return NumericValueCodec(
+            by_edt={nv.edt: nv.value for nv in value_def.numeric_values}
+        ).decode(chunk)
+    if value_def.enum_values:
+        if len(chunk) < value_def.size:
+            return None
+        raw = int.from_bytes(chunk[: value_def.size], "big", signed=False)
+        for ev in value_def.enum_values:
+            if ev.edt == raw:
+                return ev.key
+        return None
+    if value_def.format:
+        return NumericCodec(
+            mra_format=value_def.format,
+            scale=value_def.multiple_of,
+            minimum=value_def.minimum,
+            maximum=value_def.maximum,
+            byte_offset=0,
+            coefficient_epcs=value_def.coefficient_epcs,
+        ).decode(chunk, node)
+    return chunk
+
+
+def _fixed_size_options(
+    value_def: PropertyValueDefinition,
+) -> tuple[tuple[PropertyValueDefinition, int], ...]:
+    """Return each fixed-size decoding option for a value definition."""
+    if isinstance(value_def, OneOfDefinition):
+        return tuple(
+            (option, value_definition_byte_size(option)) for option in value_def.options
+        )
+    return ((value_def, value_definition_byte_size(value_def)),)
+
+
+def decode_property_value(
+    value_def: PropertyValueDefinition,
+    chunk: bytes,
+    node: NodeState | None = None,
+) -> Any:
+    """Recursively decode *chunk* according to *value_def*.
+
+    Returns ``None`` when *chunk* is malformed for *value_def* (wrong
+    length, an array exceeding its declared ``max_items``/``min_items``, or
+    no matching :class:`OneOfDefinition` option) rather than raising, so
+    callers can treat any structured property the same way scalar
+    :class:`PropertyCodec` implementations already do.
+
+    * :class:`ScalarDefinition` decodes to ``int``/``float``/``str``/``None``,
+      mirroring :class:`NumericCodec`/:class:`EnumCodec`/:class:`NumericValueCodec`.
+    * :class:`OneOfDefinition` tries each option in order and returns the
+      first non-``None`` result.
+    * :class:`ObjectDefinition` decodes to a ``dict`` keyed by field ``key``.
+      A trailing :class:`ArrayDefinition` field consumes all remaining bytes
+      of *chunk* instead of a fixed width.
+    * :class:`ArrayDefinition` decodes to a ``tuple`` of item values.
+    """
+    if isinstance(value_def, ScalarDefinition):
+        return _decode_scalar(value_def, chunk, node)
+
+    if isinstance(value_def, OneOfDefinition):
+        for option in value_def.options:
+            option_result = decode_property_value(option, chunk, node)
+            if option_result is not None:
+                return option_result
+        return None
+
+    if isinstance(value_def, ObjectDefinition):
+
+        def decode_fields(field_index: int, cursor: int) -> dict[str, Any] | None:
+            if field_index == len(value_def.fields):
+                return {} if cursor == len(chunk) else None
+
+            field = value_def.fields[field_index]
+            if isinstance(field.value, ArrayDefinition):
+                if field_index != len(value_def.fields) - 1:
+                    return None
+                item_value = decode_property_value(field.value, chunk[cursor:], node)
+                return {field.key: item_value} if item_value is not None else None
+
+            try:
+                options = _fixed_size_options(field.value)
+            except ValueError:
+                return None
+            for _option, size in options:
+                next_cursor = cursor + size
+                if next_cursor > len(chunk):
+                    continue
+                remaining = decode_fields(field_index + 1, next_cursor)
+                if remaining is None:
+                    continue
+                return {
+                    field.key: decode_property_value(
+                        field.value, chunk[cursor:next_cursor], node
+                    ),
+                    **remaining,
+                }
+            return None
+
+        return decode_fields(0, 0)
+
+    if isinstance(value_def, ArrayDefinition):
+        item_size = value_def.item_size
+        if item_size <= 0 or len(chunk) % item_size != 0:
+            return None
+        count = len(chunk) // item_size
+        if value_def.max_items is not None and count > value_def.max_items:
+            return None
+        if value_def.min_items is not None and count < value_def.min_items:
+            return None
+        return tuple(
+            decode_property_value(
+                value_def.item, chunk[i * item_size : (i + 1) * item_size], node
+            )
+            for i in range(count)
+        )
+
+    raise TypeError(f"Unsupported value definition: {value_def!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionPage:
+    """A normalized page of a paged list result.
+
+    Attributes:
+        start: 1-based index of the first item in ``items``.
+        count: Number of items in ``items`` (matches the decoded header).
+        items: Decoded item values, in index order starting at ``start``.
+    """
+
+    start: int
+    count: int
+    items: tuple[Any, ...]
+
+
+def _get_path(value: Any, path: tuple[str, ...]) -> Any:
+    """Walk a sequence of dict keys, returning None if any step is missing."""
+    node = value
+    for key in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+def decode_collection(binding: CollectionBinding, value: Any) -> CollectionPage | None:
+    """Normalize a decoded structured *value* into a :class:`CollectionPage`.
+
+    Returns ``None`` when the header (``start_path``/``page_count_path``) is
+    missing or invalid, or when the declared page count does not match the
+    actual number of decoded items — the whole page is rejected rather than
+    exposing a partially-trustworthy result.
+    """
+    items = _get_path(value, binding.items_path)
+    if not isinstance(items, tuple):
+        return None
+    start = _get_path(value, binding.start_path)
+    page_count = _get_path(value, binding.page_count_path)
+    if not isinstance(start, int) or not isinstance(page_count, int):
+        return None
+    if page_count != len(items):
+        return None
+    return CollectionPage(start=start, count=page_count, items=items)
+
+
+def get_structured_value(class_code: int, epc: int) -> PropertyValueDefinition | None:
+    """Return the curated :class:`PropertyValueDefinition` for *epc*, if any."""
+    return REGISTRY.structured_values.get(class_code, {}).get(epc)
+
+
+def get_collection_binding(
+    class_code: int, result_epc: int
+) -> CollectionBinding | None:
+    """Return the curated :class:`CollectionBinding` for *result_epc*, if any."""
+    for binding in REGISTRY.collection_bindings.get(class_code, ()):
+        if binding.result_epc == result_epc:
+            return binding
+    return None
+
+
+def decode_collection_page(
+    class_code: int,
+    result_epc: int,
+    edt: bytes,
+    node: NodeState | None = None,
+) -> CollectionPage | None:
+    """Decode and normalize *edt* for a paged list property in one call.
+
+    Returns ``None`` when *class_code*/*result_epc* has no curated
+    :class:`CollectionBinding`, no :class:`PropertyValueDefinition`, or *edt*
+    fails to decode/normalize into a valid page.
+    """
+    value_def = get_structured_value(class_code, result_epc)
+    binding = get_collection_binding(class_code, result_epc)
+    if value_def is None or binding is None:
+        return None
+    value = decode_property_value(value_def, edt, node)
+    if value is None:
+        return None
+    return decode_collection(binding, value)
+
+
 __all__ = [
     "BinaryCodec",
+    "CollectionPage",
     "EnumCodec",
     "InstallationLocationCodec",
     "NumericCodec",
     "NumericValueCodec",
     "PropertyCodec",
+    "decode_collection",
+    "decode_collection_page",
+    "decode_property_value",
     "get_codec",
     "get_codec_for_epc",
+    "get_collection_binding",
+    "get_structured_value",
+    "value_definition_byte_size",
 ]
