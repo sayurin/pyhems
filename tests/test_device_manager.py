@@ -656,6 +656,90 @@ class TestProcessInstanceListEvent:
         assert len(dm.data) == 0
 
     @pytest.mark.asyncio
+    async def test_identification_number_manufacturer_code_fallback(self) -> None:
+        """An identification number supplies a missing manufacturer code."""
+        client = _make_client()
+        client.get.return_value = [
+            Property(epc=0x9D, edt=b"\x00"),
+            Property(epc=0x9E, edt=b"\x00"),
+            Property(epc=0x9F, edt=b"\x00"),
+            Property(epc=0x83, edt=b"\xfe\x12\x34\x56\x00"),
+            Property(epc=0x8A, edt=b""),
+        ]
+        dm = DeviceManager(client, {})
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[eoj],
+                node_id=node_id,
+                properties={},
+            )
+        )
+
+        assert len(result) == 1
+        assert dm.data[result[0]].manufacturer_code == 0x123456
+        assert 0x83 in client.get.call_args.args[2]
+
+    @pytest.mark.asyncio
+    async def test_manufacturer_code_takes_precedence_over_identification_number(
+        self,
+    ) -> None:
+        """EPC 0x8A takes precedence over the identification number."""
+        client = _make_client()
+        client.get.return_value = [
+            Property(epc=0x9D, edt=b"\x00"),
+            Property(epc=0x9E, edt=b"\x00"),
+            Property(epc=0x9F, edt=b"\x00"),
+            Property(epc=0x83, edt=b"\xfe\x12\x34\x56\x00"),
+            Property(epc=0x8A, edt=b"\x65\x43\x21"),
+        ]
+        dm = DeviceManager(client, {})
+
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id="fe00000000000000000000000000000001",
+                properties={},
+            )
+        )
+
+        assert dm.data[result[0]].manufacturer_code == 0x654321
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "identification_number", [b"\xfd\x12\x34\x56", b"\xfe\x12\x34"]
+    )
+    async def test_invalid_identification_number_skips_device(
+        self, identification_number: bytes
+    ) -> None:
+        """Invalid identification numbers cannot supply a manufacturer code."""
+        client = _make_client()
+        client.get.return_value = [
+            Property(epc=0x9D, edt=b"\x00"),
+            Property(epc=0x9E, edt=b"\x00"),
+            Property(epc=0x9F, edt=b"\x00"),
+            Property(epc=0x83, edt=identification_number),
+            Property(epc=0x8A, edt=b""),
+        ]
+        dm = DeviceManager(client, {})
+
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id="fe00000000000000000000000000000001",
+                properties={},
+            )
+        )
+
+        assert result == []
+        assert not dm.data
+
+    @pytest.mark.asyncio
     async def test_node_profile_info_fallback(self) -> None:
         """Node profile info is used when device class response is empty."""
         client = _make_client()
