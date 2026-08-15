@@ -12,6 +12,7 @@ from ._definitions_generated import REGISTRY
 from .const import (
     CONTROLLER_INSTANCE,
     EPC_GET_PROPERTY_MAP,
+    EPC_IDENTIFICATION_NUMBER,
     EPC_INF_PROPERTY_MAP,
     EPC_INSTALLATION_LOCATION,
     EPC_MANUFACTURER_CODE,
@@ -126,6 +127,12 @@ def _extract_node_profile_info(
     manufacturer_code: int | None = None
     if (edt := properties.get(EPC_MANUFACTURER_CODE)) and len(edt) >= 3:
         manufacturer_code = int.from_bytes(edt[:3], "big")
+    elif (
+        (edt := properties.get(EPC_IDENTIFICATION_NUMBER))
+        and len(edt) >= 4
+        and edt[0] == 0xFE
+    ):
+        manufacturer_code = int.from_bytes(edt[1:4], "big")
 
     product_code = _decode_ascii_property(properties.get(EPC_PRODUCT_CODE, b""))
     serial_number = _decode_ascii_property(properties.get(EPC_SERIAL_NUMBER, b""))
@@ -504,6 +511,7 @@ class DeviceManager:
                 EPC_INF_PROPERTY_MAP,
                 EPC_SET_PROPERTY_MAP,
                 EPC_GET_PROPERTY_MAP,
+                EPC_IDENTIFICATION_NUMBER,
                 EPC_MANUFACTURER_CODE,
                 EPC_PRODUCT_CODE,
                 EPC_SERIAL_NUMBER,
