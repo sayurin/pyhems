@@ -277,6 +277,25 @@ class TestNodeProbe:
             mock_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_poll_loop_waits_before_initial_probe(self) -> None:
+        """Test that the first periodic probe is delayed."""
+        client = HemsClient(poll_interval=60.0)
+        client._protocol = MagicMock()
+
+        with (
+            patch(
+                "pyhems.runtime.asyncio.sleep",
+                new_callable=AsyncMock,
+                side_effect=asyncio.CancelledError,
+            ) as mock_sleep,
+            patch.object(client, "probe_nodes", new_callable=AsyncMock) as mock_probe,
+        ):
+            await client._poll_loop()
+
+        mock_sleep.assert_awaited_once_with(60.0)
+        mock_probe.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_process_frame_dispatches_instance_list_event(self) -> None:
         """Test that Get_Res with instance list dispatches event."""
         client = HemsClient()
