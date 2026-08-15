@@ -491,8 +491,8 @@ class HemsClient:
         """Periodic polling loop for node probe."""
         while self._protocol:
             try:
-                await self.probe_nodes()
                 await asyncio.sleep(self._poll_interval)
+                await self.probe_nodes()
             except asyncio.CancelledError:
                 break
             except Exception:
