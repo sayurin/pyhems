@@ -1245,6 +1245,25 @@ DEVICES: dict[int, DeviceDefinition] = {
             EntityDefinition(id='class_0602_epc_b1', epc=177, name_en='Character string setting acceptance status', name_ja='文字列設定受付可能状態', get='required_o', set='notApplicable', description_en='This property indicates whether or not the device is ready to accept the character string to present to the user.', description_ja='伝達文字列を受付けられる状態にあるか否かを示す', enum_values=(EnumValue(edt=48, key='ready', name_en='Ready', name_ja='Ready'), EnumValue(edt=49, key='busy', name_en='Busy', name_ja='Busy'))),
         ),
     ),
+    3841: DeviceDefinition(
+        class_code=3841,
+        name_en='Custom object for Mitsubishi AirResort main unit',
+        name_ja='三菱エアリゾート本体カスタムオブジェクト',
+        entities=_COMMON + (
+            EntityDefinition(id='class_0f01_epc_b0', epc=176, name_en='Operation mode setting', name_ja='運転モード設定', get='required', set='required', description_en="Used to specify the operation mode ('automatic','cooling','heating','dehumidification','air circulator' or 'other'), and to acquire the current setting.", description_ja='自動/冷房/暖房/除湿/送風/その他の運転モードを設定し、設定状態を取得する', enum_values=(EnumValue(edt=65, key='auto', name_en='Automatic', name_ja='自動'), EnumValue(edt=66, key='cooling', name_en='Cooling', name_ja='冷房'), EnumValue(edt=67, key='heating', name_en='Heating', name_ja='暖房'), EnumValue(edt=68, key='dehumidification', name_en='Dehumidification', name_ja='除湿'), EnumValue(edt=69, key='circulation', name_en='Air circulation', name_ja='送風'), EnumValue(edt=64, key='other', name_en='Other', name_ja='その他'))),
+            EntityDefinition(id='class_0f01_epc_be', epc=190, name_en='Measured outdoor air temperature', name_ja='外気温度計測値', get='required', set='notApplicable', description_en='This property indicates the measured outdoor air temperature.', description_ja='外気温度計測値', format='int8', unit='Celsius', minimum=-127, maximum=125),
+            EntityDefinition(id='class_0f01_epc_c0', epc=192, name_en='Ventilation function setting', name_ja='換気モード設定', get='required', set='required', description_en='Used to specify whether or not to use the ventilation function, to specify the ventilation direction, and to acquire the current setting.', description_ja='換気の動作を設定し、設定状態を取得する', enum_values=(EnumValue(edt=49, key='off', name_en='Ventilation function OFF', name_ja='換気OFF'), EnumValue(edt=66, key='on', name_en='Ventilation function ON', name_ja='換気ON'))),
+            EntityDefinition(id='class_0f01_epc_c2', epc=194, name_en='Ventilation air flow rate setting', name_ja='換気風量設定', get='required', set='required', description_en='Used to specify the ventilation air flow rate by selecting a level from among the predefined levels, and to acquire the current setting.', description_ja='換気風量レベルを設定し、設定状態を取得する', enum_values=(EnumValue(edt=49, key='low', name_en='Low', name_ja='弱'), EnumValue(edt=56, key='high', name_en='High', name_ja='強'))),
+        ),
+    ),
+    3842: DeviceDefinition(
+        class_code=3842,
+        name_en='Custom object for Mitsubishi AirResort variable air volume unit',
+        name_ja='三菱エアリゾートVAVカスタムオブジェクト',
+        entities=_COMMON + (
+            EntityDefinition(id='class_0f02_epc_b3', epc=179, name_en='Set temperature value', name_ja='温度設定値', get='required', set='required', description_en='Used to set the temperature and to acquire the current setting.', description_ja='温度設定値を設定し、設定状態を取得する', format='uint8', unit='Celsius', minimum=0, maximum=50),
+        ),
+    ),
 }
 
 MANUFACTURERS: dict[int, ManufacturerDefinition] = {

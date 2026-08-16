@@ -1,0 +1,143 @@
+{
+  "eoj": "0x0F02",
+  "validRelease": {
+    "from": "A",
+    "to": "latest"
+  },
+  "className": {
+    "ja": "三菱エアリゾートVAVカスタムオブジェクト",
+    "en": "Custom object for Mitsubishi AirResort variable air volume unit"
+  },
+  "shortName": "airResortVav",
+  "elProperties": [
+    {
+      "epc": "0x80",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "動作状態",
+        "en": "Operation status"
+      },
+      "shortName": "operationStatus",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "ON/OFFの状態を示す",
+        "en": "This property indicates the ON/OFF status."
+      },
+      "data": {
+        "$ref": "#/definitions/state_ON-OFF_3031"
+      }
+    },
+    {
+      "epc": "0x8F",
+      "validRelease": {
+        "from": "D",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "キープ運転設定",
+        "en": "Keep operation setting"
+      },
+      "shortName": "keepOperation",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "VAVのキープ運転（節電機能）を設定し、状態を取得する",
+        "en": "This property indicates whether the VAV is operating in keep mode."
+      },
+      "data": {
+        "type": "state",
+        "size": 1,
+        "enum": [
+          {
+            "edt": "0x41",
+            "name": "true",
+            "descriptions": {
+              "ja": "キープOFF",
+              "en": "Operating in normal mode"
+            }
+          },
+          {
+            "edt": "0x42",
+            "name": "false",
+            "descriptions": {
+              "ja": "キープON",
+              "en": "Operating in keep mode"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xB3",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "温度設定値",
+        "en": "Set temperature value"
+      },
+      "shortName": "targetTemperature",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "notApplicable"
+      },
+      "descriptions": {
+        "ja": "温度設定値を設定し、設定状態を取得する",
+        "en": "Used to set the temperature and to acquire the current setting."
+      },
+      "data": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/number_0-50Celsius"
+          },
+          {
+            "$ref": "#/definitions/state_Undefined_FD"
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xBB",
+      "validRelease": {
+        "from": "A",
+        "to": "C"
+      },
+      "propertyName": {
+        "ja": "室内温度計測値",
+        "en": "Measured value of room temperature"
+      },
+      "shortName": "roomTemperature",
+      "accessRule": {
+        "get": "optional",
+        "set": "notApplicable",
+        "inf": "optional"
+      },
+      "descriptions": {
+        "ja": "室内温度計測値",
+        "en": "Measured value of room temperature"
+      },
+      "data": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/number_-127-125Celsius"
+          },
+          {
+            "$ref": "#/definitions/state_UnmeasurableA_7E"
+          }
+        ]
+      }
+    }
+  ]
+}

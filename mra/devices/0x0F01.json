@@ -1,0 +1,230 @@
+{
+  "eoj": "0x0F01",
+  "validRelease": {
+    "from": "A",
+    "to": "latest"
+  },
+  "className": {
+    "ja": "三菱エアリゾート本体カスタムオブジェクト",
+    "en": "Custom object for Mitsubishi AirResort main unit"
+  },
+  "shortName": "airResortMain",
+  "elProperties": [
+    {
+      "epc": "0x80",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "動作状態",
+        "en": "Operation status"
+      },
+      "shortName": "operationStatus",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "ON/OFFの状態を示す",
+        "en": "This property indicates the ON/OFF status."
+      },
+      "data": {
+        "$ref": "#/definitions/state_ON-OFF_3031"
+      }
+    },
+    {
+      "epc": "0xB0",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "運転モード設定",
+        "en": "Operation mode setting"
+      },
+      "shortName": "operationMode",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "自動/冷房/暖房/除湿/送風/その他の運転モードを設定し、設定状態を取得する",
+        "en": "Used to specify the operation mode ('automatic','cooling','heating','dehumidification','air circulator' or 'other'), and to acquire the current setting."
+      },
+      "data": {
+        "type": "state",
+        "size": 1,
+        "enum": [
+          {
+            "edt": "0x41",
+            "name": "auto",
+            "descriptions": {
+              "ja": "自動",
+              "en": "Automatic"
+            }
+          },
+          {
+            "edt": "0x42",
+            "name": "cooling",
+            "descriptions": {
+              "ja": "冷房",
+              "en": "Cooling"
+            }
+          },
+          {
+            "edt": "0x43",
+            "name": "heating",
+            "descriptions": {
+              "ja": "暖房",
+              "en": "Heating"
+            }
+          },
+          {
+            "edt": "0x44",
+            "name": "dehumidification",
+            "descriptions": {
+              "ja": "除湿",
+              "en": "Dehumidification"
+            }
+          },
+          {
+            "edt": "0x45",
+            "name": "circulation",
+            "descriptions": {
+              "ja": "送風",
+              "en": "Air circulation"
+            }
+          },
+          {
+            "edt": "0x40",
+            "name": "other",
+            "descriptions": {
+              "ja": "その他",
+              "en": "Other"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xBE",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "外気温度計測値",
+        "en": "Measured outdoor air temperature"
+      },
+      "shortName": "outdoorTemperature",
+      "accessRule": {
+        "get": "required",
+        "set": "notApplicable",
+        "inf": "notApplicable"
+      },
+      "descriptions": {
+        "ja": "外気温度計測値",
+        "en": "This property indicates the measured outdoor air temperature."
+      },
+      "data": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/number_-127-125Celsius"
+          },
+          {
+            "$ref": "#/definitions/state_UnmeasurableA_7E"
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xC0",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "換気モード設定",
+        "en": "Ventilation function setting"
+      },
+      "shortName": "ventilationFunction",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "notApplicable"
+      },
+      "descriptions": {
+        "ja": "換気の動作を設定し、設定状態を取得する",
+        "en": "Used to specify whether or not to use the ventilation function, to specify the ventilation direction, and to acquire the current setting."
+      },
+      "data": {
+        "type": "state",
+        "size": 1,
+        "enum": [
+          {
+            "edt": "0x31",
+            "name": "off",
+            "descriptions": {
+              "ja": "換気OFF",
+              "en": "Ventilation function OFF"
+            }
+          },
+          {
+            "edt": "0x42",
+            "name": "on",
+            "descriptions": {
+              "ja": "換気ON",
+              "en": "Ventilation function ON"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xC2",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "換気風量設定",
+        "en": "Ventilation air flow rate setting"
+      },
+      "shortName": "ventilationAirFlowLevel",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "notApplicable"
+      },
+      "descriptions": {
+        "ja": "換気風量レベルを設定し、設定状態を取得する",
+        "en": "Used to specify the ventilation air flow rate by selecting a level from among the predefined levels, and to acquire the current setting."
+      },
+      "data": {
+        "type": "state",
+        "size": 1,
+        "enum": [
+          {
+            "edt": "0x31",
+            "name": "low",
+            "descriptions": {
+              "ja": "弱",
+              "en": "Low"
+            }
+          },
+          {
+            "edt": "0x38",
+            "name": "high",
+            "descriptions": {
+              "ja": "強",
+              "en": "High"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
