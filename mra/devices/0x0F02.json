@@ -1,0 +1,112 @@
+{
+  "eoj": "0x0F02",
+  "validRelease": {
+    "from": "A",
+    "to": "latest"
+  },
+  "className": {
+    "ja": "三菱エアリゾートVAVカスタムオブジェクト",
+    "en": "Custom object for Mitsubishi AirResort variable air volume unit"
+  },
+  "shortName": "airResortVav",
+  "elProperties": [
+    {
+      "epc": "0x80",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "動作状態",
+        "en": "Operation status"
+      },
+      "shortName": "operationStatus",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "ON/OFFの状態を示す",
+        "en": "This property indicates the ON/OFF status."
+      },
+      "data": {
+        "$ref": "#/definitions/state_ON-OFF_3031"
+      }
+    },
+    {
+      "epc": "0x8F",
+      "validRelease": {
+        "from": "D",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "節電動作設定",
+        "en": "Power-saving operation setting"
+      },
+      "shortName": "powerSavingOperation",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "required"
+      },
+      "descriptions": {
+        "ja": "機器の節電動作を設定し、状態を取得する",
+        "en": "This property indicates whether the device is operating in power-saving mode."
+      },
+      "data": {
+        "type": "state",
+        "size": 1,
+        "enum": [
+          {
+            "edt": "0x41",
+            "name": "true",
+            "descriptions": {
+              "ja": "節電動作中",
+              "en": "Operating in power-saving mode"
+            }
+          },
+          {
+            "edt": "0x42",
+            "name": "false",
+            "descriptions": {
+              "ja": "通常動作中",
+              "en": "Operating in normal operation mode"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "epc": "0xB3",
+      "validRelease": {
+        "from": "A",
+        "to": "latest"
+      },
+      "propertyName": {
+        "ja": "温度設定値",
+        "en": "Set temperature value"
+      },
+      "shortName": "targetTemperature",
+      "accessRule": {
+        "get": "required",
+        "set": "required",
+        "inf": "notApplicable"
+      },
+      "descriptions": {
+        "ja": "温度設定値を設定し、設定状態を取得する",
+        "en": "Used to set the temperature and to acquire the current setting."
+      },
+      "data": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/number_0-50Celsius"
+          },
+          {
+            "$ref": "#/definitions/state_Undefined_FD"
+          }
+        ]
+      }
+    }
+  ]
+}
