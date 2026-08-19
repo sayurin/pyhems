@@ -43,6 +43,7 @@ from .const import (
     ESV_GET_SNA,
     ESV_INF,
     ESV_INF_REQ,
+    ESV_INF_SNA,
     ESV_INFC,
     ESV_INFC_RES,
     ESV_SET_RES,
@@ -82,6 +83,7 @@ from .runtime import (
     HemsErrorEvent,
     HemsFrameEvent,
     HemsInstanceListEvent,
+    NotificationRequestResult,
     RuntimeEvent,
 )
 from .transport import EchonetLiteProtocol, create_multicast_socket
@@ -114,6 +116,7 @@ __all__ = [
     "ESV_INFC",
     "ESV_INFC_RES",
     "ESV_INF_REQ",
+    "ESV_INF_SNA",
     "ESV_SETC",
     "ESV_SET_RES",
     "ESV_SET_SNA",
@@ -143,6 +146,7 @@ __all__ = [
     "InstallationLocationCodec",
     "ManufacturerDefinition",
     "NodeState",
+    "NotificationRequestResult",
     "NumericCodec",
     "NumericValueCodec",
     "NumericValueEntry",

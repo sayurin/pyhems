@@ -16,6 +16,8 @@ from pyhems import (
     EPC_SELF_NODE_INSTANCE_LIST,
     EPC_SERIAL_NUMBER,
     ESV_GET,
+    ESV_INF,
+    ESV_INF_SNA,
     ESV_INFC,
     ESV_INFC_RES,
     NODE_PROFILE_INSTANCE,
@@ -715,3 +717,185 @@ class TestInfcHandling:
         assert response_frame.deoj == EOJ(0x013001)
         # Verify properties are included
         assert len(response_frame.properties) == 2
+
+
+class TestRequestNotifications:
+    """Tests for HemsClient.request_notifications (0x63 -> 0x73/0x53)."""
+
+    @staticmethod
+    def _simulate_receive(client: HemsClient, frame: Frame, address: str) -> None:
+        """Simulate receiving a frame via _on_receive."""
+        frame_data = frame.encode()
+        client._on_receive(frame_data, (address, 3610))
+
+    @pytest.fixture
+    def client_with_protocol(self) -> HemsClient:
+        """Create a client with mocked protocol."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        client._protocol.send = MagicMock()
+        return client
+
+    @pytest.mark.asyncio
+    async def test_all_epcs_confirmed_via_inf(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A 0x73 response listing all requested EPCs confirms all of them."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        request_task = asyncio.create_task(
+            client.request_notifications(
+                node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        tid = next(iter(client._pending_infs.keys()))
+        response = Frame(
+            tid=tid,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80), Property(epc=0xB0)],
+        )
+        self._simulate_receive(client, response, "192.168.1.10")
+
+        result = await request_task
+        assert result.successful_epcs == frozenset({0x80, 0xB0})
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_partial_epcs_missing_from_inf_are_unanswered(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """EPCs requested but absent from a 0x73 response are unanswered."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        request_task = asyncio.create_task(
+            client.request_notifications(
+                node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        tid = next(iter(client._pending_infs.keys()))
+        response = Frame(
+            tid=tid,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80)],  # 0xB0 missing
+        )
+        self._simulate_receive(client, response, "192.168.1.10")
+
+        result = await request_task
+        assert result.successful_epcs == frozenset({0x80})
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset({0xB0})
+
+    @pytest.mark.asyncio
+    async def test_inf_sna_response_marks_epcs_failed(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A 0x53 (INF_SNA) response marks its listed EPCs as failed."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        request_task = asyncio.create_task(
+            client.request_notifications(
+                node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=1.0
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        tid = next(iter(client._pending_infs.keys()))
+        response = Frame(
+            tid=tid,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF_SNA,
+            properties=[Property(epc=0x80), Property(epc=0xB0)],
+        )
+        self._simulate_receive(client, response, "192.168.1.10")
+
+        result = await request_task
+        assert result.successful_epcs == frozenset()
+        assert result.failed_epcs == frozenset({0x80, 0xB0})
+        assert result.unanswered_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_timeout_marks_all_epcs_unanswered(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """No response before the timeout marks all EPCs unanswered."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        result = await client.request_notifications(
+            node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=0.1
+        )
+
+        assert result.successful_epcs == frozenset()
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset({0x80, 0xB0})
+
+    @pytest.mark.asyncio
+    async def test_response_from_unexpected_address_ignored(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A same-TID response from a different address does not resolve the pending request."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        request_task = asyncio.create_task(
+            client.request_notifications(
+                node_id, EOJ(0x013001), [0x80], request_timeout=0.1
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        tid = next(iter(client._pending_infs.keys()))
+        response = Frame(
+            tid=tid,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80)],
+        )
+        self._simulate_receive(client, response, "10.0.0.99")
+
+        result = await request_task
+        assert result.unanswered_epcs == frozenset({0x80})
+
+    @pytest.mark.asyncio
+    async def test_no_address_known_returns_unanswered(self) -> None:
+        """Requesting notifications for an unknown node returns unanswered."""
+        client = HemsClient()
+        result = await client.request_notifications(
+            "unknown-node", EOJ(0x013001), [0x80, 0xB0]
+        )
+        assert result.successful_epcs == frozenset()
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset({0x80, 0xB0})
+
+    @pytest.mark.asyncio
+    async def test_empty_epcs_returns_empty_result(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """Requesting notifications with no EPCs is a no-op."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+
+        result = await client.request_notifications(node_id, EOJ(0x013001), [])
+        assert result.successful_epcs == frozenset()
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset()
