@@ -16,13 +16,16 @@ from .const import (
     ESV_GET,
     ESV_GET_RES,
     ESV_GET_SNA,
+    ESV_INF,
+    ESV_INF_REQ,
+    ESV_INF_SNA,
     ESV_INFC,
     ESV_INFC_RES,
     ESV_SETC,
     GET_MAX_RETRIES,
-    GET_TIMEOUT,
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
+    SETUP_REQUEST_TIMEOUT,
 )
 from .discovery import _extract_discovery_info
 from .eoj import EOJ
@@ -81,6 +84,24 @@ class HemsErrorEvent(RuntimeEvent):
     error: Exception
 
 
+@dataclass(frozen=True, slots=True)
+class NotificationRequestResult:
+    """Result of an ``ESV_INF_REQ`` (0x63) notification-subscription request.
+
+    Per ECHONET Lite, a device that supports the request responds with
+    ``ESV_INF`` (0x73) listing EPCs it will now notify, or ``ESV_INF_SNA``
+    (0x53) listing EPCs it could not subscribe to. Requested EPCs missing
+    from either response, or for which no response arrives before the
+    request times out, are reported as ``unanswered_epcs`` so callers can
+    fall back to polling them instead of assuming notifications will
+    arrive.
+    """
+
+    successful_epcs: frozenset[int]
+    failed_epcs: frozenset[int]
+    unanswered_epcs: frozenset[int]
+
+
 EventCallback = Callable[[RuntimeEvent], None]
 
 
@@ -120,6 +141,11 @@ class HemsClient:
         # Pending Get requests: tid -> (address, deoj, requested_epcs, future)
         self._pending_gets: dict[
             int, tuple[str, EOJ, list[int], asyncio.Future[list[Property]]]
+        ] = {}
+        # Pending INF_REQ (0x63) requests awaiting a 0x73/0x53 response:
+        # tid -> (address, requested_epcs, future)
+        self._pending_infs: dict[
+            int, tuple[str, frozenset[int], asyncio.Future[Frame]]
         ] = {}
 
     def subscribe(self, callback: EventCallback) -> Callable[[], None]:
@@ -171,6 +197,12 @@ class HemsClient:
                 future.cancel()
         self._pending_gets.clear()
 
+        # Cancel pending INF_REQ (0x63) requests
+        for _tid, (_addr, _inf_epcs, inf_future) in list(self._pending_infs.items()):
+            if not inf_future.done():
+                inf_future.cancel()
+        self._pending_infs.clear()
+
         self._protocol.close()
         self._protocol = None
         _LOGGER.debug("HEMS runtime client stopped")
@@ -204,7 +236,7 @@ class HemsClient:
         deoj: EOJ,
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
-        request_timeout: float = GET_TIMEOUT,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
         max_retries: int = GET_MAX_RETRIES,
     ) -> list[Property]:
         """Send Get request to a device by node ID.
@@ -283,6 +315,105 @@ class HemsClient:
             _LOGGER.warning("No address known for device %s", node_id)
             return False
         return await self._send_to_address(frame, address)
+
+    async def request_notifications(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        epcs: list[int],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
+    ) -> NotificationRequestResult:
+        """Send an INF_REQ (0x63) and wait for its 0x73/0x53 response.
+
+        Unlike :meth:`get`, this makes a single attempt (no retries): an
+        EPC that is not confirmed successful — whether explicitly rejected
+        (0x53), absent from the response, or unanswered before
+        ``request_timeout`` — is reported in ``unanswered_epcs``/
+        ``failed_epcs`` so the caller can fall back to polling it rather
+        than assuming a notification will eventually arrive.
+
+        Args:
+            node_id: Device node ID (hex string from EPC 0x83).
+            deoj: Destination EOJ.
+            epcs: EPCs to request notifications for.
+            seoj: Source EOJ (default: controller).
+            request_timeout: Timeout in seconds for the response.
+
+        Returns:
+            The outcome, split into successful/failed/unanswered EPCs.
+
+        """
+        requested = frozenset(epcs)
+        address = self._device_addresses.inverse.get(node_id)
+        if not address or not self._protocol or not epcs:
+            return NotificationRequestResult(
+                successful_epcs=frozenset(),
+                failed_epcs=frozenset(),
+                unanswered_epcs=requested,
+            )
+
+        tid = Frame.next_tid()
+        future: asyncio.Future[Frame] = asyncio.Future()
+        self._pending_infs[tid] = (address, requested, future)
+
+        frame = Frame(
+            tid=tid,
+            seoj=seoj,
+            deoj=deoj,
+            esv=ESV_INF_REQ,
+            properties=[Property(epc=epc) for epc in epcs],
+        )
+
+        if not await self._send_to_address(frame, address):
+            self._pending_infs.pop(tid, None)
+            return NotificationRequestResult(
+                successful_epcs=frozenset(),
+                failed_epcs=frozenset(),
+                unanswered_epcs=requested,
+            )
+
+        try:
+            response_frame = await asyncio.wait_for(
+                asyncio.shield(future), request_timeout
+            )
+        except TimeoutError:
+            if not future.done():
+                _LOGGER.debug(
+                    "Notification request (0x63) to %s %r timed out for EPCs: [%s]",
+                    address,
+                    deoj,
+                    " ".join(f"{epc:02X}" for epc in sorted(requested)),
+                )
+                return NotificationRequestResult(
+                    successful_epcs=frozenset(),
+                    failed_epcs=frozenset(),
+                    unanswered_epcs=requested,
+                )
+            response_frame = future.result()
+        finally:
+            self._pending_infs.pop(tid, None)
+
+        responded_epcs = frozenset(prop.epc for prop in response_frame.properties)
+        # Per spec, 0x73 (INF) means the whole request was accepted and
+        # 0x53 (INF_SNA) means at least one EPC was rejected. Devices are
+        # not required to echo the full requested EPC set in either case,
+        # so any requested EPC absent from the response is treated as
+        # unanswered (the safe default: fall back to polling it) rather
+        # than assumed successful.
+        if response_frame.esv == ESV_INF:
+            successful = responded_epcs & requested
+            failed: frozenset[int] = frozenset()
+        else:
+            successful = frozenset()
+            failed = responded_epcs & requested
+        unanswered = requested - responded_epcs
+
+        return NotificationRequestResult(
+            successful_epcs=successful,
+            failed_epcs=failed,
+            unanswered_epcs=unanswered,
+        )
 
     async def set_property(
         self,
@@ -380,6 +511,28 @@ class HemsClient:
                         _format_frame(frame),
                     )
                 # Continue processing to also dispatch the event
+
+            # Check if this is a response to a pending INF_REQ (0x63) request
+            if frame.esv in (ESV_INF, ESV_INF_SNA) and frame.tid in self._pending_infs:
+                pending_inf = self._pending_infs.pop(frame.tid)
+                req_address, _req_inf_epcs, inf_future = pending_inf
+                if address == req_address and not inf_future.done():
+                    _LOGGER.debug(
+                        "Matched pending notification-request response from %s: %s",
+                        address,
+                        _format_frame(frame),
+                    )
+                    inf_future.set_result(frame)
+                elif address != req_address:
+                    _LOGGER.debug(
+                        "Ignoring pending notification-request response from "
+                        "unexpected address %s (expected %s): %s",
+                        address,
+                        req_address,
+                        _format_frame(frame),
+                    )
+                # Continue processing to also dispatch the event (0x73 also
+                # carries a real notification other subscribers need to see)
 
             # Handle node profile responses (identification and instance list)
             if frame.seoj.class_code == NODE_PROFILE_CLASS:

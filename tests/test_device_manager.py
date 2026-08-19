@@ -10,6 +10,7 @@ from pyhems import EOJ, Property
 from pyhems.const import (
     ESV_GET_RES,
     ESV_INF,
+    ESV_INF_SNA,
     ESV_SET_RES,
     ESV_SET_SNA,
     ESV_SETC,
@@ -17,11 +18,16 @@ from pyhems.const import (
 from pyhems.device_manager import (
     DeviceManager,
     NodeState,
+    _compute_poll_epcs,
     _decode_ascii_property,
     _parse_property_map,
 )
 from pyhems.frame import Frame
-from pyhems.runtime import HemsFrameEvent, HemsInstanceListEvent
+from pyhems.runtime import (
+    HemsFrameEvent,
+    HemsInstanceListEvent,
+    NotificationRequestResult,
+)
 
 # ---------------------------------------------------------------------------
 # Private utility functions
@@ -100,6 +106,68 @@ def test_decode_ascii_property(edt: bytes, expected: str | None) -> None:
 def test_parse_property_map(edt: bytes, expected: frozenset[int]) -> None:
     """Ensure property maps parse to expected EPC sets."""
     assert _parse_property_map(edt) == expected
+
+
+@pytest.mark.parametrize(
+    (
+        "monitored_epcs",
+        "get_epcs",
+        "fast_candidate_epcs",
+        "confirmed_inf_epcs",
+        "expected",
+    ),
+    [
+        pytest.param(
+            frozenset({0x80, 0xB0}),
+            frozenset({0x80, 0xB0}),
+            frozenset(),
+            frozenset(),
+            (frozenset({0x80, 0xB0}), frozenset()),
+            id="nothing_confirmed_polls_everything_gettable",
+        ),
+        pytest.param(
+            frozenset({0x80, 0xB0}),
+            frozenset({0x80, 0xB0}),
+            frozenset(),
+            frozenset({0xB0}),
+            (frozenset({0x80}), frozenset()),
+            id="confirmed_epc_excluded_from_polling",
+        ),
+        pytest.param(
+            frozenset({0x80, 0xE0}),
+            frozenset({0x80, 0xE0}),
+            frozenset({0xE0}),
+            frozenset(),
+            (frozenset({0x80}), frozenset({0xE0})),
+            id="fast_candidate_split_into_fast_tier",
+        ),
+        pytest.param(
+            frozenset({0x80}),
+            frozenset(),
+            frozenset(),
+            frozenset(),
+            (frozenset(), frozenset()),
+            id="not_gettable_epc_is_never_polled",
+        ),
+    ],
+)
+def test_compute_poll_epcs(
+    monitored_epcs: frozenset[int],
+    get_epcs: frozenset[int],
+    fast_candidate_epcs: frozenset[int],
+    confirmed_inf_epcs: frozenset[int],
+    expected: tuple[frozenset[int], frozenset[int]],
+) -> None:
+    """Poll/fast-poll EPCs are recomputed from confirmed INF subscriptions."""
+    assert (
+        _compute_poll_epcs(
+            monitored_epcs=monitored_epcs,
+            get_epcs=get_epcs,
+            fast_candidate_epcs=fast_candidate_epcs,
+            confirmed_inf_epcs=confirmed_inf_epcs,
+        )
+        == expected
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,10 +294,22 @@ def _make_node(
     )
 
 
+async def _default_request_notifications(
+    _node_id: str, _deoj: EOJ, epcs: list[int]
+) -> NotificationRequestResult:
+    """Simulate every requested EPC subscribing successfully by default."""
+    return NotificationRequestResult(
+        successful_epcs=frozenset(epcs),
+        failed_epcs=frozenset(),
+        unanswered_epcs=frozenset(),
+    )
+
+
 def _make_client() -> AsyncMock:
     client = AsyncMock()
     client.get = AsyncMock(return_value=[])
     client.send = AsyncMock(return_value=True)
+    client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     return client
 
 
@@ -314,6 +394,23 @@ class TestProcessFrameEvent:
         )
         assert dm.process_frame_event(event) is False
         assert node.properties[0x80] == b"\x31"
+
+    def test_ignores_inf_sna_response(self) -> None:
+        """INF_SNA (0x53) frames don't overwrite stored state.
+
+        A rejected notification subscription typically carries an empty
+        EDT, which must not clobber a previously cached property value.
+        """
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0xB0: b"\x41"})
+        dm.data[node.device_key] = node
+
+        event = _make_frame_event(
+            node.node_id, node.eoj, ESV_INF_SNA, [Property(epc=0xB0, edt=b"")]
+        )
+        assert dm.process_frame_event(event) is False
+        assert node.properties[0xB0] == b"\x41"
 
     def test_inf_frame_updates_properties(self) -> None:
         """INF notification frames update device properties."""
@@ -593,6 +690,133 @@ class TestProcessInstanceListEvent:
         node = dm.data[result[0]]
         assert node.poll_epcs == frozenset()
         assert node.fast_poll_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_inf_req_partial_failure_falls_back_to_polling(self) -> None:
+        """EPCs whose INF_REQ (0x63) subscription is rejected stay polled.
+
+        Only the confirmed (0x73) EPC is excluded from ``poll_epcs``; the
+        one that came back in a 0x53 (INF_SNA) response remains part of it.
+        """
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0x80, 0xB0, 0xB1})
+        set_epcs = frozenset({0x80})
+        inf_epcs = frozenset({0xB0, 0xB1})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(set_epcs)),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x41"),
+            Property(epc=0xB1, edt=b"\x41"),
+        ]
+        client.request_notifications.side_effect = None
+        client.request_notifications.return_value = NotificationRequestResult(
+            successful_epcs=frozenset({0xB0}),
+            failed_epcs=frozenset({0xB1}),
+            unanswered_epcs=frozenset(),
+        )
+
+        monitored_epcs = {0x0130: frozenset({0x80, 0xB0, 0xB1})}
+        dm = DeviceManager(client, monitored_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        assert node.attempted_inf_epcs == frozenset({0xB0, 0xB1})
+        assert node.confirmed_inf_epcs == frozenset({0xB0})
+        assert node.failed_inf_epcs == frozenset({0xB1})
+        # 0xB0 confirmed -> excluded from polling; 0xB1 rejected -> still polled
+        assert node.poll_epcs == frozenset({0x80, 0xB1})
+
+    @pytest.mark.asyncio
+    async def test_inf_req_unanswered_epc_falls_back_to_polling(self) -> None:
+        """An EPC absent from the 0x63 response (timeout) stays polled."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0xB0})
+        inf_epcs = frozenset({0xB0})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(frozenset())),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0xB0, edt=b"\x41"),
+        ]
+        client.request_notifications.side_effect = None
+        client.request_notifications.return_value = NotificationRequestResult(
+            successful_epcs=frozenset(),
+            failed_epcs=frozenset(),
+            unanswered_epcs=frozenset({0xB0}),
+        )
+
+        monitored_epcs = {0x0130: frozenset({0xB0})}
+        dm = DeviceManager(client, monitored_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        assert node.confirmed_inf_epcs == frozenset()
+        assert node.failed_inf_epcs == frozenset({0xB0})
+        assert node.poll_epcs == frozenset({0xB0})
+
+    @pytest.mark.asyncio
+    async def test_inf_req_send_failure_falls_back_to_polling(self) -> None:
+        """An OSError sending the INF_REQ leaves the EPC polled."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        get_epcs = frozenset({0xB0})
+        inf_epcs = frozenset({0xB0})
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
+            Property(epc=0x9E, edt=_make_property_map_edt(frozenset())),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x8C, edt=b"PRODUCT\x00"),
+            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
+            Property(epc=0xB0, edt=b"\x41"),
+        ]
+        client.request_notifications.side_effect = OSError("network unreachable")
+
+        monitored_epcs = {0x0130: frozenset({0xB0})}
+        dm = DeviceManager(client, monitored_epcs)
+
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[eoj],
+            node_id=node_id,
+            properties={},
+        )
+
+        result = await dm.process_instance_list_event(event)
+        node = dm.data[result[0]]
+        assert node.confirmed_inf_epcs == frozenset()
+        assert node.failed_inf_epcs == frozenset({0xB0})
+        assert node.poll_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
     async def test_skips_existing_device(self) -> None:

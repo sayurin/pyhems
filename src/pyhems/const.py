@@ -17,6 +17,7 @@ CONTROLLER_CLASS = CONTROLLER_INSTANCE.class_code
 # ESV (Service Codes)
 ESV_SET_SNA = 0x51  # Set response with some properties unavailable
 ESV_GET_SNA = 0x52  # Get response with some properties unavailable
+ESV_INF_SNA = 0x53  # Notification request response with some properties unavailable
 ESV_SETC = 0x61  # Set with response
 ESV_GET = 0x62  # Get request
 ESV_INF_REQ = 0x63  # Notification request
@@ -50,6 +51,17 @@ CLASS_CODE_VENTILATION_FAN = 0x0133
 CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN = 0x0134
 CLASS_CODE_AIR_CLEANER = 0x0135
 
-# Retry settings for Get requests
-GET_TIMEOUT = 5.0  # Seconds to wait for response
+# Timeout for one-time, setup-phase requests: the initial multi-property Get
+# (base_epcs + monitored_epcs) in DeviceManager.setup_device(), and the
+# subsequent INF_REQ (0x63) notification-subscription request and its
+# 0x73/0x53 response. Neither runs on a recurring cadence (periodic polling
+# uses DeviceManager.poll_device(), a raw send() with its own, much longer
+# adaptive timeout in PropertyPoller), so a generous value here does not
+# affect steady-state responsiveness. Some real devices have been observed
+# taking 15-20s to answer even a single-EPC request, and a too-short timeout
+# on the (retried) initial Get causes duplicate, wasted load: the device
+# ends up answering the same large request twice.
+SETUP_REQUEST_TIMEOUT = 30.0
+
+# Retry settings for the initial setup Get (see SETUP_REQUEST_TIMEOUT above).
 GET_MAX_RETRIES = 3  # Maximum retry attempts for failed properties
