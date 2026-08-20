@@ -135,6 +135,8 @@ class HemsClient:
         self._device_addresses: bidict[str, str] = bidict()
         # Queue to store frames from unknown devices (frame, eoj, received_at)
         self._pending_frames: dict[str, list[tuple[Frame, EOJ, float]]] = {}
+        # Per-address direct node discovery tasks started by unknown INF frames.
+        self._address_discovery_tasks: dict[str, asyncio.Task[None]] = {}
         # Background tasks that need to be kept alive
         self._background_tasks: set[asyncio.Task[object]] = set()
         self._poll_task: asyncio.Task[None] | None = None
@@ -181,6 +183,14 @@ class HemsClient:
 
     async def stop(self) -> None:
         """Stop the runtime client."""
+        discovery_tasks = list(self._address_discovery_tasks.values())
+        for task in discovery_tasks:
+            task.cancel()
+        if discovery_tasks:
+            await asyncio.gather(*discovery_tasks, return_exceptions=True)
+        self._address_discovery_tasks.clear()
+        self._pending_frames.clear()
+
         if not self._protocol:
             return
 
@@ -267,6 +277,25 @@ class HemsClient:
             _LOGGER.warning("No address known for device %s", node_id)
             return []
 
+        return await self._get_at_address(
+            address=address,
+            deoj=deoj,
+            epcs=epcs,
+            seoj=seoj,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+        )
+
+    async def _get_at_address(
+        self,
+        address: str,
+        deoj: EOJ,
+        epcs: list[int],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
+        max_retries: int = GET_MAX_RETRIES,
+    ) -> list[Property]:
+        """Send a Get request to an address and return its property values."""
         if not self._protocol or not epcs:
             return []
 
@@ -298,6 +327,32 @@ class HemsClient:
                 )
 
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
+
+    def _schedule_address_discovery(self, address: str) -> None:
+        """Start direct node discovery for an unknown address once."""
+        if address in self._address_discovery_tasks:
+            return
+
+        task = asyncio.create_task(self._discover_address(address))
+        self._address_discovery_tasks[address] = task
+
+        def done_callback(completed_task: asyncio.Task[None]) -> None:
+            if self._address_discovery_tasks.get(address) is completed_task:
+                del self._address_discovery_tasks[address]
+
+        task.add_done_callback(done_callback)
+
+    async def _discover_address(self, address: str) -> None:
+        """Discover an unknown node directly from its source address."""
+        try:
+            await self._get_at_address(
+                address,
+                NODE_PROFILE_INSTANCE,
+                self._discovery_epcs,
+            )
+        finally:
+            if address not in self._device_addresses:
+                self._pending_frames.pop(address, None)
 
     async def send(self, node_id: str, frame: Frame) -> bool:
         """Send a frame to a device by node ID.
@@ -534,6 +589,16 @@ class HemsClient:
                 # Continue processing to also dispatch the event (0x73 also
                 # carries a real notification other subscribers need to see)
 
+            # An INF from an unknown address is normally a multicast state
+            # update. Discover that source directly before applying any
+            # device-object notification it carried.
+            if frame.esv == ESV_INF and address not in self._device_addresses:
+                if frame.seoj.class_code != NODE_PROFILE_CLASS:
+                    pending_frames = self._pending_frames.setdefault(address, [])
+                    pending_frames.append((frame, frame.seoj, time.monotonic()))
+                self._schedule_address_discovery(address)
+                return
+
             # Handle node profile responses (identification and instance list)
             if frame.seoj.class_code == NODE_PROFILE_CLASS:
                 self._handle_node_profile(frame, address)
@@ -593,7 +658,7 @@ class HemsClient:
         # Extract node_id and instances using shared logic
         node_id, instances = _extract_discovery_info(frame)
 
-        if not node_id:
+        if not node_id or not instances:
             return
 
         # Collect all properties with non-empty EDT
@@ -608,7 +673,17 @@ class HemsClient:
         # Use forceput to handle address changes
         self._device_addresses.forceput(address, node_id)
 
-        # Process pending frames for this device if we have node_id
+        self._dispatch(
+            HemsInstanceListEvent(
+                received_at=time.monotonic(),
+                instances=instances,
+                node_id=node_id,
+                properties=properties,
+            )
+        )
+
+        # Replay device notifications only after their instances have been
+        # registered by the event consumer.
         pending_frames = self._pending_frames.pop(address, None)
         if pending_frames:
             for pending_frame, pending_eoj, pending_received_at in pending_frames:
@@ -620,17 +695,6 @@ class HemsClient:
                         eoj=pending_eoj,
                     )
                 )
-
-        # Dispatch instance list event if we have node_id
-        if instances:
-            self._dispatch(
-                HemsInstanceListEvent(
-                    received_at=time.monotonic(),
-                    instances=instances,
-                    node_id=node_id,
-                    properties=properties,
-                )
-            )
 
     def _dispatch(self, event: RuntimeEvent) -> None:
         """Dispatch an event to all subscribers."""
