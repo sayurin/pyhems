@@ -11,6 +11,7 @@ from pyhems import (
     ECHONET_MULTICAST,
     EOJ,
     EPC_IDENTIFICATION_NUMBER,
+    EPC_INSTANCE_LIST,
     EPC_MANUFACTURER_CODE,
     EPC_PRODUCT_CODE,
     EPC_SELF_NODE_INSTANCE_LIST,
@@ -334,6 +335,151 @@ class TestNodeProbe:
         assert (
             client._device_addresses.inverse.get(identification_hex) == "192.168.1.100"
         )
+
+    @pytest.mark.asyncio
+    async def test_unknown_node_profile_inf_discovers_source_address(self) -> None:
+        """Test a node-profile INF discovers its unknown source address."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        events: list[RuntimeEvent] = []
+        client.subscribe(events.append)
+        address = "192.168.1.101"
+        identification = b"\xfe" + b"\x00" * 16
+        instance_list = bytes([1, 0x01, 0x30, 0x01])
+
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=1,
+                seoj=NODE_PROFILE_INSTANCE,
+                deoj=NODE_PROFILE_INSTANCE,
+                esv=ESV_INF,
+                properties=[Property(epc=EPC_INSTANCE_LIST, edt=instance_list)],
+            ),
+            address,
+        )
+        await asyncio.sleep(0)
+
+        payload, destination = client._protocol.send.call_args.args
+        request = Frame.decode(payload)
+        assert destination == address
+        assert request.deoj == NODE_PROFILE_INSTANCE
+        assert request.esv == ESV_GET
+        assert [prop.epc for prop in request.properties] == client._discovery_epcs
+
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=next(iter(client._pending_gets)),
+                seoj=NODE_PROFILE_INSTANCE,
+                deoj=CONTROLLER_INSTANCE,
+                esv=0x72,
+                properties=[
+                    Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
+                    Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                ],
+            ),
+            address,
+        )
+        await asyncio.sleep(0)
+        await client._address_discovery_tasks[address]
+        await asyncio.sleep(0)
+
+        assert len(events) == 1
+        assert isinstance(events[0], HemsInstanceListEvent)
+        assert events[0].instances == [EOJ(0x013001)]
+        assert client._device_addresses[address] == identification.hex()
+        assert address not in client._address_discovery_tasks
+
+    @pytest.mark.asyncio
+    async def test_unknown_device_inf_is_replayed_after_discovery(self) -> None:
+        """Test an unknown device INF is replayed after its instances are found."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        events: list[RuntimeEvent] = []
+        client.subscribe(events.append)
+        address = "192.168.1.102"
+        device_eoj = EOJ(0x013001)
+        identification = b"\xfe" + b"\x01" * 16
+        instance_list = bytes([1, *device_eoj.to_bytes()])
+        notification = Frame(
+            tid=1,
+            seoj=device_eoj,
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+        self._simulate_receive(client, notification, address)
+        await asyncio.sleep(0)
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=next(iter(client._pending_gets)),
+                seoj=NODE_PROFILE_INSTANCE,
+                deoj=CONTROLLER_INSTANCE,
+                esv=0x72,
+                properties=[
+                    Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
+                    Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                ],
+            ),
+            address,
+        )
+        await asyncio.sleep(0)
+
+        assert len(events) == 2
+        instance_event, frame_event = events
+        assert isinstance(instance_event, HemsInstanceListEvent)
+        assert isinstance(frame_event, HemsFrameEvent)
+        assert frame_event.frame == notification
+        assert frame_event.node_id == identification.hex()
+
+    @pytest.mark.asyncio
+    async def test_unknown_inf_discovers_address_once(self) -> None:
+        """Test repeated INF frames from an unknown address share discovery."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.103"
+        notification = Frame(
+            tid=1,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+        self._simulate_receive(client, notification, address)
+        self._simulate_receive(client, notification, address)
+        await asyncio.sleep(0)
+
+        assert client._protocol.send.call_count == 1
+        assert len(client._address_discovery_tasks) == 1
+        await client.stop()
+
+    @pytest.mark.asyncio
+    async def test_failed_unknown_inf_discovery_discards_pending_frames(self) -> None:
+        """Test failed direct discovery discards the pending notification."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.104"
+        notification = Frame(
+            tid=1,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV_INF,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+        with patch.object(
+            client, "_get_at_address", new_callable=AsyncMock, return_value=[]
+        ):
+            self._simulate_receive(client, notification, address)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        assert address not in client._pending_frames
+        assert address not in client._address_discovery_tasks
 
     @pytest.mark.asyncio
     async def test_process_frame_discards_request_esv(self) -> None:
