@@ -1,417 +1,410 @@
 # Custom ECHONET Lite property definitions
 #
 # This file is processed by generate_definitions.py and merged into
-# definitions.json. Custom entries are mixed with MRA entries in the
-# same device class.
-#
-# Users can create their own definitions in config/echonet_lite.yaml
-# using the same format (processed at runtime, not by the generator).
+# _definitions_generated.py. It is a build-time source; runtime YAML
+# definitions are not supported.
 #
 # Format:
 #   devices:
 #     <class_code>:               # 2-byte class code as hex (e.g., 0x0135)
-#       - epc: <epc_code>         # EPC as hex (e.g., 0xF1)
-#         manufacturer_code: <code>  # Optional: 3-byte manufacturer code (e.g., 0x000005)
-#         byte_offset: <offset>   # Optional: byte position in EDT (0-indexed)
-#         # For sensor entities:
-#         format: <mra_format>    # MRA format: "uint8", "int8", "uint16", etc.
-#         unit: <mra_unit>        # MRA unit: "Celsius", "W", "%RH", etc.
-#         minimum: <min>          # Optional: minimum valid value (before scale)
-#         maximum: <max>          # Optional: maximum valid value (before scale)
-#         multipleOf: <scale>     # Optional: scale factor (default: 1.0)
-#         # For binary/select entities:
-#         enum_values: [...]      # List of {edt, key, name_en, name_ja}
-#         # Common fields:
-#         name_en: <name>         # English name (required for strings.json)
-#         name_ja: <name>         # Optional: Japanese name
-#         role: <role>            # Optional: PropertyRole value ("primary",
-#                                 #   "instantaneous", "setting", "status",
-#                                 #   "specification"). Custom entries have no
-#                                 #   MRA (class_code, epc) row in
-#                                 #   property_roles.xlsx to be curated from,
-#                                 #   so set it directly here. Defaults to
-#                                 #   "primary" when omitted.
+#       name_en: <name>           # Required for a class absent from MRA
+#       name_ja: <name>           # Required for a class absent from MRA
+#       properties:
+#         - mode: define           # Optional; defaults to "define"
+#           epc: <epc_code>       # EPC as hex (e.g., 0xF1)
+#           manufacturer_code: <code>  # Optional 3-byte manufacturer code
+#           byte_offset: <offset> # Optional EDT byte position (0-indexed)
+#           # define requires either format or enum_values, and name_en/name_ja/get.
+#           format: <mra_format>
+#           unit: <mra_unit>
+#           minimum: <min>
+#           maximum: <max>
+#           multipleOf: <scale>
+#           enum_values: [...]
+#           name_en: <name>
+#           name_ja: <name>
+#           role: <role>
 #
-# Behavior is auto-detected based on whether the EPC exists in MRA:
-#   - EPC NOT in MRA → ADD: creates a new custom entity
-#   - EPC found in MRA → UPDATE: patches the existing MRA entity
+# mode: define creates a fully specified property for an EPC that is absent
+# from MRA. mode: patch selectively updates an existing MRA EPC; unspecified
+# fields, including enum display names, are preserved.
 #
-# For ADD entries, IDs are auto-generated as:
-#   class_{class_code}_custom_{mfr_code}_epc_{epc}_{index}
-# where index is a sequential number (1, 2, ...) for entries sharing the same EPC.
-#
-# For UPDATE entries (overrides), any field except epc/manufacturer is applied
-# to the matching MRA entity. enum_values uses key-based merge (match by "key",
-# update name_en/name_ja). role, if present, overrides the curated value from
-# property_roles.xlsx.
-#
-# Note: When byte_offset is specified, multiple entities can be created from
-# a single EPC. Each entity reads a slice of the EDT data.
+# A generic define and a manufacturer-specific define may not share an
+# (EPC, byte_offset). Multiple enum defines for one EPC/manufacturer are not
+# supported because Home Assistant's enum entity keys do not include offsets.
 
 devices:
   # Air cleaner (空気清浄機)
   0x0135:
-    - epc: 0xF1
-      manufacturer_code: 0x000005
-      byte_offset: 1
-      enum_values:
-        - edt: 0x00
-          key: "true"
-          name_en: "Bright"
-          name_ja: "明るい"
-        - edt: 0x01
-          key: "false"
-          name_en: "Dark"
-          name_ja: "暗い"
-      get: optional
-      name_en: "Illuminance"
-      name_ja: "照度"
-    - epc: 0xF1
-      manufacturer_code: 0x000005
-      byte_offset: 3
-      format: int8
-      unit: Celsius
-      minimum: -127
-      maximum: 125
-      get: optional
-      name_en: "Temperature"
-      name_ja: "温度"
-    - epc: 0xF1
-      manufacturer_code: 0x000005
-      byte_offset: 4
-      format: uint8
-      unit: "%RH"
-      minimum: 0
-      maximum: 100
-      get: optional
-      name_en: "Humidity"
-      name_ja: "湿度"
-    - epc: 0xF1
-      manufacturer_code: 0x000005
-      byte_offset: 28
-      format: uint8
-      unit: "µg/m³"
-      minimum: 0
-      maximum: 255
-      get: optional
-      name_en: "PM2.5"
-      name_ja: "PM2.5"
+    properties:
+      - epc: 0xF1
+        manufacturer_code: 0x000005
+        byte_offset: 1
+        enum_values:
+          - edt: 0x00
+            key: "true"
+            name_en: "Bright"
+            name_ja: "明るい"
+          - edt: 0x01
+            key: "false"
+            name_en: "Dark"
+            name_ja: "暗い"
+        get: optional
+        name_en: "Illuminance"
+        name_ja: "照度"
+      - epc: 0xF1
+        manufacturer_code: 0x000005
+        byte_offset: 3
+        format: int8
+        unit: Celsius
+        minimum: -127
+        maximum: 125
+        get: optional
+        name_en: "Temperature"
+        name_ja: "温度"
+      - epc: 0xF1
+        manufacturer_code: 0x000005
+        byte_offset: 4
+        format: uint8
+        unit: "%RH"
+        minimum: 0
+        maximum: 100
+        get: optional
+        name_en: "Humidity"
+        name_ja: "湿度"
+      - epc: 0xF1
+        manufacturer_code: 0x000005
+        byte_offset: 28
+        format: uint8
+        unit: "µg/m³"
+        minimum: 0
+        maximum: 255
+        get: optional
+        name_en: "PM2.5"
+        name_ja: "PM2.5"
 
   # Housing solar power generation (住宅用太陽光発電)
   0x0279:
-    - epc: 0xF2
-      manufacturer_code: 0x000005
-      byte_offset: 0
-      format: uint16
-      unit: "V"
-      minimum: 0
-      maximum: 65533
-      get: optional
-      name_en: "Input Voltage 1"
-      name_ja: "入力電圧1"
-      role: status
-    - epc: 0xF2
-      manufacturer_code: 0x000005
-      byte_offset: 2
-      format: uint16
-      unit: "V"
-      minimum: 0
-      maximum: 65533
-      get: optional
-      name_en: "Input Voltage 2"
-      name_ja: "入力電圧2"
-      role: status
-    - epc: 0xF2
-      manufacturer_code: 0x000005
-      byte_offset: 4
-      format: uint16
-      unit: "V"
-      minimum: 0
-      maximum: 65533
-      get: optional
-      name_en: "Input Voltage 3"
-      name_ja: "入力電圧3"
-      role: status
-    - epc: 0xF2
-      manufacturer_code: 0x000005
-      byte_offset: 6
-      format: uint16
-      unit: "V"
-      minimum: 0
-      maximum: 65533
-      get: optional
-      name_en: "Input Voltage 4"
-      name_ja: "入力電圧4"
-      role: status
-    - epc: 0xF3
-      manufacturer_code: 0x000005
-      byte_offset: 0
-      format: uint8
-      unit: "A"
-      minimum: 0
-      maximum: 253
-      multipleOf: 0.1
-      get: optional
-      name_en: "Input Current 1"
-      name_ja: "入力電流1"
-      role: status
-    - epc: 0xF3
-      manufacturer_code: 0x000005
-      byte_offset: 1
-      format: uint8
-      unit: "A"
-      minimum: 0
-      maximum: 253
-      multipleOf: 0.1
-      get: optional
-      name_en: "Input Current 2"
-      name_ja: "入力電流2"
-      role: status
-    - epc: 0xF3
-      manufacturer_code: 0x000005
-      byte_offset: 2
-      format: uint8
-      unit: "A"
-      minimum: 0
-      maximum: 253
-      multipleOf: 0.1
-      get: optional
-      name_en: "Input Current 3"
-      name_ja: "入力電流3"
-      role: status
-    - epc: 0xF3
-      manufacturer_code: 0x000005
-      byte_offset: 3
-      format: uint8
-      unit: "A"
-      minimum: 0
-      maximum: 253
-      multipleOf: 0.1
-      get: optional
-      name_en: "Input Current 4"
-      name_ja: "入力電流4"
-      role: status
-    - epc: 0xF4
-      manufacturer_code: 0x000005
-      byte_offset: 0
-      format: uint16
-      unit: "W"
-      minimum: 0
-      maximum: 65533
-      multipleOf: 10
-      get: optional
-      name_en: "Input Power 1"
-      name_ja: "入力電力1"
-      role: status
-    - epc: 0xF4
-      manufacturer_code: 0x000005
-      byte_offset: 2
-      format: uint16
-      unit: "W"
-      minimum: 0
-      maximum: 65533
-      multipleOf: 10
-      get: optional
-      name_en: "Input Power 2"
-      name_ja: "入力電力2"
-      role: status
-    - epc: 0xF4
-      manufacturer_code: 0x000005
-      byte_offset: 4
-      format: uint16
-      unit: "W"
-      minimum: 0
-      maximum: 65533
-      multipleOf: 10
-      get: optional
-      name_en: "Input Power 3"
-      name_ja: "入力電力3"
-      role: status
-    - epc: 0xF4
-      manufacturer_code: 0x000005
-      byte_offset: 6
-      format: uint16
-      unit: "W"
-      minimum: 0
-      maximum: 65533
-      multipleOf: 10
-      get: optional
-      name_en: "Input Power 4"
-      name_ja: "入力電力4"
-      role: status
+    properties:
+      - epc: 0xF2
+        manufacturer_code: 0x000005
+        byte_offset: 0
+        format: uint16
+        unit: "V"
+        minimum: 0
+        maximum: 65533
+        get: optional
+        name_en: "Input Voltage 1"
+        name_ja: "入力電圧1"
+        role: status
+      - epc: 0xF2
+        manufacturer_code: 0x000005
+        byte_offset: 2
+        format: uint16
+        unit: "V"
+        minimum: 0
+        maximum: 65533
+        get: optional
+        name_en: "Input Voltage 2"
+        name_ja: "入力電圧2"
+        role: status
+      - epc: 0xF2
+        manufacturer_code: 0x000005
+        byte_offset: 4
+        format: uint16
+        unit: "V"
+        minimum: 0
+        maximum: 65533
+        get: optional
+        name_en: "Input Voltage 3"
+        name_ja: "入力電圧3"
+        role: status
+      - epc: 0xF2
+        manufacturer_code: 0x000005
+        byte_offset: 6
+        format: uint16
+        unit: "V"
+        minimum: 0
+        maximum: 65533
+        get: optional
+        name_en: "Input Voltage 4"
+        name_ja: "入力電圧4"
+        role: status
+      - epc: 0xF3
+        manufacturer_code: 0x000005
+        byte_offset: 0
+        format: uint8
+        unit: "A"
+        minimum: 0
+        maximum: 253
+        multipleOf: 0.1
+        get: optional
+        name_en: "Input Current 1"
+        name_ja: "入力電流1"
+        role: status
+      - epc: 0xF3
+        manufacturer_code: 0x000005
+        byte_offset: 1
+        format: uint8
+        unit: "A"
+        minimum: 0
+        maximum: 253
+        multipleOf: 0.1
+        get: optional
+        name_en: "Input Current 2"
+        name_ja: "入力電流2"
+        role: status
+      - epc: 0xF3
+        manufacturer_code: 0x000005
+        byte_offset: 2
+        format: uint8
+        unit: "A"
+        minimum: 0
+        maximum: 253
+        multipleOf: 0.1
+        get: optional
+        name_en: "Input Current 3"
+        name_ja: "入力電流3"
+        role: status
+      - epc: 0xF3
+        manufacturer_code: 0x000005
+        byte_offset: 3
+        format: uint8
+        unit: "A"
+        minimum: 0
+        maximum: 253
+        multipleOf: 0.1
+        get: optional
+        name_en: "Input Current 4"
+        name_ja: "入力電流4"
+        role: status
+      - epc: 0xF4
+        manufacturer_code: 0x000005
+        byte_offset: 0
+        format: uint16
+        unit: "W"
+        minimum: 0
+        maximum: 65533
+        multipleOf: 10
+        get: optional
+        name_en: "Input Power 1"
+        name_ja: "入力電力1"
+        role: status
+      - epc: 0xF4
+        manufacturer_code: 0x000005
+        byte_offset: 2
+        format: uint16
+        unit: "W"
+        minimum: 0
+        maximum: 65533
+        multipleOf: 10
+        get: optional
+        name_en: "Input Power 2"
+        name_ja: "入力電力2"
+        role: status
+      - epc: 0xF4
+        manufacturer_code: 0x000005
+        byte_offset: 4
+        format: uint16
+        unit: "W"
+        minimum: 0
+        maximum: 65533
+        multipleOf: 10
+        get: optional
+        name_en: "Input Power 3"
+        name_ja: "入力電力3"
+        role: status
+      - epc: 0xF4
+        manufacturer_code: 0x000005
+        byte_offset: 6
+        format: uint16
+        unit: "W"
+        minimum: 0
+        maximum: 65533
+        multipleOf: 10
+        get: optional
+        name_en: "Input Power 4"
+        name_ja: "入力電力4"
+        role: status
 
-  # Controller (コントローラ) - Sharp manufacturer-specific properties
+    # Controller (コントローラ) - Sharp manufacturer-specific properties
   0x05FF:
-    - epc: 0xF2
-      manufacturer_code: 0x000005
-      format: uint32
-      unit: "W"
-      minimum: 0
-      maximum: 4294967293
-      multipleOf: 0.1
-      get: optional
-      name_en: "Instantaneous Electric Power Sold"
-      name_ja: "瞬時売電電力"
-      role: instantaneous
-    - epc: 0xF3
-      manufacturer_code: 0x000005
-      format: uint32
-      unit: "W"
-      minimum: 0
-      maximum: 4294967293
-      multipleOf: 0.1
-      get: optional
-      name_en: "Instantaneous Electric Power Bought"
-      name_ja: "瞬時買電電力"
-      role: instantaneous
-    - epc: 0xF4
-      manufacturer_code: 0x000005
-      format: uint32
-      unit: "Wh"
-      minimum: 0
-      maximum: 4294967293
-      get: optional
-      name_en: "Cumulative Electric Energy Sold"
-      name_ja: "積算売電電力量"
-    - epc: 0xF5
-      manufacturer_code: 0x000005
-      format: uint32
-      unit: "Wh"
-      minimum: 0
-      maximum: 4294967293
-      get: optional
-      name_en: "Cumulative Electric Energy Bought"
-      name_ja: "積算買電電力量"
+    properties:
+      - epc: 0xF2
+        manufacturer_code: 0x000005
+        format: uint32
+        unit: "W"
+        minimum: 0
+        maximum: 4294967293
+        multipleOf: 0.1
+        get: optional
+        name_en: "Instantaneous Electric Power Sold"
+        name_ja: "瞬時売電電力"
+        role: instantaneous
+      - epc: 0xF3
+        manufacturer_code: 0x000005
+        format: uint32
+        unit: "W"
+        minimum: 0
+        maximum: 4294967293
+        multipleOf: 0.1
+        get: optional
+        name_en: "Instantaneous Electric Power Bought"
+        name_ja: "瞬時買電電力"
+        role: instantaneous
+      - epc: 0xF4
+        manufacturer_code: 0x000005
+        format: uint32
+        unit: "Wh"
+        minimum: 0
+        maximum: 4294967293
+        get: optional
+        name_en: "Cumulative Electric Energy Sold"
+        name_ja: "積算売電電力量"
+      - epc: 0xF5
+        manufacturer_code: 0x000005
+        format: uint32
+        unit: "Wh"
+        minimum: 0
+        maximum: 4294967293
+        get: optional
+        name_en: "Cumulative Electric Energy Bought"
+        name_ja: "積算買電電力量"
 
-  # Home air conditioner (家庭用エアコン)
-  # Air flow direction (vertical) setting (風向上下設定) EPC 0xA4
-  # 5 angles from horizontal(→) to downward(↓), expressed as arrow combinations
-  # Air flow direction (horizontal) setting (風向左右設定) EPC 0xA5
-  # Display with arrow symbols instead of verbose text descriptions
-  # 5 fixed positions: L(←) LC(↙) C(↓) RC(↘) R(→)
-  # Absent positions are replaced with fullwidth space (U+3000) to align columns
+    # Home air conditioner (家庭用エアコン)
+    # Air flow direction (vertical) setting (風向上下設定) EPC 0xA4
+    # 5 angles from horizontal(→) to downward(↓), expressed as arrow combinations
+    # Air flow direction (horizontal) setting (風向左右設定) EPC 0xA5
+    # Display with arrow symbols instead of verbose text descriptions
+    # 5 fixed positions: L(←) LC(↙) C(↓) RC(↘) R(→)
+    # Absent positions are replaced with fullwidth space (U+3000) to align columns
   0x0130:
-    - epc: 0xA4
-      enum_values:
-        - key: uppermost
-          name_en: "|　　→|"
-          name_ja: "|　　→|"
-        - key: upperCenter
-          name_en: "|　↘→|"
-          name_ja: "|　↘→|"
-        - key: central
-          name_en: "|　↘　|"
-          name_ja: "|　↘　|"
-        - key: lowerCenter
-          name_en: "|↓↘　|"
-          name_ja: "|↓↘　|"
-        - key: lowermost
-          name_en: "|↓　　|"
-          name_ja: "|↓　　|"
-    - epc: 0xA5
-      enum_values:
-        - key: r
-          name_en: "|　　　　→|"
-          name_ja: "|　　　　→|"
-        - key: rc
-          name_en: "|　　　↘　|"
-          name_ja: "|　　　↘　|"
-        - key: c
-          name_en: "|　　↓　　|"
-          name_ja: "|　　↓　　|"
-        - key: lc
-          name_en: "|　↙　　　|"
-          name_ja: "|　↙　　　|"
-        - key: l
-          name_en: "|←　　　　|"
-          name_ja: "|←　　　　|"
-        - key: rc_r
-          name_en: "|　　　↘→|"
-          name_ja: "|　　　↘→|"
-        - key: c_r
-          name_en: "|　　↓　→|"
-          name_ja: "|　　↓　→|"
-        - key: lc_r
-          name_en: "|　↙　　→|"
-          name_ja: "|　↙　　→|"
-        - key: l_r
-          name_en: "|←　　　→|"
-          name_ja: "|←　　　→|"
-        - key: c_rc
-          name_en: "|　　↓↘　|"
-          name_ja: "|　　↓↘　|"
-        - key: lc_rc
-          name_en: "|　↙　↘　|"
-          name_ja: "|　↙　↘　|"
-        - key: l_rc
-          name_en: "|←　　↘　|"
-          name_ja: "|←　　↘　|"
-        - key: lc_c
-          name_en: "|　↙↓　　|"
-          name_ja: "|　↙↓　　|"
-        - key: l_c
-          name_en: "|←　↓　　|"
-          name_ja: "|←　↓　　|"
-        - key: l_lc
-          name_en: "|←↙　　　|"
-          name_ja: "|←↙　　　|"
-        - key: c_rc_r
-          name_en: "|　　↓↘→|"
-          name_ja: "|　　↓↘→|"
-        - key: lc_rc_r
-          name_en: "|　↙　↘→|"
-          name_ja: "|　↙　↘→|"
-        - key: lc_c_r
-          name_en: "|　↙↓　→|"
-          name_ja: "|　↙↓　→|"
-        - key: lc_c_rc
-          name_en: "|　↙↓↘　|"
-          name_ja: "|　↙↓↘　|"
-        - key: l_rc_r
-          name_en: "|←　　↘→|"
-          name_ja: "|←　　↘→|"
-        - key: l_c_r
-          name_en: "|←　↓　→|"
-          name_ja: "|←　↓　→|"
-        - key: l_c_rc
-          name_en: "|←　↓↘　|"
-          name_ja: "|←　↓↘　|"
-        - key: l_lc_r
-          name_en: "|←↙　　→|"
-          name_ja: "|←↙　　→|"
-        - key: l_lc_rc
-          name_en: "|←↙　↘　|"
-          name_ja: "|←↙　↘　|"
-        - key: l_lc_c
-          name_en: "|←↙↓　　|"
-          name_ja: "|←↙↓　　|"
-        - key: lc_c_rc_r
-          name_en: "|　↙↓↘→|"
-          name_ja: "|　↙↓↘→|"
-        - key: l_c_rc_r
-          name_en: "|←　↓↘→|"
-          name_ja: "|←　↓↘→|"
-        - key: l_lc_rc_r
-          name_en: "|←↙　↘→|"
-          name_ja: "|←↙　↘→|"
-        - key: l_lc_c_r
-          name_en: "|←↙↓　→|"
-          name_ja: "|←↙↓　→|"
-        - key: l_lc_c_rc
-          name_en: "|←↙↓↘　|"
-          name_ja: "|←↙↓↘　|"
-        - key: l_lc_c_rc_r
-          name_en: "|←↙↓↘→|"
-          name_ja: "|←↙↓↘→|"
+    properties:
+      - mode: patch
+        epc: 0xA4
+        enum_values:
+          - key: uppermost
+            name_en: "|　　→|"
+            name_ja: "|　　→|"
+          - key: upperCenter
+            name_en: "|　↘→|"
+            name_ja: "|　↘→|"
+          - key: central
+            name_en: "|　↘　|"
+            name_ja: "|　↘　|"
+          - key: lowerCenter
+            name_en: "|↓↘　|"
+            name_ja: "|↓↘　|"
+          - key: lowermost
+            name_en: "|↓　　|"
+            name_ja: "|↓　　|"
+      - mode: patch
+        epc: 0xA5
+        enum_values:
+          - key: r
+            name_en: "|　　　　→|"
+            name_ja: "|　　　　→|"
+          - key: rc
+            name_en: "|　　　↘　|"
+            name_ja: "|　　　↘　|"
+          - key: c
+            name_en: "|　　↓　　|"
+            name_ja: "|　　↓　　|"
+          - key: lc
+            name_en: "|　↙　　　|"
+            name_ja: "|　↙　　　|"
+          - key: l
+            name_en: "|←　　　　|"
+            name_ja: "|←　　　　|"
+          - key: rc_r
+            name_en: "|　　　↘→|"
+            name_ja: "|　　　↘→|"
+          - key: c_r
+            name_en: "|　　↓　→|"
+            name_ja: "|　　↓　→|"
+          - key: lc_r
+            name_en: "|　↙　　→|"
+            name_ja: "|　↙　　→|"
+          - key: l_r
+            name_en: "|←　　　→|"
+            name_ja: "|←　　　→|"
+          - key: c_rc
+            name_en: "|　　↓↘　|"
+            name_ja: "|　　↓↘　|"
+          - key: lc_rc
+            name_en: "|　↙　↘　|"
+            name_ja: "|　↙　↘　|"
+          - key: l_rc
+            name_en: "|←　　↘　|"
+            name_ja: "|←　　↘　|"
+          - key: lc_c
+            name_en: "|　↙↓　　|"
+            name_ja: "|　↙↓　　|"
+          - key: l_c
+            name_en: "|←　↓　　|"
+            name_ja: "|←　↓　　|"
+          - key: l_lc
+            name_en: "|←↙　　　|"
+            name_ja: "|←↙　　　|"
+          - key: c_rc_r
+            name_en: "|　　↓↘→|"
+            name_ja: "|　　↓↘→|"
+          - key: lc_rc_r
+            name_en: "|　↙　↘→|"
+            name_ja: "|　↙　↘→|"
+          - key: lc_c_r
+            name_en: "|　↙↓　→|"
+            name_ja: "|　↙↓　→|"
+          - key: lc_c_rc
+            name_en: "|　↙↓↘　|"
+            name_ja: "|　↙↓↘　|"
+          - key: l_rc_r
+            name_en: "|←　　↘→|"
+            name_ja: "|←　　↘→|"
+          - key: l_c_r
+            name_en: "|←　↓　→|"
+            name_ja: "|←　↓　→|"
+          - key: l_c_rc
+            name_en: "|←　↓↘　|"
+            name_ja: "|←　↓↘　|"
+          - key: l_lc_r
+            name_en: "|←↙　　→|"
+            name_ja: "|←↙　　→|"
+          - key: l_lc_rc
+            name_en: "|←↙　↘　|"
+            name_ja: "|←↙　↘　|"
+          - key: l_lc_c
+            name_en: "|←↙↓　　|"
+            name_ja: "|←↙↓　　|"
+          - key: lc_c_rc_r
+            name_en: "|　↙↓↘→|"
+            name_ja: "|　↙↓↘→|"
+          - key: l_c_rc_r
+            name_en: "|←　↓↘→|"
+            name_ja: "|←　↓↘→|"
+          - key: l_lc_rc_r
+            name_en: "|←↙　↘→|"
+            name_ja: "|←↙　↘→|"
+          - key: l_lc_c_r
+            name_en: "|←↙↓　→|"
+            name_ja: "|←↙↓　→|"
+          - key: l_lc_c_rc
+            name_en: "|←↙↓↘　|"
+            name_ja: "|←↙↓↘　|"
+          - key: l_lc_c_rc_r
+            name_en: "|←↙↓↘→|"
+            name_ja: "|←↙↓↘→|"
 
-  # Air conditioner ventilation fan (空調換気扇)
-  # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
-  # MRA bug: "false" (OFF) is incorrectly labeled "Heat exchanger ON"
+    # Air conditioner ventilation fan (空調換気扇)
+    # Heat exchanger operation setting (熱交換機動作設定) EPC 0xE0
+    # MRA bug: "false" (OFF) is incorrectly labeled "Heat exchanger ON"
   0x0134:
-    - epc: 0xE0
-      enum_values:
-        - key: "false"
-          name_en: "Heat exchanger OFF"
+    properties:
+      - mode: patch
+        epc: 0xE0
+        enum_values:
+          - key: "false"
+            name_en: "Heat exchanger OFF"
 
 # Curated CollectionBinding entries (see pyhems.definitions.CollectionBinding).
 #
