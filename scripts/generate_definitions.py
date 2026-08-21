@@ -104,6 +104,8 @@ class _DefinitionsBuild:
     common: list[EntityDefinition]
     devices: dict[int, _DeviceBuild]
     manufacturers: dict[int, ManufacturerDefinition]
+    mra_epcs: dict[int, frozenset[int]]
+    common_epcs: frozenset[int]
 
 
 # ============================================================================
@@ -779,6 +781,8 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             common=[],
             devices={},
             manufacturers={},
+            mra_epcs={},
+            common_epcs=frozenset(),
         )
 
     mra_version, mra_definitions = _load_mra_metadata(mra_path)
@@ -789,18 +793,21 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
     with (mra_path / "superClass" / "0x0000.json").open(encoding="utf-8") as f:
         superclass = json.load(f)
     common: list[EntityDefinition] = []
+    raw_common_epcs: set[int] = set()
     for prop_data in superclass["elProperties"]:
         if not _is_latest_version(prop_data):
             continue
+        raw_common_epcs.add(int(prop_data["epc"], 16))
         prop = _parse_mra_property(prop_data, mra_definitions)
         entity = _build_entity_from_property(0, prop)
         if entity is not None:
             common.append(_apply_role(entity, role_map, 0))
 
     # EPCs already in common section (to avoid duplicates in device-specific entities)
-    common_epcs = frozenset(e.epc for e in common)
+    common_entity_epcs = frozenset(e.epc for e in common)
 
     devices: dict[int, _DeviceBuild] = {}
+    mra_epcs: dict[int, frozenset[int]] = {}
 
     for device_file in sorted(devices_path.glob("0x*.json")):
         class_code = int(device_file.stem, 16)
@@ -809,6 +816,11 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             data = json.load(f)
 
         class_name_data = data["className"]
+        mra_epcs[class_code] = frozenset(
+            int(prop_data["epc"], 16)
+            for prop_data in data["elProperties"]
+            if _is_latest_version(prop_data)
+        )
         entities: list[EntityDefinition] = []
         structured_values: dict[int, PropertyValueDefinition] = {}
 
@@ -831,7 +843,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             epc = int(prop_data["epc"], 16)
 
             # Skip common EPCs (they are in the common section)
-            if epc in common_epcs:
+            if epc in common_entity_epcs:
                 continue
 
             object_entities = _build_entities_from_object_property(
@@ -877,6 +889,8 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
         common=common,
         devices=devices,
         manufacturers=manufacturers,
+        mra_epcs=mra_epcs,
+        common_epcs=frozenset(raw_common_epcs),
     )
 
 
@@ -934,196 +948,427 @@ def _load_custom_definitions(custom_path: Path) -> dict[str, Any]:
 
 # YAML field name → EntityDefinition attribute name (where they differ)
 _YAML_TO_ATTR: dict[str, str] = {"multipleOf": "multiple_of"}
+_ACCESS_VALUES = frozenset(
+    {"required", "required_c", "required_o", "optional", "notApplicable"}
+)
+_NUMERIC_FORMATS = frozenset({"uint8", "int8", "uint16", "int16", "uint32", "int32"})
+_PATCH_FIELDS = frozenset(
+    {
+        "name_en",
+        "name_ja",
+        "get",
+        "set",
+        "description_en",
+        "description_ja",
+        "format",
+        "unit",
+        "minimum",
+        "maximum",
+        "multipleOf",
+        "role",
+        "enum_values",
+    }
+)
+_DEFINE_FIELDS = _PATCH_FIELDS | frozenset(
+    {"epc", "manufacturer_code", "byte_offset", "mode"}
+)
 
 
-def _apply_overrides(
-    build: _DefinitionsBuild,
-    custom: dict[str, Any],
-    mra_epcs_by_class: dict[int, frozenset[int]],
-) -> None:
-    """Apply overrides to existing MRA-generated entities (in-place).
-
-    For each entry whose EPC already exists in the MRA definitions,
-    patch the matching EntityDefinition using dataclasses.replace().
-    ``enum_values`` uses key-based merge (matched by ``key``, updating
-    ``name_en``/``name_ja``).  When the override covers ALL enum keys,
-    the enum_values are also reordered to match the override list order;
-    partial overrides leave the original MRA order unchanged.
-    """
-    override_count = 0
-
-    for class_code, entries in custom.get("devices", {}).items():
-        if class_code not in build.devices:
-            continue
-
-        device_build = build.devices[class_code]
-        mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
-
-        for entry in entries:
-            epc: int = entry["epc"]
-            if epc not in mra_epcs:
-                continue  # Not an override — handled by _merge_custom_definitions
-
-            manufacturer_code = entry.get("manufacturer_code")
-
-            # Collect indices of matching entities
-            matching_idx = [
-                i
-                for i, e in enumerate(device_build.entities)
-                if e.epc == epc
-                and (
-                    manufacturer_code is None
-                    or e.manufacturer_code == manufacturer_code
-                )
-            ]
-            if not matching_idx:
-                print(
-                    f"  Warning: override target EPC 0x{epc:02X} not found "
-                    f"in class 0x{class_code:04X}"
-                )
-                continue
-
-            match_keys = {"epc", "manufacturer_code"}
-
-            for idx in matching_idx:
-                entity = device_build.entities[idx]
-                changes: dict[str, Any] = {}
-
-                for field, value in entry.items():
-                    if field in match_keys:
-                        continue
-                    if field == "enum_values":
-                        # Key-based merge for enum_values.
-                        # Reordering is applied only when the override covers
-                        # ALL enum keys (full coverage), so that partial
-                        # overrides (label-only fixes) do not disturb the
-                        # original MRA order.
-                        current_evs = list(entity.enum_values)
-                        updated: dict[str, EnumValue] = {}
-                        override_order: list[str] = []
-                        for ev_override in value:
-                            key = ev_override["key"]
-                            matched = [ev for ev in current_evs if ev.key == key]
-                            if not matched:
-                                print(
-                                    f"  Warning: override enum key '{key}' "
-                                    f"not found in EPC 0x{epc:02X} of "
-                                    f"class 0x{class_code:04X}"
-                                )
-                                continue
-                            for ev in matched:
-                                updated[key] = dataclasses.replace(
-                                    ev,
-                                    name_en=ev_override.get("name_en", ev.name_en),
-                                    name_ja=ev_override.get("name_ja", ev.name_ja),
-                                )
-                                override_count += 1
-                            override_order.append(key)
-
-                        new_evs = [updated.get(ev.key, ev) for ev in current_evs]
-
-                        # Only reorder when the override fully covers every key
-                        if override_order and len(override_order) == len(current_evs):
-                            key_index = {k: i for i, k in enumerate(override_order)}
-                            new_evs.sort(key=lambda ev: key_index[ev.key])
-
-                        changes["enum_values"] = tuple(new_evs)
-                    elif field == "role":
-                        changes["role"] = PropertyRole(value)
-                        override_count += 1
-                    else:
-                        attr = _YAML_TO_ATTR.get(field, field)
-                        changes[attr] = value
-                        override_count += 1
-
-                if changes:
-                    device_build.entities[idx] = dataclasses.replace(entity, **changes)
-
-    if override_count:
-        print(f"  Applied {override_count} override(s)")
-
-
-def _merge_custom_definitions(
-    build: _DefinitionsBuild,
-    custom: dict[str, Any],
-    mra_epcs_by_class: dict[int, frozenset[int]],
-) -> None:
-    """Merge new custom entities into definitions (in-place).
-
-    For each entry whose EPC does NOT exist in the MRA definitions,
-    create a new EntityDefinition and append it.
-    """
-    custom_entity_count = 0
-
-    for class_code, entries in custom.get("devices", {}).items():
-        if class_code not in build.devices:
-            print(f"  Warning: custom target class 0x{class_code:04X} not found")
-            continue
-
-        mra_epcs = mra_epcs_by_class.get(class_code, frozenset())
-
-        for entry in entries:
-            epc: int = entry["epc"]
-            if epc in mra_epcs:
-                continue  # Override — handled by _apply_overrides
-
-            entity = _build_custom_entity(class_code, entry)
-            build.devices[class_code].entities.append(entity)
-            custom_entity_count += 1
-
-    if custom_entity_count:
-        print(f"  Total custom entities: {custom_entity_count}")
-
-
-def _build_custom_entity(
-    class_code: int,
-    entry: dict[str, Any],
-) -> EntityDefinition:
-    """Build a custom EntityDefinition from a YAML entry."""
-    epc: int = entry["epc"]
-    mfr_code: int | None = entry.get("manufacturer_code")
-    byte_offset: int = entry.get("byte_offset", 0)
-    enum_values_raw = entry.get("enum_values")
-    role = PropertyRole(entry["role"]) if "role" in entry else PropertyRole.PRIMARY
-
-    entity_id = (
-        f"class_{class_code:04x}_epc_{epc:02x}_custom_{mfr_code:06x}_{byte_offset:02x}"
-        if mfr_code is not None
-        else f"class_{class_code:04x}_epc_{epc:02x}_custom_{byte_offset:02x}"
+def _custom_error(class_code: int, entry: dict[str, Any], message: str) -> ValueError:
+    """Build a contextual custom definitions validation error."""
+    epc = entry.get("epc")
+    epc_text = f" EPC 0x{epc:02X}" if isinstance(epc, int) else ""
+    return ValueError(
+        f"Custom definition class 0x{class_code:04X}{epc_text}: {message}"
     )
-    enum_tuple = (
-        tuple(
-            EnumValue(
-                edt=ev["edt"],
-                key=ev["key"],
-                name_en=ev.get("name_en", ""),
-                name_ja=ev.get("name_ja", ""),
+
+
+def _validate_code(
+    value: Any, maximum: int, field: str, class_code: int, entry: dict[str, Any]
+) -> int:
+    """Validate an integer code in a custom definition."""
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 0 <= value <= maximum
+    ):
+        raise _custom_error(class_code, entry, f"{field} must be 0x0-{maximum:X}")
+    return value
+
+
+def _validate_access(
+    value: Any, field: str, class_code: int, entry: dict[str, Any]
+) -> str:
+    """Validate an ECHONET Lite access rule."""
+    if not isinstance(value, str) or value not in _ACCESS_VALUES:
+        raise _custom_error(class_code, entry, f"{field} has an invalid access rule")
+    return value
+
+
+def _validate_numeric_fields(
+    values: dict[str, Any], class_code: int, entry: dict[str, Any]
+) -> None:
+    """Validate numeric definition fields supplied by a custom entry."""
+    if "format" in values and values["format"] not in _NUMERIC_FORMATS:
+        raise _custom_error(class_code, entry, "format is not supported")
+    for field in ("minimum", "maximum", "multipleOf"):
+        if field in values and (
+            not isinstance(values[field], int | float)
+            or isinstance(values[field], bool)
+        ):
+            raise _custom_error(class_code, entry, f"{field} must be numeric")
+    if (
+        "minimum" in values
+        and "maximum" in values
+        and values["minimum"] > values["maximum"]
+    ):
+        raise _custom_error(class_code, entry, "minimum must not exceed maximum")
+    if "multipleOf" in values and values["multipleOf"] <= 0:
+        raise _custom_error(class_code, entry, "multipleOf must be greater than zero")
+
+
+def _apply_enum_patch(
+    entity: EntityDefinition, values: Any, class_code: int, entry: dict[str, Any]
+) -> tuple[EnumValue, ...]:
+    """Apply display-name patches to existing enum values."""
+    if not isinstance(values, list):
+        raise _custom_error(class_code, entry, "enum_values must be a list")
+
+    by_key = {value.key: value for value in entity.enum_values}
+    updated = dict(by_key)
+    patch_order: list[str] = []
+    for patch in values:
+        if not isinstance(patch, dict) or set(patch) - {"key", "name_en", "name_ja"}:
+            raise _custom_error(
+                class_code,
+                entry,
+                "enum patch values may only contain key, name_en, and name_ja",
             )
-            for ev in enum_values_raw
+        key = patch.get("key")
+        if not isinstance(key, str) or key not in by_key:
+            raise _custom_error(class_code, entry, f"enum key {key!r} does not exist")
+        if key in patch_order:
+            raise _custom_error(class_code, entry, f"duplicate enum key {key!r}")
+        if "name_en" not in patch and "name_ja" not in patch:
+            raise _custom_error(
+                class_code, entry, "enum patch must change a display name"
+            )
+        current = by_key[key]
+        updated[key] = dataclasses.replace(
+            current,
+            name_en=patch.get("name_en", current.name_en),
+            name_ja=patch.get("name_ja", current.name_ja),
         )
-        if enum_values_raw
-        else ()
-    )
+        patch_order.append(key)
+    if len(patch_order) == len(by_key):
+        return tuple(updated[key] for key in patch_order)
+    return tuple(updated[value.key] for value in entity.enum_values)
 
+
+def _apply_patch(
+    build: _DefinitionsBuild, class_code: int, entry: dict[str, Any]
+) -> int:
+    """Apply a partial custom patch to an MRA entity."""
+    if "manufacturer_code" in entry:
+        raise _custom_error(
+            class_code, entry, "patch entries may not specify manufacturer_code"
+        )
+    epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+    if epc not in build.mra_epcs.get(class_code, frozenset()):
+        raise _custom_error(class_code, entry, "patch target is not an MRA EPC")
+    if epc in build.common_epcs:
+        raise _custom_error(class_code, entry, "common EPCs may not be patched")
+    if unknown := set(entry) - (_PATCH_FIELDS | {"epc", "mode", "byte_offset"}):
+        raise _custom_error(
+            class_code, entry, f"unknown patch fields: {sorted(unknown)}"
+        )
+    changes_raw = {key: value for key, value in entry.items() if key in _PATCH_FIELDS}
+    if not changes_raw:
+        raise _custom_error(class_code, entry, "patch must change at least one field")
+    _validate_numeric_fields(changes_raw, class_code, entry)
+
+    device_build = build.devices[class_code]
+    candidates = [
+        (index, entity)
+        for index, entity in enumerate(device_build.entities)
+        if entity.epc == epc
+    ]
+    if not candidates:
+        raise _custom_error(
+            class_code, entry, "patch target is not a scalar MRA entity"
+        )
+    if len(candidates) > 1 and "byte_offset" not in entry:
+        raise _custom_error(
+            class_code,
+            entry,
+            "patch target has multiple byte offsets; specify byte_offset",
+        )
+    if "byte_offset" in entry:
+        byte_offset = _validate_code(
+            entry["byte_offset"], 0xFF, "byte_offset", class_code, entry
+        )
+        candidates = [
+            (index, entity)
+            for index, entity in candidates
+            if entity.byte_offset == byte_offset
+        ]
+        if not candidates:
+            raise _custom_error(class_code, entry, "patch byte_offset does not exist")
+
+    for index, entity in candidates:
+        numeric_fields = {"format", "unit", "minimum", "maximum", "multipleOf"}
+        if entity.enum_values and numeric_fields & changes_raw.keys():
+            raise _custom_error(
+                class_code, entry, "numeric fields may not patch an enum entity"
+            )
+        if "enum_values" in changes_raw and not entity.enum_values:
+            raise _custom_error(
+                class_code, entry, "enum_values may only patch an enum entity"
+            )
+        changes: dict[str, Any] = {}
+        for field, value in changes_raw.items():
+            if field == "enum_values":
+                changes[field] = _apply_enum_patch(entity, value, class_code, entry)
+            elif field == "role":
+                changes[field] = PropertyRole(value)
+            elif field in {"get", "set"}:
+                changes[field] = _validate_access(value, field, class_code, entry)
+            else:
+                changes[_YAML_TO_ATTR.get(field, field)] = value
+        patched = dataclasses.replace(entity, **changes)
+        if numeric_fields & changes_raw.keys():
+            numeric_values: dict[str, Any] = {"format": patched.format}
+            for field in ("minimum", "maximum"):
+                if (value := getattr(patched, field)) is not None:
+                    numeric_values[field] = value
+            if patched.multiple_of != 1.0:
+                numeric_values["multipleOf"] = patched.multiple_of
+            _validate_numeric_fields(numeric_values, class_code, entry)
+        device_build.entities[index] = patched
+    return len(candidates)
+
+
+def _build_custom_entity(class_code: int, entry: dict[str, Any]) -> EntityDefinition:
+    """Build a fully-specified custom EntityDefinition from a define entry."""
+    if unknown := set(entry) - _DEFINE_FIELDS:
+        raise _custom_error(
+            class_code, entry, f"unknown define fields: {sorted(unknown)}"
+        )
+    epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+    mfr_code = (
+        _validate_code(
+            entry["manufacturer_code"], 0xFFFFFF, "manufacturer_code", class_code, entry
+        )
+        if "manufacturer_code" in entry
+        else None
+    )
+    byte_offset = _validate_code(
+        entry.get("byte_offset", 0), 0xFF, "byte_offset", class_code, entry
+    )
+    for field in ("name_en", "name_ja"):
+        if not isinstance(entry.get(field), str) or not entry[field]:
+            raise _custom_error(class_code, entry, f"{field} is required for define")
+    get = _validate_access(entry.get("get"), "get", class_code, entry)
+    set_value = _validate_access(
+        entry.get("set", "notApplicable"), "set", class_code, entry
+    )
+    enum_values_raw = entry.get("enum_values")
+    has_format = "format" in entry
+    if bool(enum_values_raw) == has_format:
+        raise _custom_error(
+            class_code, entry, "define requires exactly one of format or enum_values"
+        )
+    if enum_values_raw is not None and not isinstance(enum_values_raw, list):
+        raise _custom_error(class_code, entry, "enum_values must be a list")
+    _validate_numeric_fields(entry, class_code, entry)
+
+    enum_values: tuple[EnumValue, ...] = ()
+    if enum_values_raw:
+        enum_keys: set[str] = set()
+        enum_edts: set[int] = set()
+        enum_values = tuple(
+            _build_enum_value(value, class_code, entry, enum_keys, enum_edts)
+            for value in enum_values_raw
+        )
+
+    role = PropertyRole(entry["role"]) if "role" in entry else PropertyRole.PRIMARY
+    entity_id = f"class_{class_code:04x}_epc_{epc:02x}"
+    if mfr_code is not None:
+        entity_id += f"_{mfr_code:06x}"
+    if byte_offset:
+        entity_id += f"_{byte_offset:02x}"
     return EntityDefinition(
         id=entity_id,
         epc=epc,
         name_en=entry["name_en"],
         name_ja=entry["name_ja"],
-        get=entry["get"],
-        set=entry.get("set", "notApplicable"),
+        get=get,
+        set=set_value,
         description_en=entry.get("description_en"),
         description_ja=entry.get("description_ja"),
-        format=entry.get("format") if not enum_values_raw else None,
-        unit=entry.get("unit") if not enum_values_raw else None,
-        minimum=entry.get("minimum") if not enum_values_raw else None,
-        maximum=entry.get("maximum") if not enum_values_raw else None,
-        multiple_of=(entry.get("multipleOf", 1.0) if not enum_values_raw else 1.0),
-        enum_values=enum_tuple,
-        byte_offset=entry.get("byte_offset", 0),
+        format=entry.get("format") if not enum_values else None,
+        unit=entry.get("unit") if not enum_values else None,
+        minimum=entry.get("minimum") if not enum_values else None,
+        maximum=entry.get("maximum") if not enum_values else None,
+        multiple_of=entry.get("multipleOf", 1.0) if not enum_values else 1.0,
+        enum_values=enum_values,
+        byte_offset=byte_offset,
         manufacturer_code=mfr_code,
         role=role,
     )
+
+
+def _build_enum_value(
+    value: Any,
+    class_code: int,
+    entry: dict[str, Any],
+    enum_keys: set[str],
+    enum_edts: set[int],
+) -> EnumValue:
+    """Validate and build a fully-specified enum value."""
+    if not isinstance(value, dict) or set(value) != {
+        "edt",
+        "key",
+        "name_en",
+        "name_ja",
+    }:
+        raise _custom_error(
+            class_code,
+            entry,
+            "define enum values require edt, key, name_en, and name_ja",
+        )
+    edt = _validate_code(value["edt"], 0xFF, "enum edt", class_code, entry)
+    key = value["key"]
+    if not isinstance(key, str) or not key:
+        raise _custom_error(class_code, entry, "enum key must be a non-empty string")
+    if key in enum_keys or edt in enum_edts:
+        raise _custom_error(class_code, entry, "enum keys and EDTs must be unique")
+    if not all(
+        isinstance(value[name], str) and value[name] for name in ("name_en", "name_ja")
+    ):
+        raise _custom_error(
+            class_code, entry, "enum display names must be non-empty strings"
+        )
+    enum_keys.add(key)
+    enum_edts.add(edt)
+    return EnumValue(
+        edt=edt, key=key, name_en=value["name_en"], name_ja=value["name_ja"]
+    )
+
+
+def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) -> None:
+    """Apply unified custom class definitions to an MRA definitions build."""
+    devices = custom.get("devices", {})
+    if not isinstance(devices, dict):
+        raise ValueError("Custom definitions devices must be a mapping")
+
+    define_count = 0
+    patch_count = 0
+    for class_code_raw, class_entry in devices.items():
+        class_code = _validate_code(
+            class_code_raw, 0xFFFF, "class_code", 0, {"epc": class_code_raw}
+        )
+        if not isinstance(class_entry, dict):
+            raise ValueError(
+                f"Custom definition class 0x{class_code:04X} must be a mapping"
+            )
+        if unknown := set(class_entry) - {"name_en", "name_ja", "properties"}:
+            raise ValueError(
+                f"Custom definition class 0x{class_code:04X} has unknown fields: "
+                f"{sorted(unknown)}"
+            )
+        properties = class_entry.get("properties")
+        if not isinstance(properties, list) or not properties:
+            raise ValueError(
+                f"Custom definition class 0x{class_code:04X} requires properties"
+            )
+
+        if class_code not in build.devices:
+            names = (class_entry.get("name_en"), class_entry.get("name_ja"))
+            if not all(isinstance(name, str) and name for name in names):
+                raise ValueError(
+                    f"Custom definition class 0x{class_code:04X} requires name_en and name_ja"
+                )
+            build.devices[class_code] = _DeviceBuild(
+                name_en=class_entry["name_en"],
+                name_ja=class_entry["name_ja"],
+                entities=[],
+            )
+            build.mra_epcs[class_code] = frozenset()
+        elif "name_en" in class_entry or "name_ja" in class_entry:
+            if not all(
+                isinstance(class_entry.get(field), str) and class_entry[field]
+                for field in ("name_en", "name_ja")
+            ):
+                raise ValueError(
+                    f"Custom definition class 0x{class_code:04X} requires both names"
+                )
+            device_build = build.devices[class_code]
+            device_build.name_en = class_entry["name_en"]
+            device_build.name_ja = class_entry["name_ja"]
+
+        define_keys: set[tuple[int, int, int | None]] = set()
+        enum_keys: set[tuple[int, int | None]] = set()
+        for entry in properties:
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"Custom definition class 0x{class_code:04X} properties must be mappings"
+                )
+            mode = entry.get("mode", "define")
+            if mode == "patch":
+                patch_count += _apply_patch(build, class_code, entry)
+                continue
+            if mode != "define":
+                raise _custom_error(class_code, entry, "mode must be define or patch")
+
+            epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+            if epc in build.common_epcs:
+                raise _custom_error(class_code, entry, "common EPCs may not be defined")
+            if epc in build.mra_epcs.get(class_code, frozenset()):
+                raise _custom_error(
+                    class_code, entry, "define target is already an MRA EPC"
+                )
+            byte_offset = _validate_code(
+                entry.get("byte_offset", 0), 0xFF, "byte_offset", class_code, entry
+            )
+            manufacturer_code = entry.get("manufacturer_code")
+            if manufacturer_code is not None:
+                manufacturer_code = _validate_code(
+                    manufacturer_code, 0xFFFFFF, "manufacturer_code", class_code, entry
+                )
+            define_key = (epc, byte_offset, manufacturer_code)
+            if define_key in define_keys:
+                raise _custom_error(class_code, entry, "duplicate define")
+            define_keys.add(define_key)
+            matching_scopes = {
+                scope
+                for defined_epc, defined_offset, scope in define_keys
+                if defined_epc == epc and defined_offset == byte_offset
+            }
+            if None in matching_scopes and len(matching_scopes) > 1:
+                raise _custom_error(
+                    class_code,
+                    entry,
+                    "generic and manufacturer-specific defines may not coexist",
+                )
+            if "enum_values" in entry:
+                enum_key = (epc, manufacturer_code)
+                if enum_key in enum_keys:
+                    raise _custom_error(
+                        class_code,
+                        entry,
+                        "multiple enum defines for an EPC and manufacturer are not supported",
+                    )
+                enum_keys.add(enum_key)
+            build.devices[class_code].entities.append(
+                _build_custom_entity(class_code, entry)
+            )
+            define_count += 1
+
+    if patch_count:
+        print(f"  Applied {patch_count} patch(es)")
+    if define_count:
+        print(f"  Added {define_count} custom definition(s)")
 
 
 def _load_collection_bindings(
@@ -1297,14 +1542,7 @@ def main() -> None:
     if CUSTOM_DEFINITIONS_FILE.exists():
         print(f"\nLoading custom definitions from {CUSTOM_DEFINITIONS_FILE}...")
         custom = _load_custom_definitions(CUSTOM_DEFINITIONS_FILE)
-        # Snapshot MRA EPCs before custom processing so ADD/UPDATE detection
-        # is based on the original MRA data, not entities added by merging.
-        mra_epcs_by_class = {
-            class_code: frozenset(e.epc for e in device_build.entities)
-            for class_code, device_build in build.devices.items()
-        }
-        _merge_custom_definitions(build, custom, mra_epcs_by_class)  # ADD first
-        _apply_overrides(build, custom, mra_epcs_by_class)  # then UPDATE
+        _apply_custom_definitions(build, custom)
 
         for class_code, bindings in _load_collection_bindings(custom).items():
             if class_code not in build.devices:

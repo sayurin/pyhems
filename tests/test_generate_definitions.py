@@ -185,6 +185,79 @@ def test_writable_instantaneous_named_setting_is_not_instantaneous_role() -> Non
     assert entity.role is PropertyRole.SETTING
 
 
+def test_custom_define_uses_stable_scope_and_offset_ids() -> None:
+    """Manufacturer-specific custom definitions include scope and offset in IDs."""
+    entities = {
+        entity.id: entity for entity in REGISTRY.entities[0x0135] if entity.epc == 0xF1
+    }
+    assert set(entities) == {
+        "class_0135_epc_f1_000005_01",
+        "class_0135_epc_f1_000005_03",
+        "class_0135_epc_f1_000005_04",
+        "class_0135_epc_f1_000005_1c",
+    }
+    assert all(entity.manufacturer_code == 0x000005 for entity in entities.values())
+
+
+def test_custom_patch_preserves_unspecified_mra_values() -> None:
+    """A label-only patch leaves the MRA Japanese label unchanged."""
+    entity = _entity(0x0134, 0xE0)
+    values = {value.key: value for value in entity.enum_values}
+    assert values["false"].name_en == "Heat exchanger OFF"
+    assert values["false"].name_ja == "熱交換機OFF"
+
+
+@pytest.mark.parametrize(
+    ("epc", "expected_keys"),
+    [
+        (0xA4, ("uppermost", "upperCenter", "central", "lowerCenter", "lowermost")),
+        (
+            0xA5,
+            (
+                "r",
+                "rc",
+                "c",
+                "lc",
+                "l",
+                "rc_r",
+                "c_r",
+                "lc_r",
+                "l_r",
+                "c_rc",
+                "lc_rc",
+                "l_rc",
+                "lc_c",
+                "l_c",
+                "l_lc",
+                "c_rc_r",
+                "lc_rc_r",
+                "lc_c_r",
+                "lc_c_rc",
+                "l_rc_r",
+                "l_c_r",
+                "l_c_rc",
+                "l_lc_r",
+                "l_lc_rc",
+                "l_lc_c",
+                "lc_c_rc_r",
+                "l_c_rc_r",
+                "l_lc_rc_r",
+                "l_lc_c_r",
+                "l_lc_c_rc",
+                "l_lc_c_rc_r",
+            ),
+        ),
+    ],
+)
+def test_full_enum_patch_preserves_yaml_order(
+    epc: int, expected_keys: tuple[str, ...]
+) -> None:
+    """A complete enum patch uses the curated YAML value order."""
+    assert (
+        tuple(value.key for value in _entity(0x0130, epc).enum_values) == expected_keys
+    )
+
+
 # ============================================================================
 # Structured value definitions & collection bindings (class 0x0287 branch
 # circuit metering arrays — see docs/ha-0287-epc-be-implementation-report-v2.md)
