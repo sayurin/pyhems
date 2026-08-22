@@ -880,14 +880,13 @@ class TestProcessInstanceListEvent:
         assert len(dm.data) == 0
 
     @pytest.mark.asyncio
-    async def test_identification_number_manufacturer_code_fallback(self) -> None:
-        """An identification number supplies a missing manufacturer code."""
+    async def test_node_profile_manufacturer_code_fallback(self) -> None:
+        """Node profile manufacturer code supplies a missing device code."""
         client = _make_client()
         client.get.return_value = [
             Property(epc=0x9D, edt=b"\x00"),
             Property(epc=0x9E, edt=b"\x00"),
             Property(epc=0x9F, edt=b"\x00"),
-            Property(epc=0x83, edt=b"\xfe\x12\x34\x56\x00"),
             Property(epc=0x8A, edt=b""),
         ]
         dm = DeviceManager(client, {})
@@ -899,69 +898,13 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={},
+                properties={0x8A: b"\x12\x34\x56"},
             )
         )
 
         assert len(result) == 1
         assert dm.data[result[0]].manufacturer_code == 0x123456
-        assert 0x83 in client.get.call_args.args[2]
-
-    @pytest.mark.asyncio
-    async def test_manufacturer_code_takes_precedence_over_identification_number(
-        self,
-    ) -> None:
-        """EPC 0x8A takes precedence over the identification number."""
-        client = _make_client()
-        client.get.return_value = [
-            Property(epc=0x9D, edt=b"\x00"),
-            Property(epc=0x9E, edt=b"\x00"),
-            Property(epc=0x9F, edt=b"\x00"),
-            Property(epc=0x83, edt=b"\xfe\x12\x34\x56\x00"),
-            Property(epc=0x8A, edt=b"\x65\x43\x21"),
-        ]
-        dm = DeviceManager(client, {})
-
-        result = await dm.process_instance_list_event(
-            HemsInstanceListEvent(
-                received_at=1.0,
-                instances=[EOJ(0x013001)],
-                node_id="fe00000000000000000000000000000001",
-                properties={},
-            )
-        )
-
-        assert dm.data[result[0]].manufacturer_code == 0x654321
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "identification_number", [b"\xfd\x12\x34\x56", b"\xfe\x12\x34"]
-    )
-    async def test_invalid_identification_number_skips_device(
-        self, identification_number: bytes
-    ) -> None:
-        """Invalid identification numbers cannot supply a manufacturer code."""
-        client = _make_client()
-        client.get.return_value = [
-            Property(epc=0x9D, edt=b"\x00"),
-            Property(epc=0x9E, edt=b"\x00"),
-            Property(epc=0x9F, edt=b"\x00"),
-            Property(epc=0x83, edt=identification_number),
-            Property(epc=0x8A, edt=b""),
-        ]
-        dm = DeviceManager(client, {})
-
-        result = await dm.process_instance_list_event(
-            HemsInstanceListEvent(
-                received_at=1.0,
-                instances=[EOJ(0x013001)],
-                node_id="fe00000000000000000000000000000001",
-                properties={},
-            )
-        )
-
-        assert result == []
-        assert not dm.data
+        assert 0x83 not in client.get.call_args.args[2]
 
     @pytest.mark.asyncio
     async def test_node_profile_info_fallback(self) -> None:
@@ -983,6 +926,7 @@ class TestProcessInstanceListEvent:
             instances=[EOJ(0x013001)],
             node_id=node_id,
             properties={
+                0x8A: b"\x12\x34\x56",
                 0x8C: b"NP_PRODUCT\x00",
                 0x8D: b"NP_SERIAL\x00",
             },
@@ -991,6 +935,7 @@ class TestProcessInstanceListEvent:
         result = await dm.process_instance_list_event(event)
         assert len(result) == 1
         node = dm.data[result[0]]
+        assert node.manufacturer_code == 0x000001
         assert node.product_code == "NP_PRODUCT"
         assert node.serial_number == "NP_SERIAL"
 

@@ -221,12 +221,15 @@ class TestNodeProbe:
         assert frame.seoj == CONTROLLER_INSTANCE
         assert frame.deoj == NODE_PROFILE_INSTANCE
         assert frame.esv == ESV_GET
-        # Default probe only includes required EPCs (identification and instance list)
-        assert len(frame.properties) == 2
+        # Default probe includes the properties needed to identify each node.
+        assert len(frame.properties) == 5
 
         epcs = [p.epc for p in frame.properties]
         assert EPC_IDENTIFICATION_NUMBER in epcs
         assert EPC_SELF_NODE_INSTANCE_LIST in epcs
+        assert EPC_MANUFACTURER_CODE in epcs
+        assert EPC_PRODUCT_CODE in epcs
+        assert EPC_SERIAL_NUMBER in epcs
 
     @pytest.mark.asyncio
     async def test_async_probe_nodes_with_extra_epcs(self) -> None:
