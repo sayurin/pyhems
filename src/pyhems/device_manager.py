@@ -12,7 +12,6 @@ from ._definitions_generated import REGISTRY
 from .const import (
     CONTROLLER_INSTANCE,
     EPC_GET_PROPERTY_MAP,
-    EPC_IDENTIFICATION_NUMBER,
     EPC_INF_PROPERTY_MAP,
     EPC_INSTALLATION_LOCATION,
     EPC_MANUFACTURER_CODE,
@@ -152,12 +151,6 @@ def _extract_node_profile_info(
     manufacturer_code: int | None = None
     if (edt := properties.get(EPC_MANUFACTURER_CODE)) and len(edt) >= 3:
         manufacturer_code = int.from_bytes(edt[:3], "big")
-    elif (
-        (edt := properties.get(EPC_IDENTIFICATION_NUMBER))
-        and len(edt) >= 4
-        and edt[0] == 0xFE
-    ):
-        manufacturer_code = int.from_bytes(edt[1:4], "big")
 
     product_code = _decode_ascii_property(properties.get(EPC_PRODUCT_CODE, b""))
     serial_number = _decode_ascii_property(properties.get(EPC_SERIAL_NUMBER, b""))
@@ -269,7 +262,9 @@ class DeviceManager:
         self.last_frame_received_at: float | None = None
 
         self._pending_setups: set[str] = set()
-        self._node_profile_info: dict[str, tuple[str | None, str | None]] = {}
+        self._node_profile_info: dict[
+            str, tuple[int | None, str | None, str | None]
+        ] = {}
 
         # device_key -> EPC -> number of active subscribers. See
         # :meth:`subscribe_epcs`/:meth:`effective_poll_epcs`.
@@ -509,10 +504,16 @@ class DeviceManager:
         """
         node_id = event.node_id
 
-        _, product_code, serial_number = _extract_node_profile_info(event.properties)
+        manufacturer_code, product_code, serial_number = _extract_node_profile_info(
+            event.properties
+        )
 
-        if product_code or serial_number:
-            self._node_profile_info[node_id] = (product_code, serial_number)
+        if manufacturer_code is not None or product_code or serial_number:
+            self._node_profile_info[node_id] = (
+                manufacturer_code,
+                product_code,
+                serial_number,
+            )
 
         new_device_keys: list[str] = []
         for eoj in event.instances:
@@ -555,7 +556,6 @@ class DeviceManager:
                 EPC_INF_PROPERTY_MAP,
                 EPC_SET_PROPERTY_MAP,
                 EPC_GET_PROPERTY_MAP,
-                EPC_IDENTIFICATION_NUMBER,
                 EPC_MANUFACTURER_CODE,
                 EPC_PRODUCT_CODE,
                 EPC_SERIAL_NUMBER,
@@ -584,6 +584,16 @@ class DeviceManager:
                 properties
             )
 
+            np_info = self._node_profile_info.get(node_id)
+            if np_info:
+                np_manufacturer_code, np_product_code, np_serial_number = np_info
+                if manufacturer_code is None and np_manufacturer_code is not None:
+                    manufacturer_code = np_manufacturer_code
+                if not product_code and np_product_code:
+                    product_code = np_product_code
+                if not serial_number and np_serial_number:
+                    serial_number = np_serial_number
+
             if manufacturer_code is None:
                 _LOGGER.warning(
                     "Device %s has no manufacturer code (EPC 0x8A), skipping",
@@ -591,14 +601,6 @@ class DeviceManager:
                 )
                 self._pending_setups.discard(device_key)
                 return False
-
-            np_info = self._node_profile_info.get(node_id)
-            if np_info:
-                np_product_code, np_serial_number = np_info
-                if not product_code and np_product_code:
-                    product_code = np_product_code
-                if not serial_number and np_serial_number:
-                    serial_number = np_serial_number
 
             fast_candidate_epcs = initial_epcs & self._fast_epcs.get(
                 eoj.class_code, frozenset()

@@ -39,9 +39,12 @@ EPC_GET_PROPERTY_MAP = 0x9F
 EPC_INSTANCE_LIST = 0xD5
 EPC_SELF_NODE_INSTANCE_LIST = 0xD6
 
-# Default EPCs for node discovery (required for identification)
+# Default EPCs for node discovery and DeviceManager node profile fallbacks.
 DISCOVERY_DEFAULT_EPCS: list[int] = [
     EPC_IDENTIFICATION_NUMBER,
+    EPC_MANUFACTURER_CODE,
+    EPC_PRODUCT_CODE,
+    EPC_SERIAL_NUMBER,
     EPC_SELF_NODE_INSTANCE_LIST,
 ]
 
