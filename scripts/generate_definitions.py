@@ -1322,8 +1322,6 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
                 raise _custom_error(class_code, entry, "mode must be define or patch")
 
             epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
-            if epc in build.common_epcs:
-                raise _custom_error(class_code, entry, "common EPCs may not be defined")
             if epc in build.mra_epcs.get(class_code, frozenset()):
                 raise _custom_error(
                     class_code, entry, "define target is already an MRA EPC"
@@ -1459,8 +1457,23 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "_COMMON: tuple[EntityDefinition, ...] = (",
     ]
     lines.extend(f"    {entity!r}," for entity in build.common)
-    lines.append(")")
-    lines.append("")
+    lines.extend(
+        [
+            ")",
+            "",
+            "def _merge_entities(",
+            "    *groups: tuple[EntityDefinition, ...],",
+            ") -> tuple[EntityDefinition, ...]:",
+            '    """Merge entity groups, letting later groups replace matching EPCs."""',
+            "    merged: list[EntityDefinition] = []",
+            "    for group in groups:",
+            "        epcs = {entity.epc for entity in group}",
+            "        merged = [entity for entity in merged if entity.epc not in epcs]",
+            "        merged.extend(group)",
+            "    return tuple(merged)",
+            "",
+        ]
+    )
     lines.append("DEVICES: dict[int, DeviceDefinition] = {")
     for class_code in sorted(build.devices):
         device_build = build.devices[class_code]
@@ -1469,11 +1482,16 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         lines.append(f"        name_en={device_build.name_en!r},")
         lines.append(f"        name_ja={device_build.name_ja!r},")
         if device_build.entities:
-            lines.append("        entities=_COMMON + (")
-            lines.extend(f"            {entity!r}," for entity in device_build.entities)
+            lines.append("        entities=_merge_entities(")
+            lines.append("            _COMMON,")
+            lines.append("            (")
+            lines.extend(
+                f"                {entity!r}," for entity in device_build.entities
+            )
+            lines.append("            ),")
             lines.append("        ),")
         else:
-            lines.append("        entities=_COMMON,")
+            lines.append("        entities=_merge_entities(_COMMON),")
         lines.append("    ),")
     lines.append("}")
     lines.append("")
