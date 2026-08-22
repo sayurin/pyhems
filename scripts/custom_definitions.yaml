@@ -406,6 +406,397 @@ devices:
           - key: "false"
             name_en: "Heat exchanger OFF"
 
+  0x03B8:
+    name_en: combination microwave oven (electronic oven)
+    name_ja: オーブンレンジ
+    properties:
+      - epc: 0xB0
+        name_en: Door open/close status
+        name_ja: ドア開閉状態
+        get: optional
+        set: notApplicable
+        enum_values:
+          - edt: 0x41
+            key: open
+            name_en: Door open
+            name_ja: ドア開
+          - edt: 0x42
+            key: close
+            name_en: door closed
+            name_ja: ドア閉
+      - epc: 0xB1
+        name_en: Heating status
+        name_ja: 加熱状態
+        get: optional
+        set: notApplicable
+        enum_values:
+          - edt: 0x40
+            key: initialstate
+            name_en: Initial state
+            name_ja: 初期状態
+          - edt: 0x41
+            key: heating
+            name_en: Heating
+            name_ja: 運転中
+          - edt: 0x42
+            key: heatingSuspended
+            name_en: Heating suspended
+            name_ja: 一時停止中
+          - edt: 0x43
+            key: reportingCompletionOfHeatingCycle
+            name_en: Reporting completion of heating cycle
+            name_ja: 完了報知中
+          - edt: 0x44
+            key: setting
+            name_en: Setting
+            name_ja: 設定中
+          - edt: 0x45
+            key: preheating
+            name_en: Preheating
+            name_ja: 予熱中
+          - edt: 0x46
+            key: preheatTemperatureMaintenance
+            name_en: Preheat temperature maintenance
+            name_ja: 予熱完了保温中
+          - edt: 0x47
+            key: heatingTemporarilyStoppedForManualCookingAction
+            name_en: Heating temporarily stopped for manual cooking action
+            name_ja: 加熱途中報知一時停止中
+      - epc: 0xB2
+        name_en: Heating setting
+        name_ja: 加熱設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x41
+            key: startRestartHeatingHeatingStartedRestarted
+            name_en: Start/restart heating (heating started/restarted)
+            name_ja: 加熱開始・再開
+          - edt: 0x42
+            key: suspendHeatingHeatingSuspended
+            name_en: Suspend heating (heating suspended)
+            name_ja: 加熱一時停止
+          - edt: 0x43
+            key: stopHeatingHeatingStopped
+            name_en: Stop heating (heating stopped)
+            name_ja: 加熱停止
+      - epc: 0xE0
+        name_en: Heating mode setting
+        name_ja: 加熱モード設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x41
+            key: microwaveHeating
+            name_en: Microwave heating
+            name_ja: 電子レンジ加熱
+          - edt: 0x42
+            key: defrosting
+            name_en: Defrosting
+            name_ja: 解凍
+          - edt: 0x43
+            key: oven
+            name_en: Oven
+            name_ja: オーブン
+          - edt: 0x44
+            key: grill
+            name_en: Grill
+            name_ja: グリル
+          - edt: 0x45
+            key: toaster
+            name_en: Toaster
+            name_ja: トースト
+          - edt: 0x46
+            key: fermenting
+            name_en: Fermenting
+            name_ja: 発酵
+          - edt: 0x47
+            key: stewing
+            name_en: Stewing
+            name_ja: 煮込み
+          - edt: 0x48
+            key: steaming
+            name_en: Steaming
+            name_ja: スチーム加熱
+          - edt: 0x51
+            key: twoStageMicrowaveHeating
+            name_en: Two-stage microwave heating
+            name_ja: 電子レンジ２段加熱
+          - edt: 0xFF
+            key: noModeSpecified
+            name_en: No mode specified
+            name_ja: 未設定
+      - epc: 0xE1
+        name_en: Automatic heating setting
+        name_ja: 自動加熱設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x41
+            key: automatic
+            name_en: Automatic
+            name_ja: 自動
+          - edt: 0x42
+            key: manual
+            name_en: Manual
+            name_ja: マニュアル
+          - edt: 0xFF
+            key: notSpecified
+            name_en: Not specified
+            name_ja: 未設定
+      - epc: 0xE2
+        name_en: Automatic heating level setting
+        name_ja: 自動加熱レベル設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x31
+            key: level1
+            name_en: Level 1
+            name_ja: Level 1
+          - edt: 0x32
+            key: level2
+            name_en: Level 2
+            name_ja: Level 2
+          - edt: 0x33
+            key: level3
+            name_en: Level 3
+            name_ja: Level 3
+          - edt: 0x34
+            key: level4
+            name_en: Level 4
+            name_ja: Level 4
+          - edt: 0x35
+            key: level5
+            name_en: Level 5
+            name_ja: Level 5
+          - edt: 0xFF
+            key: notSpecified
+            name_en: Not specified
+            name_ja: 未設定
+      - epc: 0xD0
+        name_en: Automatic heating menu setting
+        name_ja: 自動メニューコース設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x00
+            key: fullyAutomatic
+            name_en: Fully automatic
+            name_ja: 全自動
+          - edt: 0x01
+            key: reheatingBoiledRice
+            name_en: Reheating boiled rice
+            name_ja: ごはんあたため
+          - edt: 0x02
+            key: reheatingCookedDish
+            name_en: Reheating cooked dish
+            name_ja: おかずあたため
+          - edt: 0x03
+            key: sake
+            name_en: Sake
+            name_ja: お酒
+          - edt: 0x04
+            key: milk
+            name_en: Milk
+            name_ja: 牛乳
+          - edt: 0x05
+            key: boilingLeafyVegetables
+            name_en: Boiling leafy vegetables
+            name_ja: ゆで葉菜
+          - edt: 0x06
+            key: boilingFruitFlowerVegetables
+            name_en: Boiling fruit/flower vegetables
+            name_ja: ゆで果花菜
+          - edt: 0x07
+            key: boilingRootVegetables
+            name_en: Boiling root vegetables
+            name_ja: ゆで根菜
+          - edt: 0x20
+            key: defrostingMeat
+            name_en: Defrosting meat
+            name_ja: 肉解凍
+          - edt: 0x21
+            key: defrostingSashimi
+            name_en: Defrosting sashimi
+            name_ja: さしみ解凍
+          - edt: 0x30
+            key: hamburgerSteaks
+            name_en: Hamburger steaks
+            name_ja: ハンバーグ
+          - edt: 0x31
+            key: gratins
+            name_en: Gratins
+            name_ja: グラタン
+          - edt: 0x32
+            key: chawanMushi
+            name_en: Chawan-mushi
+            name_ja: 茶碗蒸
+          - edt: 0x33
+            key: cookingRice
+            name_en: Cooking rice
+            name_ja: 炊飯
+          - edt: 0x34
+            key: reheatingFries
+            name_en: Reheating fries
+            name_ja: 揚げ物再加熱
+          - edt: 0x35
+            key: fries
+            name_en: Fries
+            name_ja: フライ
+          - edt: 0x60
+            key: spongeCakes
+            name_en: Sponge cakes
+            name_ja: スポンジケーキ
+          - edt: 0x61
+            key: chiffonCakes
+            name_en: Chiffon cakes
+            name_ja: シフォンケーキ
+          - edt: 0x62
+            key: cookies
+            name_en: Cookies
+            name_ja: クッキー
+          - edt: 0x63
+            key: creamPuffs
+            name_en: Cream puffs
+            name_ja: シュー皮
+          - edt: 0x64
+            key: rolls
+            name_en: Rolls
+            name_ja: ロールパン
+          - edt: 0x65
+            key: toast
+            name_en: Toast
+            name_ja: 食パン
+          - edt: 0xFF
+            key: noAutomaticHeatingCycleSpecified
+            name_en: No automatic heating cycle specified
+            name_ja: 未設定
+      - epc: 0xD1
+        name_en: Oven mode setting
+        name_ja: オーブンモード設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x40
+            key: automaticSelectionMode
+            name_en: Automatic selection mode
+            name_ja: 自動選択モード
+          - edt: 0x41
+            key: convectionOvenMode
+            name_en: Convection oven mode
+            name_ja: 対流オーブンモード
+          - edt: 0x42
+            key: circulationOvenMode
+            name_en: Circulation oven mode
+            name_ja: 熱風オーブンモード
+          - edt: 0x43
+            key: hybridOvenMode
+            name_en: Hybrid oven mode
+            name_ja: 複合オーブンモード
+          - edt: 0xFF
+            key: noSubModeSpecified
+            name_en: No sub-mode specified
+            name_ja: 未設定
+      - epc: 0xD5
+        name_en: Oven preheating setting
+        name_ja: オーブン予熱設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x41
+            key: withPreheating
+            name_en: With preheating
+            name_ja: 予熱あり
+          - edt: 0x42
+            key: withoutPreheating
+            name_en: Without preheating
+            name_ja: 予熱なし
+          - edt: 0xFF
+            key: notSpecified
+            name_en: Not specified
+            name_ja: 未設定
+      - epc: 0xD6
+        name_en: Fermenting mode setting
+        name_ja: 発酵モード設定
+        get: optional
+        set: optional
+        enum_values:
+          - edt: 0x40
+            key: automaticSelectionMode
+            name_en: Automatic selection mode
+            name_ja: 自動選択モード
+          - edt: 0x41
+            key: convectionFermentationMode
+            name_en: Convection fermentation mode
+            name_ja: 対流発酵モード
+          - edt: 0x42
+            key: circulationFermentationMode
+            name_en: Circulation fermentation mode
+            name_ja: 熱風発酵モード
+          - edt: 0x43
+            key: hybridFermentationMode
+            name_en: Hybrid fermentation mode
+            name_ja: 複合発酵モード
+          - edt: 0x51
+            key: microwaveFermentationMode
+            name_en: Microwave fermentation mode
+            name_ja: 電子レンジ発酵モード
+          - edt: 0xFF
+            key: noModeSpecified
+            name_en: No mode specified
+            name_ja: 未設定
+      #- epc: 0xE3
+      #  name_en: Chamber temperature setting
+      #  name_ja: 庫内温度設定値
+      #  get: optional
+      #  set: optional
+      #  format: int16
+      #  unit: Celsius
+      #  minimum: -2732
+      #  maximum: 32766
+      #  multipleOf: 0.1
+      - epc: 0xE4
+        name_en: Food temperature setting
+        name_ja: 仕上がり温度設定値
+        get: optional
+        set: optional
+        format: int16
+        unit: Celsius
+        minimum: -2732
+        maximum: 32766
+        multipleOf: 0.1
+      # - epc: 0xE5
+      #   name_en: Heating time setting
+      #   name_ja: 加熱時間設定値
+      # - epc: 0xE6
+      #   name_en: Remaining heating time setting
+      #   name_ja: 加熱残時間設定値
+      - epc: 0xE7
+        name_en: Microwave heating power setting
+        name_ja: 電子レンジ加熱出力設定値
+        get: optional
+        set: optional
+        format: uint16
+        unit: W
+        minimum: 0
+        maximum: 65533
+      # - epc: 0xE8
+      #   name_en: Prompt message setting
+      #   name_ja: 途中報知パターン設定
+      # - epc: 0xE9
+      #   name_en: Accessories to combination microwave oven setting
+      #   name_ja: 付属品設定
+      # - epc: 0xEA
+      #   name_en: Display character string setting
+      #   name_ja: 表示文字列設定
+      # - epc: 0xEB
+      #   name_en: Two-stage microwave heating setting (duration)
+      #   name_ja: 電子レンジ 2 段加熱時間設定値
+      # - epc: 0xEC
+      #   name_en: Two-stage microwave heating setting (heating power)
+      #   name_ja: 電子レンジ 2 段加熱出力設定値
+
 # Curated CollectionBinding entries (see pyhems.definitions.CollectionBinding).
 #
 # MRA does not document which count property backs which paged list result,
