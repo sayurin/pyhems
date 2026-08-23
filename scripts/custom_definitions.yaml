@@ -15,6 +15,8 @@
 #           manufacturer_code: <code>  # Optional 3-byte manufacturer code
 #           byte_offset: <offset> # Optional EDT byte position (0-indexed)
 #           # define requires either format or enum_values, and name_en/name_ja/get.
+#           # Two-value enum keys must be one of the generator's classified
+#           # boolean or non-boolean pairs. Boolean pairs become true/false.
 #           format: <mra_format>
 #           unit: <mra_unit>
 #           minimum: <min>

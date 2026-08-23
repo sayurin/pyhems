@@ -10,7 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from pyhems import REGISTRY, EntityDefinition, PropertyRole, get_codec_for_epc
+from pyhems import (
+    REGISTRY,
+    BinaryCodec,
+    EntityDefinition,
+    EnumCodec,
+    PropertyRole,
+    get_codec,
+    get_codec_for_epc,
+)
 from pyhems._definitions_generated import _merge_entities
 from pyhems.definitions import PropertyValueDefinition
 
@@ -211,6 +219,32 @@ def test_entity_groups_merge_with_later_epcs_winning() -> None:
         instantaneous_power,
         replacement,
     )
+
+
+def test_two_value_enum_codecs_use_normalized_keys() -> None:
+    """Only normalized boolean enums use BinaryCodec."""
+    for entities in REGISTRY.entities.values():
+        for entity in entities:
+            if len(entity.enum_values) != 2:
+                continue
+            codec = get_codec(entity)
+            if entity.is_binary:
+                assert {value.key for value in entity.enum_values} == {"true", "false"}
+                assert isinstance(codec, BinaryCodec)
+            else:
+                assert isinstance(codec, EnumCodec)
+
+
+def test_custom_ventilation_function_normalizes_boolean_values() -> None:
+    """The VAV ventilation setting maps its OFF/ON EDTs to false/true."""
+    entity = _entity(0x0F01, 0xC0)
+    assert tuple((value.edt, value.key) for value in entity.enum_values) == (
+        (0x31, "false"),
+        (0x42, "true"),
+    )
+    codec = get_codec_for_epc(0x0F01, 0xC0)
+    assert codec.decode(b"\x31") is False
+    assert codec.decode(b"\x42") is True
 
 
 def test_custom_define_overrides_common_epc_for_its_class() -> None:

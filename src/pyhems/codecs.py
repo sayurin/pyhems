@@ -286,10 +286,8 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
     Selection rules:
 
     * A populated ``numeric_values`` field produces a :class:`NumericValueCodec`.
-    * Exactly two ``enum_values`` produces a :class:`BinaryCodec`.
-      The ON/OFF assignment follows :meth:`EntityDefinition.get_binary_values`:
-      ``key="true"``/``"false"`` is preferred, otherwise the first value is
-      treated as ON and the second as OFF.
+    * ``enum_values`` with normalized ``key="true"``/``"false"`` values
+      produces a :class:`BinaryCodec`.
     * Any other non-empty ``enum_values`` produces an :class:`EnumCodec`.
     * A populated ``format`` field produces a :class:`NumericCodec`.
 
@@ -303,7 +301,7 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
         )
 
     if entity_def.enum_values:
-        if len(entity_def.enum_values) == 2:
+        if entity_def.is_binary:
             on_edt, off_edt = entity_def.get_binary_values()
             return BinaryCodec(
                 on_edt=on_edt[0],

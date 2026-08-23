@@ -44,6 +44,51 @@ CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 PROPERTY_ROLES_FILE = Path(__file__).parent / "property_roles.xlsx"
 
+# Maps known two-value state enum keys to the generated boolean keys. The
+# input order is deliberately irrelevant: boolean consumers must only use the
+# normalized true/false keys.
+_BOOLEAN_ENUM_KEY_NORMALIZATIONS: dict[frozenset[str], dict[str, str]] = {
+    frozenset({"anyOpen", "allClose"}): {"anyOpen": "true", "allClose": "false"},
+    frozenset({"enable", "disable"}): {"enable": "true", "disable": "false"},
+    frozenset({"enabled", "disabled"}): {"enabled": "true", "disabled": "false"},
+    frozenset({"generationOn", "generationOff"}): {
+        "generationOn": "true",
+        "generationOff": "false",
+    },
+    frozenset({"necessary", "notNecessary"}): {
+        "necessary": "true",
+        "notNecessary": "false",
+    },
+    frozenset({"normal", "warning"}): {"normal": "false", "warning": "true"},
+    frozenset({"on", "off"}): {"on": "true", "off": "false"},
+    frozenset({"open", "close"}): {"open": "true", "close": "false"},
+    frozenset({"open", "closed"}): {"open": "true", "closed": "false"},
+    frozenset({"permitted", "prohibited"}): {
+        "permitted": "true",
+        "prohibited": "false",
+    },
+    frozenset({"ready", "busy"}): {"ready": "false", "busy": "true"},
+    frozenset({"running", "stopped"}): {"running": "true", "stopped": "false"},
+    frozenset({"running", "suspension"}): {
+        "running": "true",
+        "suspension": "false",
+    },
+}
+
+# Known two-value state enums that represent mutually exclusive modes rather
+# than a boolean state. These must retain their source keys and use EnumCodec.
+_NON_BOOLEAN_TWO_VALUE_ENUM_KEYS = frozenset(
+    {
+        frozenset({"airConditioning", "blowing"}),
+        frozenset({"cooling", "heating"}),
+        frozenset({"cooling", "nonCooling"}),
+        frozenset({"devicePoint", "powerReceivingPoint"}),
+        frozenset({"loadFollowing", "maximumRating"}),
+        frozenset({"builtIn", "separate"}),
+        frozenset({"freezing", "refrigeration"}),
+    }
+)
+
 # ============================================================================
 # Load definitions dataclasses from pyhems/definitions.py
 #
@@ -149,6 +194,37 @@ def _normalize_trailing_number(name: str) -> str:
     avoiding short codes like 'n1'.
     """
     return re.sub(r"(?<=[a-zA-Z]{2})(\d+)$", r" \1", name)
+
+
+def _normalize_two_value_enum_keys(
+    enum_values: tuple[EnumValue, ...],
+    class_code: int,
+    epc: int,
+    manufacturer_code: int | None = None,
+) -> tuple[EnumValue, ...]:
+    """Normalize known boolean enum keys and reject unclassified two-value enums."""
+    if len(enum_values) != 2:
+        return enum_values
+
+    keys = frozenset(value.key for value in enum_values)
+    if keys == {"true", "false"} or keys in _NON_BOOLEAN_TWO_VALUE_ENUM_KEYS:
+        return enum_values
+
+    if normalization := _BOOLEAN_ENUM_KEY_NORMALIZATIONS.get(keys):
+        return tuple(
+            dataclasses.replace(value, key=normalization[value.key])
+            for value in enum_values
+        )
+
+    manufacturer = (
+        f", manufacturer 0x{manufacturer_code:06X}"
+        if manufacturer_code is not None
+        else ""
+    )
+    raise ValueError(
+        f"Unclassified two-value enum for class 0x{class_code:04X} EPC 0x{epc:02X}"
+        f"{manufacturer}: {sorted(keys)!r}. Classify it as boolean or non-boolean."
+    )
 
 
 def _parse_hex_int(value: Any) -> int | None:
@@ -405,7 +481,9 @@ def _build_entity_from_property(
             if is_sensor and prop.mra_multiple_of is not None
             else 1.0
         ),
-        enum_values=tuple(enum_vals),
+        enum_values=_normalize_two_value_enum_keys(
+            tuple(enum_vals), class_code, prop.epc
+        ),
         numeric_values=prop.numeric_values if is_numeric_value else None,
         coefficient_epcs=(prop.coefficient_epcs or None) if is_sensor else None,
     )
@@ -1211,7 +1289,9 @@ def _build_custom_entity(class_code: int, entry: dict[str, Any]) -> EntityDefini
         minimum=entry.get("minimum") if not enum_values else None,
         maximum=entry.get("maximum") if not enum_values else None,
         multiple_of=entry.get("multipleOf", 1.0) if not enum_values else 1.0,
-        enum_values=enum_values,
+        enum_values=_normalize_two_value_enum_keys(
+            enum_values, class_code, epc, mfr_code
+        ),
         byte_offset=byte_offset,
         manufacturer_code=mfr_code,
         role=role,
