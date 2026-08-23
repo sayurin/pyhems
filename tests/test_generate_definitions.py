@@ -5,11 +5,21 @@ unique enum value labels.
 """
 
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from pyhems import REGISTRY, EntityDefinition, PropertyRole
+from pyhems import (
+    REGISTRY,
+    BinaryCodec,
+    EntityDefinition,
+    EnumCodec,
+    PropertyRole,
+    get_codec,
+    get_codec_for_epc,
+)
+from pyhems._definitions_generated import _merge_entities
 from pyhems.definitions import PropertyValueDefinition
 
 ALLOWED_ACCESS_VALUES = {
@@ -197,6 +207,54 @@ def test_custom_define_uses_stable_scope_and_offset_ids() -> None:
         "class_0135_epc_f1_000005_1c",
     }
     assert all(entity.manufacturer_code == 0x000005 for entity in entities.values())
+
+
+def test_entity_groups_merge_with_later_epcs_winning() -> None:
+    """Later entity groups replace all earlier entities for matching EPCs."""
+    operation_status = _entity(0x0602, 0x80)
+    instantaneous_power = _entity(0x0602, 0x84)
+    replacement = replace(operation_status, id="replacement")
+
+    assert _merge_entities((operation_status, instantaneous_power), (replacement,)) == (
+        instantaneous_power,
+        replacement,
+    )
+
+
+def test_two_value_enum_codecs_use_normalized_keys() -> None:
+    """Only normalized boolean enums use BinaryCodec."""
+    for entities in REGISTRY.entities.values():
+        for entity in entities:
+            if len(entity.enum_values) != 2:
+                continue
+            codec = get_codec(entity)
+            if entity.is_binary:
+                assert {value.key for value in entity.enum_values} == {"true", "false"}
+                assert isinstance(codec, BinaryCodec)
+            else:
+                assert isinstance(codec, EnumCodec)
+
+
+def test_custom_ventilation_function_normalizes_boolean_values() -> None:
+    """The VAV ventilation setting maps its OFF/ON EDTs to false/true."""
+    entity = _entity(0x0F01, 0xC0)
+    assert tuple((value.edt, value.key) for value in entity.enum_values) == (
+        (0x31, "false"),
+        (0x42, "true"),
+    )
+    codec = get_codec_for_epc(0x0F01, 0xC0)
+    assert codec.decode(b"\x31") is False
+    assert codec.decode(b"\x42") is True
+
+
+def test_custom_define_overrides_common_epc_for_its_class() -> None:
+    """A custom class definition replaces the matching common EPC."""
+    entities = [entity for entity in REGISTRY.entities[0x0F02] if entity.epc == 0x8F]
+    assert len(entities) == 1
+    entity = entities[0]
+    assert entity.id == "class_0f02_epc_8f_000006"
+    assert entity.manufacturer_code == 0x000006
+    assert get_codec_for_epc(0x0F02, 0x8F).decode(b"\x42") is False
 
 
 def test_custom_patch_preserves_unspecified_mra_values() -> None:

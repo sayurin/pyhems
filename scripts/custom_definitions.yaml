@@ -15,6 +15,8 @@
 #           manufacturer_code: <code>  # Optional 3-byte manufacturer code
 #           byte_offset: <offset> # Optional EDT byte position (0-indexed)
 #           # define requires either format or enum_values, and name_en/name_ja/get.
+#           # Two-value enum keys must be one of the generator's classified
+#           # boolean or non-boolean pairs. Boolean pairs become true/false.
 #           format: <mra_format>
 #           unit: <mra_unit>
 #           minimum: <min>
@@ -26,8 +28,10 @@
 #           role: <role>
 #
 # mode: define creates a fully specified property for an EPC that is absent
-# from MRA. mode: patch selectively updates an existing MRA EPC; unspecified
-# fields, including enum display names, are preserved.
+# from the device MRA. A definition for a common EPC replaces that common
+# definition for the specified class. mode: patch selectively updates an
+# existing device MRA EPC; unspecified fields, including enum display names,
+# are preserved.
 #
 # A generic define and a manufacturer-specific define may not share an
 # (EPC, byte_offset). Multiple enum defines for one EPC/manufacturer are not
@@ -796,6 +800,163 @@ devices:
       # - epc: 0xEC
       #   name_en: Two-stage microwave heating setting (heating power)
       #   name_ja: 電子レンジ 2 段加熱出力設定値
+
+    # User-defined objects in the 0x0Fxx class range (0x0Fxxユーザ定義オブジェクト)
+  0x0F01:
+    name_en: User-defined device (0x0F01)
+    name_ja: ユーザ定義デバイス (0x0F01)
+    properties:
+      # 三菱エアリゾート本体
+      - epc: 0xB0
+        manufacturer_code: 0x000006
+        name_en: Operation mode setting
+        name_ja: 運転モード設定
+        get: required
+        set: required
+        description_en: Used to specify the operation mode ('automatic','cooling','heating','dehumidification','air circulator' or 'other'), and to acquire the current setting.
+        description_ja: 自動/冷房/暖房/除湿/送風/その他の運転モードを設定し、設定状態を取得する
+        enum_values:
+          - edt: 0x41
+            key: auto
+            name_en: Automatic
+            name_ja: 自動
+          - edt: 0x42
+            key: cooling
+            name_en: Cooling
+            name_ja: 冷房
+          - edt: 0x43
+            key: heating
+            name_en: Heating
+            name_ja: 暖房
+          - edt: 0x44
+            key: dehumidification
+            name_en: Dehumidification
+            name_ja: 除湿
+          - edt: 0x45
+            key: circulation
+            name_en: Air circulation
+            name_ja: 送風
+          - edt: 0x40
+            key: other
+            name_en: Other
+            name_ja: その他
+      - epc: 0xBE
+        manufacturer_code: 0x000006
+        name_en: Measured outdoor air temperature
+        name_ja: 外気温度計測値
+        get: required
+        set: notApplicable
+        description_en: This property indicates the measured outdoor air temperature.
+        description_ja: 外気温度計測値
+        format: int8
+        unit: Celsius
+        minimum: -127
+        maximum: 125
+      - epc: 0xC0
+        manufacturer_code: 0x000006
+        name_en: Ventilation function setting
+        name_ja: 換気モード設定
+        get: required
+        set: required
+        description_en: Used to specify whether or not to use the ventilation function, to specify the ventilation direction, and to acquire the current setting.
+        description_ja: 換気の動作を設定し、設定状態を取得する
+        enum_values:
+          - edt: 0x31
+            key: "off"
+            name_en: Ventilation function OFF
+            name_ja: 換気OFF
+          - edt: 0x42
+            key: "on"
+            name_en: Ventilation function ON
+            name_ja: 換気ON
+      - epc: 0xC2
+        manufacturer_code: 0x000006
+        name_en: Ventilation air flow rate setting
+        name_ja: 換気風量設定
+        get: required
+        set: required
+        description_en: Used to specify the ventilation air flow rate by selecting a level from among the predefined levels, and to acquire the current setting.
+        description_ja: 換気風量レベルを設定し、設定状態を取得する
+        enum_values:
+          - edt: 0x31
+            key: level_1
+            name_en: Level 1
+            name_ja: レベル1
+          - edt: 0x32
+            key: level_2
+            name_en: Level 2
+            name_ja: レベル2
+          - edt: 0x33
+            key: level_3
+            name_en: Level 3
+            name_ja: レベル3
+          - edt: 0x34
+            key: level_4
+            name_en: Level 4
+            name_ja: レベル4
+          - edt: 0x35
+            key: level_5
+            name_en: Level 5
+            name_ja: レベル5
+          - edt: 0x36
+            key: level_6
+            name_en: Level 6
+            name_ja: レベル6
+          - edt: 0x37
+            key: level_7
+            name_en: Level 7
+            name_ja: レベル7
+          - edt: 0x38
+            key: level_8
+            name_en: Level 8
+            name_ja: レベル8
+
+  0x0F02:
+    name_en: User-defined device (0x0F02)
+    name_ja: ユーザ定義デバイス (0x0F02)
+    properties:
+      # 三菱エアリゾートVAV
+      - epc: 0x8F
+        manufacturer_code: 0x000006
+        name_en: Keep operation setting
+        name_ja: キープ運転設定
+        get: required
+        set: required
+        description_en: This property indicates whether the VAV is operating in keep mode.
+        description_ja: VAVのキープ運転（節電機能）を設定し、状態を取得する
+        enum_values:
+          - edt: 0x41
+            key: "true"
+            name_en: Operating in normal mode
+            name_ja: キープOFF
+          - edt: 0x42
+            key: "false"
+            name_en: Operating in keep mode
+            name_ja: キープON
+      - epc: 0xB3
+        manufacturer_code: 0x000006
+        name_en: Set temperature value
+        name_ja: 温度設定値
+        get: required
+        set: required
+        description_en: Used to set the temperature and to acquire the current setting.
+        description_ja: 温度設定値を設定し、設定状態を取得する
+        format: uint8
+        unit: Celsius
+        minimum: 0
+        maximum: 50
+      - epc: 0xBB
+        manufacturer_code: 0x000006
+        name_en: Measured value of room temperature
+        name_ja: 室内温度計測値
+        get: optional
+        set: notApplicable
+        description_en: Measured value of room temperature
+        description_ja: 室内温度計測値
+        format: int8
+        unit: Celsius
+        minimum: -127
+        maximum: 125
 
 # Curated CollectionBinding entries (see pyhems.definitions.CollectionBinding).
 #

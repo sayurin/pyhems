@@ -174,37 +174,28 @@ class EntityDefinition:
     def get_binary_values(self) -> tuple[bytes, bytes]:
         """Get ON/OFF byte values for binary entities.
 
-        For binary entities, determines which EDT values represent ON and OFF states.
-        First tries to find enum values with key "true" (ON) and "false" (OFF).
-        If not found, uses the first two enum values as ON and OFF respectively.
+        Binary entities must have exactly one ``key="true"`` and one
+        ``key="false"`` enum value. Their order is not significant.
 
         Returns:
             Tuple of (on_value, off_value) as bytes.
 
         Raises:
-            ValueError: If fewer than 2 enum values are defined.
+            ValueError: If the enum keys are not exactly ``true`` and ``false``.
         """
-        on_value: int | None = None
-        off_value: int | None = None
+        values = {value.key: value.edt for value in self.enum_values}
+        if len(self.enum_values) != 2 or set(values) != {"true", "false"}:
+            raise ValueError(
+                f"Binary entity EPC 0x{self.epc:02X} requires true/false enum keys"
+            )
+        return bytes([values["true"]]), bytes([values["false"]])
 
-        # First try to find by key
-        for ev in self.enum_values:
-            if ev.key == "true":
-                on_value = ev.edt
-            elif ev.key == "false":
-                off_value = ev.edt
-
-        # If not found, use first two enum values (first=ON, second=OFF)
-        if on_value is None or off_value is None:
-            if len(self.enum_values) >= 2:
-                on_value = self.enum_values[0].edt
-                off_value = self.enum_values[1].edt
-            else:
-                raise ValueError(
-                    f"Binary entity EPC 0x{self.epc:02X} requires at least 2 enum_values"
-                )
-
-        return bytes([on_value]), bytes([off_value])
+    @property
+    def is_binary(self) -> bool:
+        """Return whether this entity has normalized boolean enum keys."""
+        return len(self.enum_values) == 2 and {
+            value.key for value in self.enum_values
+        } == {"true", "false"}
 
 
 # ============================================================================
