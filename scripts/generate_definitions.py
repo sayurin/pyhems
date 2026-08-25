@@ -43,6 +43,8 @@ MRA_DIR = Path(__file__).parent.parent / "mra"
 CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 PROPERTY_ROLES_FILE = Path(__file__).parent / "property_roles.xlsx"
+_USER_DEFINED_CLASS_CODE_START = 0x0F00
+_USER_DEFINED_CLASS_CODE_END = 0x0FFF
 
 # Maps known two-value state enum keys to the generated boolean keys. The
 # input order is deliberately irrelevant: boolean consumers must only use the
@@ -129,6 +131,7 @@ CollectionIndex: TypeAlias = _defs_mod.CollectionIndex  # noqa: UP040
 class _DeviceBuild:
     """Mutable container for building device-specific entity lists."""
 
+    short_name: str
     name_en: str
     name_ja: str
     entities: list[EntityDefinition]  # device-specific only (excludes common)
@@ -194,6 +197,28 @@ def _normalize_trailing_number(name: str) -> str:
     avoiding short codes like 'n1'.
     """
     return re.sub(r"(?<=[a-zA-Z]{2})(\d+)$", r" \1", name)
+
+
+def _validate_short_name(value: Any, class_code: int, *, custom: bool = False) -> str:
+    """Validate an MRA-style lower-camel-case device class short name."""
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z][A-Za-z0-9]*", value):
+        source = "Custom definition" if custom else "MRA"
+        field = "short_name" if custom else "shortName"
+        raise ValueError(
+            f"{source} class 0x{class_code:04X} {field} must be a "
+            "lower-camel-case identifier"
+        )
+    return value
+
+
+def _short_name_to_enum_member(short_name: str, class_code: int) -> str:
+    """Convert an MRA short name to a unique DeviceClass member name."""
+    if _USER_DEFINED_CLASS_CODE_START <= class_code <= _USER_DEFINED_CLASS_CODE_END:
+        return f"USER_DEFINED_{class_code:04X}"
+
+    member = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", short_name)
+    member = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", member)
+    return member.upper()
 
 
 def _normalize_two_value_enum_keys(
@@ -894,6 +919,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             data = json.load(f)
 
         class_name_data = data["className"]
+        short_name = _validate_short_name(data["shortName"], class_code)
         mra_epcs[class_code] = frozenset(
             int(prop_data["epc"], 16)
             for prop_data in data["elProperties"]
@@ -953,6 +979,7 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
         # entities, so common entities (e.g., operation status 0x80) are
         # still applied via _load_devices().
         devices[class_code] = _DeviceBuild(
+            short_name=short_name,
             name_en=class_name_data["en"],
             name_ja=class_name_data["ja"],
             entities=entities,
@@ -1352,7 +1379,12 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
             raise ValueError(
                 f"Custom definition class 0x{class_code:04X} must be a mapping"
             )
-        if unknown := set(class_entry) - {"name_en", "name_ja", "properties"}:
+        if unknown := set(class_entry) - {
+            "name_en",
+            "name_ja",
+            "short_name",
+            "properties",
+        }:
             raise ValueError(
                 f"Custom definition class 0x{class_code:04X} has unknown fields: "
                 f"{sorted(unknown)}"
@@ -1369,12 +1401,21 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
                 raise ValueError(
                     f"Custom definition class 0x{class_code:04X} requires name_en and name_ja"
                 )
+            short_name = _validate_short_name(
+                class_entry.get("short_name"), class_code, custom=True
+            )
             build.devices[class_code] = _DeviceBuild(
+                short_name=short_name,
                 name_en=class_entry["name_en"],
                 name_ja=class_entry["name_ja"],
                 entities=[],
             )
             build.mra_epcs[class_code] = frozenset()
+        elif "short_name" in class_entry:
+            raise ValueError(
+                f"Custom definition class 0x{class_code:04X} may not specify "
+                "short_name for an MRA class"
+            )
         elif "name_en" in class_entry or "name_ja" in class_entry:
             if not all(
                 isinstance(class_entry.get(field), str) and class_entry[field]
@@ -1504,6 +1545,17 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
     instead of being parsed from JSON at runtime. Common entities are emitted
     once as ``_COMMON`` and shared by every device class.
     """
+    enum_members: dict[str, int] = {}
+    for class_code, device_build in build.devices.items():
+        member = _short_name_to_enum_member(device_build.short_name, class_code)
+        if member in enum_members:
+            previous_class_code = enum_members[member]
+            raise ValueError(
+                f"DeviceClass member {member!r} is used by classes "
+                f"0x{previous_class_code:04X} and 0x{class_code:04X}"
+            )
+        enum_members[member] = class_code
+
     # Build-time validation
     for class_code, device_build in build.devices.items():
         for entity in build.common + device_build.entities:
@@ -1515,6 +1567,8 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "",
         "DO NOT EDIT. Generated by scripts/generate_definitions.py.",
         '"""',
+        "",
+        "from enum import IntEnum",
         "",
         "from .definitions import (",
         "    ArrayDefinition,",
@@ -1534,8 +1588,20 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    ScalarDefinition,",
         ")",
         "",
-        "_COMMON: tuple[EntityDefinition, ...] = (",
+        "class DeviceClass(IntEnum):",
+        '    """ECHONET Lite device classes keyed by MRA shortName."""',
+        "",
     ]
+    lines.extend(
+        f"    {member} = 0x{class_code:04X}"
+        for member, class_code in sorted(enum_members.items(), key=lambda item: item[1])
+    )
+    lines.extend(
+        [
+            "",
+            "_COMMON: tuple[EntityDefinition, ...] = (",
+        ]
+    )
     lines.extend(f"    {entity!r}," for entity in build.common)
     lines.extend(
         [

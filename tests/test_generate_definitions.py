@@ -13,6 +13,7 @@ import pytest
 from pyhems import (
     REGISTRY,
     BinaryCodec,
+    DeviceClass,
     EntityDefinition,
     EnumCodec,
     PropertyRole,
@@ -46,6 +47,17 @@ def test_all_entities_have_get_set_strings() -> None:
         assert ent.set in ALLOWED_ACCESS_VALUES, (
             f"Unexpected set value: {ent.set} in {ent.id}"
         )
+
+
+def test_device_class_enum_matches_registry() -> None:
+    assert {device_class.value for device_class in DeviceClass} == set(REGISTRY.devices)
+
+
+def test_device_class_enum_uses_mra_and_custom_short_names() -> None:
+    assert DeviceClass.HOME_AIR_CONDITIONER.value == 0x0130
+    assert DeviceClass.COMBINATION_MICROWAVE_OVEN.value == 0x03B8
+    assert DeviceClass.USER_DEFINED_0F01.value == 0x0F01
+    assert DeviceClass.USER_DEFINED_0F02.value == 0x0F02
 
 
 def test_enum_values_are_unique() -> None:

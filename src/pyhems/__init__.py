@@ -1,6 +1,6 @@
 """pyhems - ECHONET Lite library for HEMS."""
 
-from ._definitions_generated import REGISTRY
+from ._definitions_generated import REGISTRY, DeviceClass
 from .codecs import (
     BinaryCodec,
     CollectionPage,
@@ -130,6 +130,7 @@ __all__ = [
     "CollectionIndex",
     "CollectionPage",
     "DefinitionsRegistry",
+    "DeviceClass",
     "DeviceDefinition",
     "DeviceManager",
     "DevicePollerStats",

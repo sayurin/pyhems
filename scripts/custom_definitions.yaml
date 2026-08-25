@@ -7,6 +7,7 @@
 # Format:
 #   devices:
 #     <class_code>:               # 2-byte class code as hex (e.g., 0x0135)
+#       short_name: <name>        # Required for a class absent from MRA
 #       name_en: <name>           # Required for a class absent from MRA
 #       name_ja: <name>           # Required for a class absent from MRA
 #       properties:
@@ -411,6 +412,7 @@ devices:
             name_en: "Heat exchanger OFF"
 
   0x03B8:
+    short_name: combinationMicrowaveOven
     name_en: combination microwave oven (electronic oven)
     name_ja: オーブンレンジ
     properties:
@@ -803,6 +805,7 @@ devices:
 
     # User-defined objects in the 0x0Fxx class range (0x0Fxxユーザ定義オブジェクト)
   0x0F01:
+    short_name: userDefinedDevice
     name_en: User-defined device (0x0F01)
     name_ja: ユーザ定義デバイス (0x0F01)
     properties:
@@ -912,6 +915,7 @@ devices:
             name_ja: レベル8
 
   0x0F02:
+    short_name: userDefinedDevice
     name_en: User-defined device (0x0F02)
     name_ja: ユーザ定義デバイス (0x0F02)
     properties:
