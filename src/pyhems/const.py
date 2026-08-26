@@ -48,12 +48,6 @@ DISCOVERY_DEFAULT_EPCS: list[int] = [
     EPC_SELF_NODE_INSTANCE_LIST,
 ]
 
-# Device class codes
-CLASS_CODE_HOME_AIR_CONDITIONER = 0x0130
-CLASS_CODE_VENTILATION_FAN = 0x0133
-CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN = 0x0134
-CLASS_CODE_AIR_CLEANER = 0x0135
-
 # Timeout for one-time, setup-phase requests: the initial multi-property Get
 # (base_epcs + monitored_epcs) in DeviceManager.setup_device(), and the
 # subsequent INF_REQ (0x63) notification-subscription request and its

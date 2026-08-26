@@ -19,10 +19,6 @@ from .codecs import (
     value_definition_byte_size,
 )
 from .const import (
-    CLASS_CODE_AIR_CLEANER,
-    CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN,
-    CLASS_CODE_HOME_AIR_CONDITIONER,
-    CLASS_CODE_VENTILATION_FAN,
     CONTROLLER_CLASS,
     CONTROLLER_INSTANCE,
     DISCOVERY_DEFAULT_EPCS,
@@ -89,10 +85,6 @@ from .runtime import (
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 __all__ = [
-    "CLASS_CODE_AIR_CLEANER",
-    "CLASS_CODE_AIR_CONDITIONER_VENTILATION_FAN",
-    "CLASS_CODE_HOME_AIR_CONDITIONER",
-    "CLASS_CODE_VENTILATION_FAN",
     "CONTROLLER_CLASS",
     "CONTROLLER_INSTANCE",
     "DISCOVERY_DEFAULT_EPCS",
