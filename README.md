@@ -86,12 +86,15 @@ asyncio.run(main())
 ## Definitions
 
 ```python
-from pyhems import REGISTRY
+from pyhems import DeviceClass, REGISTRY
 
 print(REGISTRY.version, REGISTRY.mra_version)
 
 # Mapping: class_code -> tuple[EntityDefinition, ...]
-ac_entities = REGISTRY.entities.get(0x0130, ())
+ac_entities = REGISTRY.entities.get(DeviceClass.HOME_AIR_CONDITIONER, ())
 for entity in ac_entities[:3]:
     print(entity.epc, entity.name_en)
 ```
+
+`DeviceClass` is an `IntEnum` generated from the MRA `shortName` values. Custom
+device classes defined in `scripts/custom_definitions.yaml` are included too.

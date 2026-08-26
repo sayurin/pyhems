@@ -281,13 +281,16 @@ pyhems は MRA（Machine Readable Appendix）データに基づいたエンテ�
 ### 定義レジストリの使用
 
 ```python
-from pyhems import REGISTRY
+from pyhems import DeviceClass, REGISTRY
 
 # 特定のデバイスクラスのエンティティ定義を取得
-entities = REGISTRY.entities.get(0x0130, ())  # 家庭用エアコン
+entities = REGISTRY.entities.get(DeviceClass.HOME_AIR_CONDITIONER, ())  # 家庭用エアコン
 for entity in entities:
     print(f"{entity.name_ja}: EPC=0x{entity.epc:02X}")
 ```
+
+`DeviceClass` は MRA の `shortName` から生成される `IntEnum` です。
+`scripts/custom_definitions.yaml` で定義したカスタムデバイスクラスも含まれます。
 
 ### EntityDefinition の属性
 
