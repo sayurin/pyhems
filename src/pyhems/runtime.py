@@ -12,6 +12,7 @@ from bidict import bidict
 from .const import (
     CONTROLLER_INSTANCE,
     DISCOVERY_DEFAULT_EPCS,
+    DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
     ESV_GET,
     ESV_GET_RES,
@@ -132,23 +133,25 @@ class HemsClient:
     def __init__(
         self,
         interface: str = "0.0.0.0",
-        poll_interval: float = 60.0,
+        poll_interval: float = 60.0 * 60.0,
         extra_epcs: list[int] | None = None,
     ) -> None:
         """Initialize the HEMS client.
 
         Args:
             interface: Network interface IP to bind to.
-            poll_interval: Interval for polling devices (seconds).
-            extra_epcs: Additional EPCs to request from node profile during
-                discovery. These will be included in HemsInstanceListEvent.properties.
+            poll_interval: Interval for recurring node discovery (seconds).
+            extra_epcs: Additional EPCs to request from the node profile during
+                initial discovery. These will be included in
+                HemsInstanceListEvent.properties.
 
         """
         self._interface = interface
         self._poll_interval = poll_interval
-        # Combine default EPCs with extra EPCs, preserving order and avoiding duplicates
-        self._discovery_epcs = list(
-            dict.fromkeys(list(DISCOVERY_DEFAULT_EPCS) + (extra_epcs or []))
+        # Combine initial discovery EPCs with extras, preserving order and
+        # avoiding duplicates.
+        self._initial_discovery_epcs = list(
+            dict.fromkeys(list(DISCOVERY_INITIAL_EPCS) + (extra_epcs or []))
         )
         self._protocol: EchonetLiteProtocol | None = None
         self._callbacks: list[EventCallback] = []
@@ -156,7 +159,8 @@ class HemsClient:
         self._device_addresses: bidict[str, str] = bidict()
         # Queue to store frames from unknown devices (frame, eoj, received_at)
         self._pending_frames: dict[str, list[tuple[Frame, EOJ, float]]] = {}
-        # Per-address direct node discovery tasks started by unknown INF frames.
+        # Per-address direct node discovery tasks started by unknown discovery
+        # frames.
         self._address_discovery_tasks: dict[str, asyncio.Task[None]] = {}
         # Background tasks that need to be kept alive
         self._background_tasks: set[asyncio.Task[object]] = set()
@@ -202,9 +206,6 @@ class HemsClient:
         )
         _LOGGER.debug("HEMS runtime client started on %s", self._interface)
 
-        # Start periodic node probe
-        self._poll_task = asyncio.create_task(self._poll_loop())
-
     async def stop(self) -> None:
         """Stop the runtime client."""
         discovery_tasks = list(self._address_discovery_tasks.values())
@@ -243,11 +244,11 @@ class HemsClient:
         _LOGGER.debug("HEMS runtime client stopped")
 
     async def probe_nodes(self) -> bool:
-        """Send node probe request to discover devices.
+        """Send a recurring node probe request to discover devices.
 
-        Sends a multicast Get request to node profile for EPCs configured
-        during client initialization (default: identification number and
-        instance list, plus any extra_epcs).
+        Sends a multicast Get request to the node profile for the self-node
+        instance list (EPC 0xD6). This request is intentionally limited to one
+        property so it can be used for recurring discovery.
 
         Returns:
             True if probe was sent successfully.
@@ -256,14 +257,30 @@ class HemsClient:
         if not self._protocol:
             return False
 
+        return await self._probe_nodes(DISCOVERY_DEFAULT_EPCS)
+
+    async def probe_initial_nodes(self) -> bool:
+        """Send the initial multicast node probe request."""
+        return await self._probe_nodes(self._initial_discovery_epcs)
+
+    async def _probe_nodes(self, epcs: list[int]) -> bool:
+        """Send a multicast node probe request for the given EPCs."""
+        if not self._protocol:
+            return False
+
         frame = Frame(
             tid=Frame.next_tid(),
             seoj=CONTROLLER_INSTANCE,
             deoj=NODE_PROFILE_INSTANCE,
             esv=ESV_GET,
-            properties=[Property(epc=epc) for epc in self._discovery_epcs],
+            properties=[Property(epc=epc) for epc in epcs],
         )
         return await self._send_to_address(frame, ECHONET_MULTICAST)
+
+    def start_periodic_discovery(self) -> None:
+        """Start recurring node discovery immediately."""
+        if self._protocol and self._poll_task is None:
+            self._poll_task = asyncio.create_task(self._poll_loop())
 
     async def get(
         self,
@@ -532,7 +549,7 @@ class HemsClient:
             await self._get_at_address(
                 address,
                 NODE_PROFILE_INSTANCE,
-                self._discovery_epcs,
+                self._initial_discovery_epcs,
             )
         finally:
             if address not in self._device_addresses:
@@ -781,10 +798,13 @@ class HemsClient:
             # An INF from an unknown address is normally a multicast state
             # update. Discover that source directly before applying any
             # device-object notification it carried.
-            if frame.esv == ESV_INF and address not in self._device_addresses:
-                if frame.seoj.class_code != NODE_PROFILE_CLASS:
-                    pending_frames = self._pending_frames.setdefault(address, [])
-                    pending_frames.append((frame, frame.seoj, time.monotonic()))
+            if (
+                frame.esv == ESV_INF
+                and address not in self._device_addresses
+                and frame.seoj.class_code != NODE_PROFILE_CLASS
+            ):
+                pending_frames = self._pending_frames.setdefault(address, [])
+                pending_frames.append((frame, frame.seoj, time.monotonic()))
                 self._schedule_address_discovery(address)
                 return
 
@@ -847,7 +867,20 @@ class HemsClient:
         # Extract node_id and instances using shared logic
         node_id, instances = _extract_discovery_info(frame)
 
-        if not node_id or not instances:
+        if node_id:
+            # Use forceput to handle address changes.
+            self._device_addresses.forceput(address, node_id)
+        else:
+            node_id = self._device_addresses.get(address)
+
+        if not node_id:
+            # A recurring D6 response, or a D5 notification, does not carry
+            # enough information to identify an unknown node. Resolve it with
+            # the same direct discovery used for unknown device notifications.
+            self._schedule_address_discovery(address)
+            return
+
+        if not instances:
             return
 
         # Collect all properties with non-empty EDT
@@ -858,9 +891,6 @@ class HemsClient:
             node_id,
             [f"0x{epc:02X}" for epc in properties],
         )
-
-        # Use forceput to handle address changes
-        self._device_addresses.forceput(address, node_id)
 
         self._dispatch(
             HemsInstanceListEvent(
@@ -897,8 +927,8 @@ class HemsClient:
         """Periodic polling loop for node probe."""
         while self._protocol:
             try:
-                await asyncio.sleep(self._poll_interval)
                 await self.probe_nodes()
+                await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
             except Exception:

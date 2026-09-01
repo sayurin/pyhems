@@ -8,6 +8,7 @@ import pytest
 
 from pyhems import (
     CONTROLLER_INSTANCE,
+    DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
     EOJ,
     EPC_IDENTIFICATION_NUMBER,
@@ -85,6 +86,10 @@ class TestHemsClient:
         client = HemsClient(interface="192.168.1.1", poll_interval=30.0)
         assert client._interface == "192.168.1.1"
         assert client._poll_interval == 30.0
+
+    def test_client_default_poll_interval_is_one_hour(self) -> None:
+        """Test recurring discovery defaults to one hour."""
+        assert HemsClient()._poll_interval == 60.0 * 60.0
 
     def test_subscribe_unsubscribe(self) -> None:
         """Test subscribing and unsubscribing callbacks."""
@@ -221,19 +226,16 @@ class TestNodeProbe:
         assert frame.seoj == CONTROLLER_INSTANCE
         assert frame.deoj == NODE_PROFILE_INSTANCE
         assert frame.esv == ESV_GET
-        # Default probe includes the properties needed to identify each node.
-        assert len(frame.properties) == 5
+        # Recurring discovery only requests the self-node instance list.
+        assert len(frame.properties) == 1
 
         epcs = [p.epc for p in frame.properties]
-        assert EPC_IDENTIFICATION_NUMBER in epcs
         assert EPC_SELF_NODE_INSTANCE_LIST in epcs
-        assert EPC_MANUFACTURER_CODE in epcs
-        assert EPC_PRODUCT_CODE in epcs
-        assert EPC_SERIAL_NUMBER in epcs
+        assert epcs == [EPC_SELF_NODE_INSTANCE_LIST]
 
     @pytest.mark.asyncio
-    async def test_async_probe_nodes_with_extra_epcs(self) -> None:
-        """Test probe sends extra EPCs when specified in constructor."""
+    async def test_async_probe_initial_nodes_with_extra_epcs(self) -> None:
+        """Test initial probe sends extra EPCs when specified in constructor."""
         extra_epcs = [EPC_MANUFACTURER_CODE, EPC_PRODUCT_CODE, EPC_SERIAL_NUMBER]
         client = HemsClient(extra_epcs=extra_epcs)
 
@@ -241,7 +243,7 @@ class TestNodeProbe:
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
 
-        result = await client.probe_nodes()
+        result = await client.probe_initial_nodes()
         assert result is True
 
         # Verify send was called
@@ -251,7 +253,7 @@ class TestNodeProbe:
 
         # Decode the frame to verify
         frame = Frame.decode(data)
-        assert len(frame.properties) == 5
+        assert len(frame.properties) == len(DISCOVERY_INITIAL_EPCS) + len(extra_epcs)
 
         epcs = [p.epc for p in frame.properties]
         assert EPC_IDENTIFICATION_NUMBER in epcs
@@ -261,8 +263,8 @@ class TestNodeProbe:
         assert EPC_SERIAL_NUMBER in epcs
 
     @pytest.mark.asyncio
-    async def test_start_creates_poll_task(self) -> None:
-        """Test that start creates a polling task."""
+    async def test_start_periodic_discovery_creates_poll_task(self) -> None:
+        """Test that recurring discovery can be started after initial setup."""
         with patch(
             "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
         ) as mock_create:
@@ -273,6 +275,9 @@ class TestNodeProbe:
             await client.start()
 
             assert client._protocol is not None
+            assert client._poll_task is None
+
+            client.start_periodic_discovery()
             assert client._poll_task is not None
 
             # Clean up
@@ -283,8 +288,8 @@ class TestNodeProbe:
             mock_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_poll_loop_waits_before_initial_probe(self) -> None:
-        """Test that the first periodic probe is delayed."""
+    async def test_poll_loop_probes_before_waiting_for_next_interval(self) -> None:
+        """Test that the first periodic probe is sent immediately."""
         client = HemsClient(poll_interval=60.0)
         client._protocol = MagicMock()
 
@@ -298,8 +303,81 @@ class TestNodeProbe:
         ):
             await client._poll_loop()
 
+        mock_probe.assert_awaited_once_with()
         mock_sleep.assert_awaited_once_with(60.0)
-        mock_probe.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_known_node_profile_d6_response_dispatches_instance_list(
+        self,
+    ) -> None:
+        """A D6 response from a known address updates its instance list."""
+        client = HemsClient()
+        events: list[RuntimeEvent] = []
+        client.subscribe(events.append)
+        address = "192.168.1.100"
+        node_id = (b"\xfe" + b"\x00" * 16).hex()
+        client._device_addresses.forceput(address, node_id)
+
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=1,
+                seoj=NODE_PROFILE_INSTANCE,
+                deoj=CONTROLLER_INSTANCE,
+                esv=0x72,
+                properties=[
+                    Property(
+                        epc=EPC_SELF_NODE_INSTANCE_LIST,
+                        edt=bytes([1, 0x01, 0x30, 0x01]),
+                    )
+                ],
+            ),
+            address,
+        )
+
+        assert len(events) == 1
+        assert isinstance(events[0], HemsInstanceListEvent)
+        assert events[0].node_id == node_id
+        assert events[0].instances == [EOJ(0x013001)]
+
+    @pytest.mark.asyncio
+    async def test_unknown_node_profile_d6_response_starts_direct_discovery(
+        self,
+    ) -> None:
+        """An unknown D6 response is resolved without using its instance list."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.101"
+
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=1,
+                seoj=NODE_PROFILE_INSTANCE,
+                deoj=CONTROLLER_INSTANCE,
+                esv=0x72,
+                properties=[
+                    Property(
+                        epc=EPC_SELF_NODE_INSTANCE_LIST,
+                        edt=bytes([1, 0x01, 0x30, 0x01]),
+                    )
+                ],
+            ),
+            address,
+        )
+        await asyncio.sleep(0)
+
+        payload, destination = client._protocol.send.call_args.args
+        request = Frame.decode(payload)
+        assert destination == address
+        assert request.deoj == NODE_PROFILE_INSTANCE
+        assert request.esv == ESV_GET
+        assert [prop.epc for prop in request.properties] == [
+            EPC_IDENTIFICATION_NUMBER,
+            EPC_SELF_NODE_INSTANCE_LIST,
+        ]
+        assert address in client._address_discovery_tasks
+        await client.stop()
 
     @pytest.mark.asyncio
     async def test_process_frame_dispatches_instance_list_event(self) -> None:
@@ -368,7 +446,9 @@ class TestNodeProbe:
         assert destination == address
         assert request.deoj == NODE_PROFILE_INSTANCE
         assert request.esv == ESV_GET
-        assert [prop.epc for prop in request.properties] == client._discovery_epcs
+        assert [
+            prop.epc for prop in request.properties
+        ] == client._initial_discovery_epcs
 
         self._simulate_receive(
             client,

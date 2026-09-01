@@ -39,14 +39,16 @@ EPC_GET_PROPERTY_MAP = 0x9F
 EPC_INSTANCE_LIST = 0xD5
 EPC_SELF_NODE_INSTANCE_LIST = 0xD6
 
-# Default EPCs for node discovery and DeviceManager node profile fallbacks.
-DISCOVERY_DEFAULT_EPCS: list[int] = [
+# EPCs requested by the initial multicast discovery. The identification number
+# is needed to associate a node profile response with its source address.
+DISCOVERY_INITIAL_EPCS: list[int] = [
     EPC_IDENTIFICATION_NUMBER,
-    EPC_MANUFACTURER_CODE,
-    EPC_PRODUCT_CODE,
-    EPC_SERIAL_NUMBER,
     EPC_SELF_NODE_INSTANCE_LIST,
 ]
+
+# EPCs requested by recurring multicast discovery. Known source addresses are
+# already mapped to identification numbers, so only the instance list is needed.
+DISCOVERY_DEFAULT_EPCS: list[int] = [EPC_SELF_NODE_INSTANCE_LIST]
 
 # Timeout for one-time, setup-phase requests: the initial multi-property Get
 # (base_epcs + monitored_epcs) in DeviceManager.setup_device(), and the

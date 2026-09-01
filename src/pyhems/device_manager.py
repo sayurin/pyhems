@@ -264,9 +264,6 @@ class DeviceManager:
         self.last_frame_received_at: float | None = None
 
         self._pending_setups: set[str] = set()
-        self._node_profile_info: dict[
-            str, tuple[int | None, str | None, str | None]
-        ] = {}
 
         # device_key -> EPC -> number of active subscribers. See
         # :meth:`subscribe_epcs`/:meth:`effective_poll_epcs`.
@@ -519,17 +516,6 @@ class DeviceManager:
         """
         node_id = event.node_id
 
-        manufacturer_code, product_code, serial_number = _extract_node_profile_info(
-            event.properties
-        )
-
-        if manufacturer_code is not None or product_code or serial_number:
-            self._node_profile_info[node_id] = (
-                manufacturer_code,
-                product_code,
-                serial_number,
-            )
-
         new_device_keys: list[str] = []
         for eoj in event.instances:
             device_key = f"{node_id}-{eoj:06x}"
@@ -606,16 +592,6 @@ class DeviceManager:
             manufacturer_code, product_code, serial_number = _extract_node_profile_info(
                 properties
             )
-
-            np_info = self._node_profile_info.get(node_id)
-            if np_info:
-                np_manufacturer_code, np_product_code, np_serial_number = np_info
-                if manufacturer_code is None and np_manufacturer_code is not None:
-                    manufacturer_code = np_manufacturer_code
-                if not product_code and np_product_code:
-                    product_code = np_product_code
-                if not serial_number and np_serial_number:
-                    serial_number = np_serial_number
 
             if manufacturer_code is None:
                 _LOGGER.warning(

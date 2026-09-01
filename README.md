@@ -49,6 +49,8 @@ async def main():
             print(f"Frame from {event.node_id}: {event.frame}")
 
     unsubscribe = client.subscribe(on_event)
+    await client.probe_initial_nodes()
+    client.start_periodic_discovery()
 
     # Read properties from a discovered device
     # node_id = "fe..."  # obtained from HemsInstanceListEvent
@@ -68,7 +70,11 @@ asyncio.run(main())
 
 - `HemsClient.start()` / `HemsClient.stop()`: Start and stop UDP transport.
 - `HemsClient.subscribe(callback)`: Subscribe to runtime events.
-- `HemsClient.probe_nodes()`: Trigger multicast node discovery.
+- `HemsClient.probe_initial_nodes()`: Trigger the initial multicast node
+  discovery using the identification number and self-node instance list.
+- `HemsClient.probe_nodes()`: Trigger recurring multicast node discovery using
+  only the self-node instance list.
+- `HemsClient.start_periodic_discovery()`: Start recurring discovery immediately.
 - `HemsClient.get(node_id, deoj, epcs)`: Read property values.
 - `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple properties.
