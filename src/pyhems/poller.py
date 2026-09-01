@@ -23,9 +23,6 @@ _MAX_BACKOFF_EXPONENT = 10
 _DEFAULT_SAFETY_FACTOR = 2.5
 # Default ceiling for the adaptive interval (seconds).
 _DEFAULT_MAX_INTERVAL = 600.0
-# Number of consecutive full (non-partial) responses required before
-# growing observed_batch_capacity back up by one step (AIMD-style recovery).
-_BATCH_CAPACITY_GROWTH_THRESHOLD = 5
 
 
 def _chunk_epcs(epcs: frozenset[int], size: int) -> list[frozenset[int]]:
@@ -65,13 +62,9 @@ class _DeviceScheduleState:
     # same reason as ``latency_ewma``.
     consecutive_failures: int = 0
     # Upper bound on the number of EPCs requested in a single GET, learned
-    # from observed partial responses (see :meth:`PropertyPoller.
-    # _update_batch_capacity`). None means "no observed limit" (request the
-    # full target EPC set in one frame, as before Step 5).
+    # during setup or from observed partial responses. None means "no observed
+    # limit" (request the full target EPC set in one frame).
     observed_batch_capacity: int | None = None
-    # Number of consecutive full (non-partial) responses observed since the
-    # last shrink, used to grow ``observed_batch_capacity`` back up.
-    consecutive_full_responses: int = 0
     # EPCs requested by the most recently sent (still in-flight) poll, or
     # None if that poll was sent without explicit tracking (e.g. an
     # immediate poll after a Set) and partial-response detection does not
@@ -131,13 +124,11 @@ class PropertyPoller:
     Each scheduled poll (normal or fast tier) therefore has its requested
     EPCs compared against the EPCs actually present in the response frame.
     If fewer EPCs came back than were requested, the device's
-    ``observed_batch_capacity`` (max EPCs it reliably answers in one frame)
-    is shrunk immediately; a sustained run of full responses grows it back
-    gradually (AIMD-style, see :meth:`_update_batch_capacity`). Once a
-    device's capacity is below its target EPC count, subsequent polls for
-    that tier are sent as a sequence of chunks, one at a time, each only
-    after the previous chunk's response (or timeout) is observed (see
-    :meth:`_continue_chunked_poll`). Immediate polls
+    ``observed_batch_capacity`` is shrunk immediately and never increased
+    during the runtime. Once a device's capacity is below its target EPC
+    count, subsequent polls for that tier are sent as a sequence of chunks,
+    one at a time, each only after the previous chunk's response (or timeout)
+    is observed (see :meth:`_continue_chunked_poll`). Immediate polls
     (:meth:`schedule_immediate_poll`) are not chunked or tracked this way,
     since they are a one-shot best-effort request.
 
@@ -322,7 +313,16 @@ class PropertyPoller:
 
     def _get_state(self, device_key: str) -> _DeviceScheduleState:
         """Return the per-device schedule state, creating it if absent."""
-        return self._state.setdefault(device_key, _DeviceScheduleState())
+        state = self._state.get(device_key)
+        if state is None:
+            state = _DeviceScheduleState()
+            data = getattr(self._device_manager, "data", {})
+            node = data.get(device_key)
+            capacity = getattr(node, "observed_batch_capacity", None)
+            if isinstance(capacity, int) and capacity >= 1:
+                state.observed_batch_capacity = capacity
+            self._state[device_key] = state
+        return state
 
     def schedule_polls(self) -> None:
         """Enqueue poll requests for devices that need polling."""
@@ -493,12 +493,7 @@ class PropertyPoller:
         requested: frozenset[int],
         received: frozenset[int],
     ) -> None:
-        """Shrink/grow ``observed_batch_capacity`` from a partial-response check.
-
-        Mirrors TCP's AIMD congestion control: any observed shortfall shrinks
-        the capacity immediately (favoring safety), while a sustained run of
-        full responses grows it back by one step at a time.
-        """
+        """Shrink ``observed_batch_capacity`` from a partial-response check."""
         if not requested:
             return
         responded = len(requested & received)
@@ -506,7 +501,9 @@ class PropertyPoller:
             previous = state.observed_batch_capacity
             new_capacity = responded if previous is None else min(previous, responded)
             state.observed_batch_capacity = max(1, new_capacity)
-            state.consecutive_full_responses = 0
+            self._device_manager.update_observed_batch_capacity(
+                device_key, state.observed_batch_capacity
+            )
             _LOGGER.debug(
                 "Partial response from %s: requested %d EPCs, got %d; "
                 "observed_batch_capacity now %d",
@@ -515,11 +512,6 @@ class PropertyPoller:
                 responded,
                 state.observed_batch_capacity,
             )
-        elif state.observed_batch_capacity is not None:
-            state.consecutive_full_responses += 1
-            if state.consecutive_full_responses >= _BATCH_CAPACITY_GROWTH_THRESHOLD:
-                state.observed_batch_capacity += 1
-                state.consecutive_full_responses = 0
 
     def _continue_chunked_poll(self, device_key: str) -> None:
         """Send the next queued chunk for a poll cycle still in progress."""

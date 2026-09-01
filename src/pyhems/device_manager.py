@@ -194,6 +194,8 @@ class NodeState:
     # response before the request timed out). Kept polled like any other
     # non-confirmed EPC; tracked separately for diagnostics visibility.
     failed_inf_epcs: frozenset[int] = field(default_factory=frozenset)
+    # Safe upper bound for EPCs requested in one GET, learned during setup.
+    observed_batch_capacity: int | None = None
 
     @property
     def device_key(self) -> str:
@@ -424,6 +426,19 @@ class DeviceManager:
             return frozenset()
         return self._effective_epcs(device_key, node.fast_poll_epcs)
 
+    def update_observed_batch_capacity(self, device_key: str, capacity: int) -> None:
+        """Record a smaller safe GET batch capacity for a device."""
+        if capacity < 1:
+            return
+        node = self.data.get(device_key)
+        if not node or (
+            node.observed_batch_capacity is not None
+            and node.observed_batch_capacity <= capacity
+        ):
+            return
+        node.observed_batch_capacity = capacity
+        self._client.update_observed_batch_capacity(node.node_id, node.eoj, capacity)
+
     def _effective_epcs(
         self, device_key: str, candidate_epcs: frozenset[int]
     ) -> frozenset[int]:
@@ -577,6 +592,14 @@ class DeviceManager:
             properties: dict[int, bytes] = {
                 prop.epc: prop.edt for prop in response_props if prop.edt
             }
+            observed_batch_capacity = self._client.get_observed_batch_capacity(
+                node_id, eoj
+            )
+            if (
+                not isinstance(observed_batch_capacity, int)
+                or observed_batch_capacity < 1
+            ):
+                observed_batch_capacity = None
 
             timestamp = time.monotonic()
             get_epcs, set_epcs, inf_epcs = _extract_property_maps(properties)
@@ -641,6 +664,7 @@ class DeviceManager:
                 serial_number=serial_number,
                 class_name_en=class_name_en,
                 class_name_ja=class_name_ja,
+                observed_batch_capacity=observed_batch_capacity,
             )
 
             self.last_frame_received_at = timestamp
