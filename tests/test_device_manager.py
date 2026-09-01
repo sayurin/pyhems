@@ -883,8 +883,8 @@ class TestProcessInstanceListEvent:
         assert len(dm.data) == 0
 
     @pytest.mark.asyncio
-    async def test_node_profile_manufacturer_code_fallback(self) -> None:
-        """Node profile manufacturer code supplies a missing device code."""
+    async def test_node_profile_manufacturer_code_does_not_fallback(self) -> None:
+        """A missing device manufacturer code prevents device registration."""
         client = _make_client()
         client.get.return_value = [
             Property(epc=0x9D, edt=b"\x00"),
@@ -905,13 +905,13 @@ class TestProcessInstanceListEvent:
             )
         )
 
-        assert len(result) == 1
-        assert dm.data[result[0]].manufacturer_code == 0x123456
+        assert result == []
+        assert len(dm.data) == 0
         assert 0x83 not in client.get.call_args.args[2]
 
     @pytest.mark.asyncio
-    async def test_node_profile_info_fallback(self) -> None:
-        """Node profile info is used when device class response is empty."""
+    async def test_node_profile_info_does_not_fallback(self) -> None:
+        """Node profile metadata is not used when device values are empty."""
         client = _make_client()
         client.get.return_value = [
             Property(epc=0x9D, edt=b"\x00"),
@@ -939,8 +939,8 @@ class TestProcessInstanceListEvent:
         assert len(result) == 1
         node = dm.data[result[0]]
         assert node.manufacturer_code == 0x000001
-        assert node.product_code == "NP_PRODUCT"
-        assert node.serial_number == "NP_SERIAL"
+        assert node.product_code is None
+        assert node.serial_number is None
 
 
 # ---------------------------------------------------------------------------
