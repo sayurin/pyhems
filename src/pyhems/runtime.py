@@ -44,6 +44,11 @@ def _format_frame(frame: Frame) -> str:
     )
 
 
+def _chunk_epcs(epcs: list[int], size: int) -> list[list[int]]:
+    """Split EPCs into ordered batches."""
+    return [epcs[index : index + size] for index in range(0, len(epcs), size)]
+
+
 @dataclass(slots=True)
 class RuntimeEvent:
     """Base class for runtime events."""
@@ -102,6 +107,22 @@ class NotificationRequestResult:
     unanswered_epcs: frozenset[int]
 
 
+@dataclass(frozen=True, slots=True)
+class _GetResponse:
+    """Response received for one ESV_GET request."""
+
+    esv: int
+    properties: tuple[Property, ...]
+
+
+@dataclass(slots=True)
+class _GetCapability:
+    """Observed GET response behavior for one device object."""
+
+    opc_truncation_confirmed: bool = False
+    observed_batch_capacity: int | None = None
+
+
 EventCallback = Callable[[RuntimeEvent], None]
 
 
@@ -142,8 +163,11 @@ class HemsClient:
         self._poll_task: asyncio.Task[None] | None = None
         # Pending Get requests: tid -> (address, deoj, requested_epcs, future)
         self._pending_gets: dict[
-            int, tuple[str, EOJ, list[int], asyncio.Future[list[Property]]]
+            int, tuple[str, EOJ, list[int], asyncio.Future[_GetResponse]]
         ] = {}
+        # Observed GET response behavior, scoped to an address and destination
+        # EOJ. This is intentionally runtime-only and is relearned after restart.
+        self._get_capabilities: dict[tuple[str, EOJ], _GetCapability] = {}
         # Pending INF_REQ (0x63) requests awaiting a 0x73/0x53 response:
         # tid -> (address, requested_epcs, future)
         self._pending_infs: dict[
@@ -190,6 +214,7 @@ class HemsClient:
             await asyncio.gather(*discovery_tasks, return_exceptions=True)
         self._address_discovery_tasks.clear()
         self._pending_frames.clear()
+        self._get_capabilities.clear()
 
         if not self._protocol:
             return
@@ -253,7 +278,9 @@ class HemsClient:
 
         Sends ESV=0x62 Get request and waits for ESV=0x72 (success) or
         ESV=0x52 (partial) response. For 0x52 responses, automatically
-        retries failed EPCs.
+        retries failed EPCs. Devices that incorrectly return an unchanged OPC
+        with an empty EDT for every requested EPC are retried with smaller
+        batches.
 
         Per ECHONET Lite specification, 0x52 response returns properties
         in the same order as requested, with failed properties at the end.
@@ -286,6 +313,29 @@ class HemsClient:
             max_retries=max_retries,
         )
 
+    def get_observed_batch_capacity(self, node_id: str, deoj: EOJ) -> int | None:
+        """Return the learned safe GET batch capacity for a device object."""
+        address = self._device_addresses.inverse.get(node_id)
+        if not address:
+            return None
+        capability = self._get_capabilities.get((address, deoj))
+        return None if capability is None else capability.observed_batch_capacity
+
+    def update_observed_batch_capacity(
+        self, node_id: str, deoj: EOJ, capacity: int
+    ) -> None:
+        """Record a smaller safe GET batch capacity for a device object."""
+        if capacity < 1:
+            return
+        address = self._device_addresses.inverse.get(node_id)
+        if not address:
+            return
+        capability = self._get_capabilities.setdefault(
+            (address, deoj), _GetCapability()
+        )
+        capability.opc_truncation_confirmed = True
+        self._shrink_batch_capacity(capability, capacity)
+
     async def _get_at_address(
         self,
         address: str,
@@ -300,33 +350,167 @@ class HemsClient:
             return []
 
         received: dict[int, Property] = {}
-        remaining_epcs = list(epcs)
-        tid = Frame.next_tid()
-
-        try:
-            for attempt in range(max_retries + 1):
-                if not remaining_epcs:
-                    break
-                remaining_epcs = await self._attempt_get_request(
-                    address,
-                    deoj,
-                    seoj,
-                    remaining_epcs,
-                    request_timeout,
-                    attempt,
-                    tid,
-                    received,
-                )
-        finally:
-            if remaining_epcs:
-                _LOGGER.debug(
-                    "Partial response from %s %r, missing EPCs: %s",
-                    address,
-                    deoj,
-                    [f"0x{epc:02X}" for epc in remaining_epcs],
-                )
+        capability = self._get_capabilities.setdefault(
+            (address, deoj), _GetCapability()
+        )
+        await self._resolve_get_batches(
+            address=address,
+            deoj=deoj,
+            seoj=seoj,
+            epcs=list(epcs),
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            capability=capability,
+            received=received,
+            was_split=False,
+        )
 
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
+
+    async def _resolve_get_batches(
+        self,
+        *,
+        address: str,
+        deoj: EOJ,
+        seoj: EOJ,
+        epcs: list[int],
+        request_timeout: float,
+        max_retries: int,
+        capability: _GetCapability,
+        received: dict[int, Property],
+        was_split: bool,
+    ) -> None:
+        """Resolve a GET batch, splitting it when an empty full response is ambiguous."""
+        if not epcs:
+            return
+
+        capacity = capability.observed_batch_capacity
+        if capacity is not None and len(epcs) > capacity:
+            for batch in _chunk_epcs(epcs, capacity):
+                await self._resolve_get_batches(
+                    address=address,
+                    deoj=deoj,
+                    seoj=seoj,
+                    epcs=batch,
+                    request_timeout=request_timeout,
+                    max_retries=max_retries,
+                    capability=capability,
+                    received=received,
+                    was_split=True,
+                )
+            return
+
+        tid = Frame.next_tid()
+        remaining_epcs = epcs
+        for attempt in range(max_retries + 1):
+            if not remaining_epcs:
+                return
+
+            response = await self._attempt_get_request(
+                address,
+                deoj,
+                seoj,
+                remaining_epcs,
+                request_timeout,
+                attempt,
+                tid,
+            )
+            if response is None:
+                continue
+
+            response_epcs = {prop.epc for prop in response.properties}
+            requested_epcs = set(remaining_epcs)
+            all_empty_full_response = (
+                len(response.properties) == len(remaining_epcs)
+                and response_epcs == requested_epcs
+                and all(not prop.edt for prop in response.properties)
+            )
+            if (
+                all_empty_full_response
+                and not capability.opc_truncation_confirmed
+                and len(remaining_epcs) > 1
+            ):
+                midpoint = (len(remaining_epcs) + 1) // 2
+                _LOGGER.debug(
+                    "Ambiguous empty GET response from %s %r for %d EPCs; "
+                    "retrying in batches of %d",
+                    address,
+                    deoj,
+                    len(remaining_epcs),
+                    midpoint,
+                )
+                for batch in (
+                    remaining_epcs[:midpoint],
+                    remaining_epcs[midpoint:],
+                ):
+                    await self._resolve_get_batches(
+                        address=address,
+                        deoj=deoj,
+                        seoj=seoj,
+                        epcs=batch,
+                        request_timeout=request_timeout,
+                        max_retries=max_retries,
+                        capability=capability,
+                        received=received,
+                        was_split=True,
+                    )
+                return
+
+            response_opc = len(response.properties)
+            if response_opc < len(remaining_epcs):
+                capability.opc_truncation_confirmed = True
+                if response_opc:
+                    self._shrink_batch_capacity(capability, response_opc)
+            elif (
+                was_split
+                and capability.observed_batch_capacity is None
+                and any(prop.edt for prop in response.properties)
+            ):
+                capability.observed_batch_capacity = len(remaining_epcs)
+                _LOGGER.debug(
+                    "Observed GET batch capacity %d for %s %r",
+                    len(remaining_epcs),
+                    address,
+                    deoj,
+                )
+
+            for prop in response.properties:
+                if prop.edt:
+                    received[prop.epc] = prop
+
+            remaining_epcs = [epc for epc in remaining_epcs if epc not in response_epcs]
+            capacity = capability.observed_batch_capacity
+            if capacity is not None and len(remaining_epcs) > capacity:
+                await self._resolve_get_batches(
+                    address=address,
+                    deoj=deoj,
+                    seoj=seoj,
+                    epcs=remaining_epcs,
+                    request_timeout=request_timeout,
+                    max_retries=max_retries,
+                    capability=capability,
+                    received=received,
+                    was_split=True,
+                )
+                return
+
+        if remaining_epcs:
+            _LOGGER.debug(
+                "Partial response from %s %r, missing EPCs: %s",
+                address,
+                deoj,
+                [f"0x{epc:02X}" for epc in remaining_epcs],
+            )
+
+    @staticmethod
+    def _shrink_batch_capacity(capability: _GetCapability, response_opc: int) -> None:
+        """Keep the smallest positive capacity observed for a device object."""
+        capacity = max(1, response_opc)
+        if (
+            capability.observed_batch_capacity is None
+            or capacity < capability.observed_batch_capacity
+        ):
+            capability.observed_batch_capacity = capacity
 
     def _schedule_address_discovery(self, address: str) -> None:
         """Start direct node discovery for an unknown address once."""
@@ -556,7 +740,12 @@ class HemsClient:
                         address,
                         _format_frame(frame),
                     )
-                    future.set_result(frame.properties)
+                    future.set_result(
+                        _GetResponse(
+                            esv=frame.esv,
+                            properties=tuple(frame.properties),
+                        )
+                    )
                 elif address != req_address:
                     _LOGGER.debug(
                         "Ignoring pending Get response from unexpected address %s "
@@ -724,10 +913,9 @@ class HemsClient:
         request_timeout: float,
         attempt: int,
         tid: int,
-        received: dict[int, Property],
-    ) -> list[int]:
-        """Attempt a single Get request and return remaining EPCs."""
-        future: asyncio.Future[list[Property]] = asyncio.Future()
+    ) -> _GetResponse | None:
+        """Attempt a single Get request and return its response."""
+        future: asyncio.Future[_GetResponse] = asyncio.Future()
         self._pending_gets[tid] = (address, deoj, epcs, future)
 
         frame = Frame(
@@ -749,7 +937,7 @@ class HemsClient:
 
         if not await self._send_to_address(frame, address):
             self._pending_gets.pop(tid, None)
-            return epcs
+            return None
 
         try:
             response_props = await asyncio.wait_for(
@@ -763,23 +951,12 @@ class HemsClient:
                     deoj,
                     attempt + 1,
                 )
-                return epcs
+                return None
             response_props = future.result()
         finally:
             self._pending_gets.pop(tid, None)
 
-        # Process response - properties are in request order
-        # Failed properties (in 0x52 response) are at the end
-        for prop in response_props:
-            if prop.edt:  # Successfully read
-                received[prop.epc] = prop
-
-        # Check which EPCs were successfully received OR returned as SNA (empty)
-        # Per spec: 0x52 returns properties in order, failed ones at end
-        # We treat SNA properties (present in response but empty) as "received" (empty)
-        # to prevent infinite retries for unsupported/unavailable properties
-        received_or_sna = {p.epc for p in response_props}
-        return [epc for epc in epcs if epc not in received_or_sna]
+        return response_props
 
     async def _send_to_address(self, frame: Frame, address: str) -> bool:
         """Send a frame to a specific address.

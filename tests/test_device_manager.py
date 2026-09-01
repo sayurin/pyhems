@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -310,6 +310,7 @@ def _make_client() -> AsyncMock:
     client.get = AsyncMock(return_value=[])
     client.send = AsyncMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
+    client.get_observed_batch_capacity = MagicMock(return_value=None)
     return client
 
 
@@ -582,6 +583,7 @@ class TestProcessInstanceListEvent:
             Property(epc=0x80, edt=b"\x30"),
             Property(epc=0xB0, edt=b"\x41"),
         ]
+        client.get_observed_batch_capacity.return_value = 2
 
         monitored_epcs = {0x0130: frozenset({0x80, 0xB0})}
         dm = DeviceManager(client, monitored_epcs)
@@ -605,6 +607,7 @@ class TestProcessInstanceListEvent:
         assert node.manufacturer_code == 0x000001
         assert node.product_code == "PRODUCT"
         assert node.serial_number == "SERIAL"
+        assert node.observed_batch_capacity == 2
         assert node.get_epcs == get_epcs
         assert node.set_epcs == set_epcs
         assert node.inf_epcs == inf_epcs
