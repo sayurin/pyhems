@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyhems import EOJ
+from pyhems import EOJ, ESV
 from pyhems.frame import Frame, Property
 from pyhems.runtime import HemsClient
 
@@ -60,7 +60,7 @@ class TestRuntimeRetry:
             tid=tid1,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=0x72,
+            esv=ESV.GET_RES,
             properties=[Property(epc=0x80, edt=b"\x30")],
         )
         self._simulate_receive(client, response, "192.168.1.10")

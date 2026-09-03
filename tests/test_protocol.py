@@ -2,14 +2,35 @@
 
 import pytest
 
-from pyhems import EOJ, Frame, Property
+from pyhems import EOJ, ESV, Frame, Property
 from pyhems.const import (
     EPC_IDENTIFICATION_NUMBER,
     EPC_INSTANCE_LIST,
     EPC_SELF_NODE_INSTANCE_LIST,
-    ESV_GET_RES,
 )
 from pyhems.discovery import _extract_discovery_info
+
+
+def test_esv_values() -> None:
+    """Test all ECHONET Lite service values are defined."""
+    assert {member.name: member.value for member in ESV} == {
+        "SETI_SNA": 0x50,
+        "SETC_SNA": 0x51,
+        "GET_SNA": 0x52,
+        "INF_SNA": 0x53,
+        "SETGET_SNA": 0x5E,
+        "SETI": 0x60,
+        "SETC": 0x61,
+        "GET": 0x62,
+        "INF_REQ": 0x63,
+        "SETGET": 0x6E,
+        "SET_RES": 0x71,
+        "GET_RES": 0x72,
+        "INF": 0x73,
+        "INFC": 0x74,
+        "INFC_RES": 0x7A,
+        "SETGET_RES": 0x7E,
+    }
 
 
 class TestProperty:
@@ -36,7 +57,7 @@ class TestFrame:
             tid=0x1234,
             seoj=EOJ(0x05FF01),
             deoj=EOJ(0x0EF001),
-            esv=0x62,
+            esv=ESV.GET,
             properties=[Property(epc=0xD6, edt=b"")],
         )
 
@@ -47,6 +68,7 @@ class TestFrame:
         assert decoded.seoj == frame.seoj
         assert decoded.deoj == frame.deoj
         assert decoded.esv == frame.esv
+        assert isinstance(decoded.esv, ESV)
         assert len(decoded.properties) == 1
         assert decoded.properties[0].epc == 0xD6
 
@@ -78,7 +100,7 @@ class TestFrame:
         assert frame.tid == 0x0001
         assert frame.seoj == EOJ(0x013001)
         assert frame.deoj == EOJ(0x05FF01)
-        assert frame.esv == 0x72
+        assert frame.esv == ESV.GET_RES
         assert len(frame.properties) == 1
         assert frame.properties[0].epc == 0x80
         assert frame.properties[0].edt == b"\x30"
@@ -104,7 +126,7 @@ class TestExtractDiscoveryInfo:
             tid=0x0001,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=ESV_GET_RES,
+            esv=ESV.GET_RES,
             properties=[
                 Property(
                     epc=EPC_IDENTIFICATION_NUMBER,
@@ -127,7 +149,7 @@ class TestExtractDiscoveryInfo:
             tid=0x0001,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=ESV_GET_RES,
+            esv=ESV.GET_RES,
             properties=[
                 Property(
                     epc=EPC_IDENTIFICATION_NUMBER,
@@ -150,7 +172,7 @@ class TestExtractDiscoveryInfo:
             tid=0x0001,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=ESV_GET_RES,
+            esv=ESV.GET_RES,
             properties=[
                 Property(
                     epc=EPC_SELF_NODE_INSTANCE_LIST,
@@ -169,7 +191,7 @@ class TestExtractDiscoveryInfo:
             tid=0x0001,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=ESV_GET_RES,
+            esv=ESV.GET_RES,
             properties=[
                 Property(
                     epc=EPC_IDENTIFICATION_NUMBER,

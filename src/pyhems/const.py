@@ -1,5 +1,7 @@
 """Constants for ECHONET Lite protocol and HEMS communication."""
 
+from enum import IntEnum
+
 from .eoj import EOJ
 
 # ECHONET Lite Transport
@@ -14,18 +16,27 @@ NODE_PROFILE_CLASS = NODE_PROFILE_INSTANCE.class_code
 CONTROLLER_INSTANCE = EOJ(0x05FF01)
 CONTROLLER_CLASS = CONTROLLER_INSTANCE.class_code
 
-# ESV (Service Codes)
-ESV_SET_SNA = 0x51  # Set response with some properties unavailable
-ESV_GET_SNA = 0x52  # Get response with some properties unavailable
-ESV_INF_SNA = 0x53  # Notification request response with some properties unavailable
-ESV_SETC = 0x61  # Set with response
-ESV_GET = 0x62  # Get request
-ESV_INF_REQ = 0x63  # Notification request
-ESV_SET_RES = 0x71  # Set response
-ESV_GET_RES = 0x72  # Get response
-ESV_INF = 0x73  # Notification
-ESV_INFC = 0x74  # Notification with confirmation (INFC)
-ESV_INFC_RES = 0x7A  # Confirmation response to INFC
+
+class ESV(IntEnum):
+    """ECHONET Lite service values."""
+
+    SETI_SNA = 0x50
+    SETC_SNA = 0x51
+    GET_SNA = 0x52
+    INF_SNA = 0x53
+    SETGET_SNA = 0x5E
+    SETI = 0x60
+    SETC = 0x61
+    GET = 0x62
+    INF_REQ = 0x63
+    SETGET = 0x6E
+    SET_RES = 0x71
+    GET_RES = 0x72
+    INF = 0x73
+    INFC = 0x74
+    INFC_RES = 0x7A
+    SETGET_RES = 0x7E
+
 
 # EPC (Property Codes)
 EPC_INSTALLATION_LOCATION = 0x81

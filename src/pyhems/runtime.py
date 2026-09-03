@@ -14,15 +14,7 @@ from .const import (
     DISCOVERY_DEFAULT_EPCS,
     DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
-    ESV_GET,
-    ESV_GET_RES,
-    ESV_GET_SNA,
-    ESV_INF,
-    ESV_INF_REQ,
-    ESV_INF_SNA,
-    ESV_INFC,
-    ESV_INFC_RES,
-    ESV_SETC,
+    ESV,
     GET_MAX_RETRIES,
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
@@ -92,10 +84,10 @@ class HemsErrorEvent(RuntimeEvent):
 
 @dataclass(frozen=True, slots=True)
 class NotificationRequestResult:
-    """Result of an ``ESV_INF_REQ`` (0x63) notification-subscription request.
+    """Result of an ``ESV.INF_REQ`` (0x63) notification-subscription request.
 
     Per ECHONET Lite, a device that supports the request responds with
-    ``ESV_INF`` (0x73) listing EPCs it will now notify, or ``ESV_INF_SNA``
+    ``ESV.INF`` (0x73) listing EPCs it will now notify, or ``ESV.INF_SNA``
     (0x53) listing EPCs it could not subscribe to. Requested EPCs missing
     from either response, or for which no response arrives before the
     request times out, are reported as ``unanswered_epcs`` so callers can
@@ -110,9 +102,9 @@ class NotificationRequestResult:
 
 @dataclass(frozen=True, slots=True)
 class _GetResponse:
-    """Response received for one ESV_GET request."""
+    """Response received for one ESV.GET request."""
 
-    esv: int
+    esv: ESV
     properties: tuple[Property, ...]
 
 
@@ -272,7 +264,7 @@ class HemsClient:
             tid=Frame.next_tid(),
             seoj=CONTROLLER_INSTANCE,
             deoj=NODE_PROFILE_INSTANCE,
-            esv=ESV_GET,
+            esv=ESV.GET,
             properties=[Property(epc=epc) for epc in epcs],
         )
         return await self._send_to_address(frame, ECHONET_MULTICAST)
@@ -617,7 +609,7 @@ class HemsClient:
             tid=tid,
             seoj=seoj,
             deoj=deoj,
-            esv=ESV_INF_REQ,
+            esv=ESV.INF_REQ,
             properties=[Property(epc=epc) for epc in epcs],
         )
 
@@ -657,7 +649,7 @@ class HemsClient:
         # so any requested EPC absent from the response is treated as
         # unanswered (the safe default: fall back to polling it) rather
         # than assumed successful.
-        if response_frame.esv == ESV_INF:
+        if response_frame.esv == ESV.INF:
             successful = responded_epcs & requested
             failed: frozenset[int] = frozenset()
         else:
@@ -722,7 +714,7 @@ class HemsClient:
         frame = Frame(
             seoj=seoj,
             deoj=deoj,
-            esv=ESV_SETC,
+            esv=ESV.SETC,
             properties=properties,
         )
         return await self.send(node_id, frame)
@@ -739,14 +731,20 @@ class HemsClient:
                 _format_frame(frame),
             )
 
-            # Discard request ESVs (0x60-0x6F) - loopback or other node requests
-            if 0x60 <= frame.esv <= 0x6F:
+            # Discard request ESVs - loopback or other node requests
+            if frame.esv in {
+                ESV.SETI,
+                ESV.SETC,
+                ESV.GET,
+                ESV.INF_REQ,
+                ESV.SETGET,
+            }:
                 _LOGGER.debug("Discarding request frame: %s", _format_frame(frame))
                 return
 
             # Check if this is a response to a pending get request
             if (
-                frame.esv in (ESV_GET_RES, ESV_GET_SNA)
+                frame.esv in (ESV.GET_RES, ESV.GET_SNA)
                 and frame.tid in self._pending_gets
             ):
                 pending_get = self._pending_gets.pop(frame.tid)
@@ -774,7 +772,7 @@ class HemsClient:
                 # Continue processing to also dispatch the event
 
             # Check if this is a response to a pending INF_REQ (0x63) request
-            if frame.esv in (ESV_INF, ESV_INF_SNA) and frame.tid in self._pending_infs:
+            if frame.esv in (ESV.INF, ESV.INF_SNA) and frame.tid in self._pending_infs:
                 pending_inf = self._pending_infs.pop(frame.tid)
                 req_address, _req_inf_epcs, inf_future = pending_inf
                 if address == req_address and not inf_future.done():
@@ -799,7 +797,7 @@ class HemsClient:
             # update. Discover that source directly before applying any
             # device-object notification it carried.
             if (
-                frame.esv == ESV_INF
+                frame.esv == ESV.INF
                 and address not in self._device_addresses
                 and frame.seoj.class_code != NODE_PROFILE_CLASS
             ):
@@ -814,7 +812,7 @@ class HemsClient:
                 return
 
             # Send INFC_RES confirmation for INFC (0x74) frames
-            if frame.esv == ESV_INFC:
+            if frame.esv == ESV.INFC:
                 _LOGGER.debug(
                     "Received INFC (0x74) from %s (EOJ: %r), sending INFC_RES",
                     address,
@@ -824,7 +822,7 @@ class HemsClient:
                     tid=frame.tid,
                     seoj=frame.deoj,
                     deoj=frame.seoj,
-                    esv=ESV_INFC_RES,
+                    esv=ESV.INFC_RES,
                     properties=frame.properties,
                 )
                 task = asyncio.create_task(self._send_to_address(infc_res, address))
@@ -952,7 +950,7 @@ class HemsClient:
             tid=tid,
             seoj=seoj,
             deoj=deoj,
-            esv=ESV_GET,
+            esv=ESV.GET,
             properties=[Property(epc=epc) for epc in epcs],
         )
 

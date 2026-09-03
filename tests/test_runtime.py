@@ -17,11 +17,7 @@ from pyhems import (
     EPC_PRODUCT_CODE,
     EPC_SELF_NODE_INSTANCE_LIST,
     EPC_SERIAL_NUMBER,
-    ESV_GET,
-    ESV_INF,
-    ESV_INF_SNA,
-    ESV_INFC,
-    ESV_INFC_RES,
+    ESV,
     NODE_PROFILE_INSTANCE,
     Frame,
     Property,
@@ -45,7 +41,12 @@ class TestRuntimeEvents:
 
     def test_frame_event_fields(self) -> None:
         """Test HemsFrameEvent field values."""
-        frame = Frame(tid=1, seoj=EOJ(0x010101), deoj=EOJ(0x020202), esv=0x72)
+        frame = Frame(
+            tid=1,
+            seoj=EOJ(0x010101),
+            deoj=EOJ(0x020202),
+            esv=ESV.GET_RES,
+        )
         event = HemsFrameEvent(
             received_at=1.0,
             frame=frame,
@@ -150,7 +151,7 @@ class TestHemsClient:
         payload, address = mock_protocol.send.call_args.args
         assert address == "192.168.1.100"
         frame = Frame.decode(payload)
-        assert frame.esv == 0x61
+        assert frame.esv == ESV.SETC
         assert frame.deoj == EOJ(0x013001)
         assert frame.properties == [Property(epc=0x80, edt=b"\x30")]
         Frame._tid_counter = original_tid
@@ -225,7 +226,7 @@ class TestNodeProbe:
         frame = Frame.decode(data)
         assert frame.seoj == CONTROLLER_INSTANCE
         assert frame.deoj == NODE_PROFILE_INSTANCE
-        assert frame.esv == ESV_GET
+        assert frame.esv == ESV.GET
         # Recurring discovery only requests the self-node instance list.
         assert len(frame.properties) == 1
 
@@ -324,7 +325,7 @@ class TestNodeProbe:
                 tid=1,
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(
                         epc=EPC_SELF_NODE_INSTANCE_LIST,
@@ -355,7 +356,7 @@ class TestNodeProbe:
                 tid=1,
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(
                         epc=EPC_SELF_NODE_INSTANCE_LIST,
@@ -371,7 +372,7 @@ class TestNodeProbe:
         request = Frame.decode(payload)
         assert destination == address
         assert request.deoj == NODE_PROFILE_INSTANCE
-        assert request.esv == ESV_GET
+        assert request.esv == ESV.GET
         assert [prop.epc for prop in request.properties] == [
             EPC_IDENTIFICATION_NUMBER,
             EPC_SELF_NODE_INSTANCE_LIST,
@@ -396,7 +397,7 @@ class TestNodeProbe:
             tid=1,
             seoj=NODE_PROFILE_INSTANCE,
             deoj=CONTROLLER_INSTANCE,
-            esv=0x72,  # Get_Res
+            esv=ESV.GET_RES,
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
                 Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
@@ -434,7 +435,7 @@ class TestNodeProbe:
                 tid=1,
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=NODE_PROFILE_INSTANCE,
-                esv=ESV_INF,
+                esv=ESV.INF,
                 properties=[Property(epc=EPC_INSTANCE_LIST, edt=instance_list)],
             ),
             address,
@@ -445,7 +446,7 @@ class TestNodeProbe:
         request = Frame.decode(payload)
         assert destination == address
         assert request.deoj == NODE_PROFILE_INSTANCE
-        assert request.esv == ESV_GET
+        assert request.esv == ESV.GET
         assert [
             prop.epc for prop in request.properties
         ] == client._initial_discovery_epcs
@@ -456,7 +457,7 @@ class TestNodeProbe:
                 tid=next(iter(client._pending_gets)),
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
                     Property(epc=EPC_MANUFACTURER_CODE, edt=b"\x00\x00\x01"),
@@ -492,7 +493,7 @@ class TestNodeProbe:
             tid=1,
             seoj=device_eoj,
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80, edt=b"\x30")],
         )
 
@@ -504,7 +505,7 @@ class TestNodeProbe:
                 tid=next(iter(client._pending_gets)),
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
                     Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
@@ -531,7 +532,7 @@ class TestNodeProbe:
             tid=1,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80, edt=b"\x30")],
         )
 
@@ -553,7 +554,7 @@ class TestNodeProbe:
             tid=1,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80, edt=b"\x30")],
         )
 
@@ -579,7 +580,7 @@ class TestNodeProbe:
             tid=1,
             seoj=CONTROLLER_INSTANCE,
             deoj=NODE_PROFILE_INSTANCE,
-            esv=0x62,  # Get (request ESV)
+            esv=ESV.GET,
             properties=[Property(epc=EPC_IDENTIFICATION_NUMBER)],
         )
 
@@ -602,7 +603,7 @@ class TestNodeProbe:
             tid=1,
             seoj=EOJ(0x013001),  # Air conditioner
             deoj=CONTROLLER_INSTANCE,
-            esv=0x72,  # Get_Res
+            esv=ESV.GET_RES,
             properties=[Property(epc=0x80, edt=b"\x30")],  # Power status
         )
 
@@ -653,7 +654,7 @@ class TestNodeProbe:
             tid=1,
             seoj=NODE_PROFILE_INSTANCE,
             deoj=CONTROLLER_INSTANCE,
-            esv=0x72,
+            esv=ESV.GET_RES,
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
                 Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
@@ -669,7 +670,7 @@ class TestNodeProbe:
             tid=2,
             seoj=NODE_PROFILE_INSTANCE,
             deoj=CONTROLLER_INSTANCE,
-            esv=0x72,
+            esv=ESV.GET_RES,
             properties=[
                 Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
                 Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
@@ -726,7 +727,7 @@ class TestAsyncGet:
             tid=tid,
             seoj=EOJ(0x013001),
             deoj=EOJ(0x05FF01),
-            esv=0x72,
+            esv=ESV.GET_RES,
             properties=[
                 Property(epc=0x80, edt=b"\x30"),
                 Property(epc=0xB0, edt=b"\x42"),
@@ -769,7 +770,7 @@ class TestAsyncGet:
                 tid=tid1,
                 seoj=EOJ(0x013001),
                 deoj=EOJ(0x05FF01),
-                esv=0x52,  # Partial response
+                esv=ESV.GET_SNA,
                 properties=[
                     Property(epc=0x80, edt=b"\x30"),  # Success
                 ],
@@ -784,7 +785,7 @@ class TestAsyncGet:
                 tid=tid2,
                 seoj=EOJ(0x013001),
                 deoj=EOJ(0x05FF01),
-                esv=0x72,  # Full success
+                esv=ESV.GET_RES,
                 properties=[
                     Property(epc=0xB0, edt=b"\x45"),  # FAN mode
                     Property(epc=0xBB, edt=b"\x1a"),  # Temperature
@@ -831,7 +832,7 @@ class TestAsyncGet:
                 tid=tid,
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[Property(epc=epc) for epc in requested_epcs],
             ),
             "192.168.1.10",
@@ -845,7 +846,7 @@ class TestAsyncGet:
                 tid=tid,
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(epc=0x80, edt=b"\x30"),
                     Property(epc=0xB0, edt=b"\x41"),
@@ -862,7 +863,7 @@ class TestAsyncGet:
                 tid=tid,
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[
                     Property(epc=0xBB, edt=b"\x1a"),
                     Property(epc=0xC0, edt=b"\x01"),
@@ -917,7 +918,7 @@ class TestAsyncGet:
                 tid=tid,
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x52,
+                esv=ESV.GET_SNA,
                 properties=[],
             ),
             "192.168.1.10",
@@ -944,7 +945,7 @@ class TestAsyncGet:
                 tid=tid,
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
-                esv=0x72,
+                esv=ESV.GET_RES,
                 properties=[Property(epc=epc) for epc in requested_epcs],
             ),
             "192.168.1.10",
@@ -985,7 +986,7 @@ class TestAsyncGet:
                 tid=tid1,
                 seoj=EOJ(0x013001),
                 deoj=EOJ(0x05FF01),
-                esv=0x52,  # Partial response
+                esv=ESV.GET_SNA,
                 properties=[
                     Property(epc=0x80, edt=b"\x30"),  # Success
                     Property(epc=0xB0, edt=b""),  # SNA (empty)
@@ -1070,7 +1071,7 @@ class TestInfcHandling:
             tid=42,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INFC,
+            esv=ESV.INFC,
             properties=[
                 Property(epc=0x80, edt=b"\x30"),
                 Property(epc=0xB0, edt=b"\x42"),
@@ -1097,7 +1098,7 @@ class TestInfcHandling:
         response_frame = Frame.decode(last_call_data)
 
         # Verify the response frame is INFC_RES (0x7A)
-        assert response_frame.esv == ESV_INFC_RES
+        assert response_frame.esv == ESV.INFC_RES
         # Verify transaction ID is preserved
         assert response_frame.tid == 42
         # Verify seoj/deoj are swapped
@@ -1145,7 +1146,7 @@ class TestRequestNotifications:
             tid=tid,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80), Property(epc=0xB0)],
         )
         self._simulate_receive(client, response, "192.168.1.10")
@@ -1176,7 +1177,7 @@ class TestRequestNotifications:
             tid=tid,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80)],  # 0xB0 missing
         )
         self._simulate_receive(client, response, "192.168.1.10")
@@ -1207,7 +1208,7 @@ class TestRequestNotifications:
             tid=tid,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF_SNA,
+            esv=ESV.INF_SNA,
             properties=[Property(epc=0x80), Property(epc=0xB0)],
         )
         self._simulate_receive(client, response, "192.168.1.10")
@@ -1255,7 +1256,7 @@ class TestRequestNotifications:
             tid=tid,
             seoj=EOJ(0x013001),
             deoj=CONTROLLER_INSTANCE,
-            esv=ESV_INF,
+            esv=ESV.INF,
             properties=[Property(epc=0x80)],
         )
         self._simulate_receive(client, response, "10.0.0.99")
