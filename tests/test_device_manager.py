@@ -6,15 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pyhems import EOJ, Property
-from pyhems.const import (
-    ESV_GET_RES,
-    ESV_INF,
-    ESV_INF_SNA,
-    ESV_SET_RES,
-    ESV_SET_SNA,
-    ESV_SETC,
-)
+from pyhems import EOJ, ESV, Property
 from pyhems.device_manager import (
     DeviceManager,
     NodeState,
@@ -248,7 +240,7 @@ class TestNodeState:
 def _make_frame_event(
     node_id: str,
     eoj: EOJ,
-    esv: int,
+    esv: ESV,
     properties: list[Property],
     received_at: float = 1.0,
 ) -> HemsFrameEvent:
@@ -329,7 +321,7 @@ class TestProcessFrameEvent:
         node = _make_node()
         dm.data[node.device_key] = node
 
-        event = _make_frame_event(node.node_id, node.eoj, ESV_SETC, [])
+        event = _make_frame_event(node.node_id, node.eoj, ESV.SETC, [])
         assert dm.process_frame_event(event) is False
 
     def test_ignores_unknown_device(self) -> None:
@@ -340,7 +332,7 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
             EOJ(0x013001),
-            ESV_GET_RES,
+            ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x30")],
         )
         assert dm.process_frame_event(event) is False
@@ -353,7 +345,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is True
         assert node.properties[0x80] == b"\x30"
@@ -366,7 +358,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is False
 
@@ -378,7 +370,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is False
         assert node.properties[0x80] == b"\x31"
@@ -391,7 +383,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_SET_SNA, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.SETC_SNA, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is False
         assert node.properties[0x80] == b"\x31"
@@ -408,7 +400,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_INF_SNA, [Property(epc=0xB0, edt=b"")]
+            node.node_id, node.eoj, ESV.INF_SNA, [Property(epc=0xB0, edt=b"")]
         )
         assert dm.process_frame_event(event) is False
         assert node.properties[0xB0] == b"\x41"
@@ -421,7 +413,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_INF, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.INF, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is True
         assert node.properties[0x80] == b"\x30"
@@ -437,7 +429,7 @@ class TestProcessFrameEvent:
         dm.on_device_updated(updated_keys.append)
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         dm.process_frame_event(event)
         assert updated_keys == [node.device_key]
@@ -454,7 +446,7 @@ class TestProcessFrameEvent:
         unsub()
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         dm.process_frame_event(event)
         assert updated_keys == []
@@ -472,7 +464,7 @@ class TestProcessFrameEvent:
         # Same value as already stored: on_device_updated would not fire,
         # but on_frame_received should still fire (a response was observed).
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         assert dm.process_frame_event(event) is False
         assert received_keys == [node.device_key]
@@ -490,7 +482,7 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id,
             node.eoj,
-            ESV_GET_RES,
+            ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x31"), Property(epc=0x81, edt=b"\x01")],
         )
         dm.process_frame_event(event)
@@ -508,7 +500,7 @@ class TestProcessFrameEvent:
         dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_SET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         dm.process_frame_event(event)
         assert received_keys == [node.device_key]
@@ -524,7 +516,7 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
             EOJ(0x013001),
-            ESV_GET_RES,
+            ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x30")],
         )
         dm.process_frame_event(event)
@@ -544,7 +536,7 @@ class TestProcessFrameEvent:
         unsub()
 
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV_GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
         dm.process_frame_event(event)
         assert received_keys == []
@@ -963,7 +955,7 @@ class TestPollDevice:
         assert result is not None
         client.send.assert_called_once()
         _node_id, frame = client.send.call_args.args
-        assert frame.esv == 0x62
+        assert frame.esv == ESV.GET
         assert {p.epc for p in frame.properties} == {0x80, 0xB0}
         assert frame.tid == result
 

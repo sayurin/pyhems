@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from .const import ESV
 from .device_manager import DeviceManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -522,7 +523,7 @@ class PropertyPoller:
         self._fire_poll(device_key, epcs=next_chunk, fast=state.pending_chunks_fast)
 
     def _on_frame_received(
-        self, device_key: str, tid: int, _esv: int, received_epcs: frozenset[int]
+        self, device_key: str, tid: int, _esv: ESV, received_epcs: frozenset[int]
     ) -> None:
         """Clear the awaiting state and update backoff/batch state on any frame.
 

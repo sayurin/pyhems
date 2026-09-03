@@ -18,10 +18,7 @@ from .const import (
     EPC_PRODUCT_CODE,
     EPC_SERIAL_NUMBER,
     EPC_SET_PROPERTY_MAP,
-    ESV_GET,
-    ESV_INF_SNA,
-    ESV_SET_RES,
-    ESV_SET_SNA,
+    ESV,
 )
 from .eoj import EOJ
 from .frame import Frame, Property
@@ -38,7 +35,7 @@ DeviceCallback = Callable[[str], None]
 # response frame. epcs_in_frame is the set of EPCs actually present in that
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
 # they requested to detect partial responses.
-FrameReceivedCallback = Callable[[str, int, int, frozenset[int]], None]
+FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int]:
@@ -487,7 +484,7 @@ class DeviceManager:
         # Set responses and rejected notification subscriptions (0x53) do
         # not carry current property values; their (typically empty) EDT
         # must not overwrite any previously cached value.
-        if frame.esv in (ESV_SET_RES, ESV_SET_SNA, ESV_INF_SNA):
+        if frame.esv in (ESV.SET_RES, ESV.SETC_SNA, ESV.INF_SNA):
             return False
 
         updated = False
@@ -745,7 +742,7 @@ class DeviceManager:
         frame = Frame(
             seoj=CONTROLLER_INSTANCE,
             deoj=node.eoj,
-            esv=ESV_GET,
+            esv=ESV.GET,
             properties=properties,
         )
         frame.tid = Frame.next_tid()

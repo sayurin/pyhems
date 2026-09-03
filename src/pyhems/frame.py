@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Self
 
+from .const import ESV
 from .eoj import EOJ
 
 
@@ -31,7 +32,7 @@ class Frame:
 
     seoj: EOJ
     deoj: EOJ
-    esv: int
+    esv: ESV
     tid: int = 0
     properties: list[Property] = field(default_factory=list)
 
@@ -45,10 +46,24 @@ class Frame:
     def is_response_frame(self) -> bool:
         """Check if frame is a response (success or failure).
 
-        Success responses: 0x70-0x7F
-        Failure responses: 0x50-0x5F
+        Success responses: SetGet_Res, Set_Res, Get_Res, INF, INFC,
+        and INFC_Res
+        Failure responses: SetI_SNA, SetC_SNA, Get_SNA, INF_SNA,
+        and SetGet_SNA
         """
-        return (0x70 <= self.esv <= 0x7F) or (0x50 <= self.esv <= 0x5F)
+        return self.esv in {
+            ESV.SETGET_RES,
+            ESV.SET_RES,
+            ESV.GET_RES,
+            ESV.INF,
+            ESV.INFC,
+            ESV.INFC_RES,
+            ESV.SETI_SNA,
+            ESV.SETC_SNA,
+            ESV.GET_SNA,
+            ESV.INF_SNA,
+            ESV.SETGET_SNA,
+        }
 
     @classmethod
     def next_tid(cls) -> int:
@@ -71,7 +86,7 @@ class Frame:
         tid = int.from_bytes(data[2:4], "big")
         seoj = EOJ.from_bytes(data[4:7])
         deoj = EOJ.from_bytes(data[7:10])
-        esv = data[10]
+        esv = ESV(data[10])
         opc = data[11]
 
         properties: list[Property] = []
