@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyhems"
-version = "0.8.8"
+version = "0.8.9"
 license = "MIT"
 license-files = ["LICENSE"]
 description = "ECHONET Lite library for Home Energy Management System (HEMS)"
