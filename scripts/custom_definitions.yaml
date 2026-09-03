@@ -819,10 +819,6 @@ devices:
         description_en: Used to specify the operation mode ('automatic','cooling','heating','dehumidification','air circulator' or 'other'), and to acquire the current setting.
         description_ja: 自動/冷房/暖房/除湿/送風/その他の運転モードを設定し、設定状態を取得する
         enum_values:
-          - edt: 0x41
-            key: auto
-            name_en: Automatic
-            name_ja: 自動
           - edt: 0x42
             key: cooling
             name_en: Cooling
@@ -833,16 +829,16 @@ devices:
             name_ja: 暖房
           - edt: 0x44
             key: dehumidification
-            name_en: Dehumidification
-            name_ja: 除湿
+            name_en: Dehumidify (High)
+            name_ja: 除湿強
           - edt: 0x45
+            key: dehumidification_low
+            name_en: Dehumidify (Low)
+            name_ja: 除湿弱
+          - edt: 0x40
             key: circulation
             name_en: Air circulation
             name_ja: 送風
-          - edt: 0x40
-            key: other
-            name_en: Other
-            name_ja: その他
       - epc: 0xBE
         manufacturer_code: 0x000006
         name_en: Measured outdoor air temperature
