@@ -396,13 +396,11 @@ class PropertyPoller:
         if device_key in self._pending:
             return
         self._pending.add(device_key)
-        asyncio.get_running_loop().create_task(
-            self._poll_node(
-                device_key,
-                epcs=epcs,
-                fast=fast,
-                track_requested=track_requested,
-            )
+        self._poll_node(
+            device_key,
+            epcs=epcs,
+            fast=fast,
+            track_requested=track_requested,
         )
 
     def _is_awaiting(self, device_key: str) -> bool:
@@ -552,7 +550,7 @@ class PropertyPoller:
             self._update_batch_capacity(device_key, state, requested, received_epcs)
             self._continue_chunked_poll(device_key)
 
-    async def _poll_node(
+    def _poll_node(
         self,
         device_key: str,
         *,
@@ -571,9 +569,9 @@ class PropertyPoller:
 
         try:
             sent_tid = (
-                await self._device_manager.poll_device(device_key)
+                self._device_manager.poll_device(device_key)
                 if send_epcs is None
-                else await self._device_manager.poll_device(device_key, send_epcs)
+                else self._device_manager.poll_device(device_key, send_epcs)
             )
             if sent_tid is not None:
                 now = time.monotonic()

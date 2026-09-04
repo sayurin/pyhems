@@ -717,7 +717,7 @@ class DeviceManager:
             " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
         )
 
-    async def poll_device(
+    def poll_device(
         self, device_key: str, epcs: frozenset[int] | None = None
     ) -> int | None:
         """Send a GET request for a device's poll EPCs.
@@ -752,7 +752,7 @@ class DeviceManager:
             " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
         )
         try:
-            sent = await self._client.send(node.node_id, frame)
+            sent = self._client.send(node.node_id, frame)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err

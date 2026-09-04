@@ -154,8 +154,6 @@ class HemsClient:
         # Per-address direct node discovery tasks started by unknown discovery
         # frames.
         self._address_discovery_tasks: dict[str, asyncio.Task[None]] = {}
-        # Background tasks that need to be kept alive
-        self._background_tasks: set[asyncio.Task[object]] = set()
         self._poll_task: asyncio.Task[None] | None = None
         # Pending Get requests: tid -> (address, deoj, requested_epcs, future)
         self._pending_gets: dict[
@@ -235,7 +233,7 @@ class HemsClient:
         self._protocol = None
         _LOGGER.debug("HEMS runtime client stopped")
 
-    async def probe_nodes(self) -> bool:
+    def probe_nodes(self) -> bool:
         """Send a recurring node probe request to discover devices.
 
         Sends a multicast Get request to the node profile for the self-node
@@ -249,13 +247,13 @@ class HemsClient:
         if not self._protocol:
             return False
 
-        return await self._probe_nodes(DISCOVERY_DEFAULT_EPCS)
+        return self._probe_nodes(DISCOVERY_DEFAULT_EPCS)
 
-    async def probe_initial_nodes(self) -> bool:
+    def probe_initial_nodes(self) -> bool:
         """Send the initial multicast node probe request."""
-        return await self._probe_nodes(self._initial_discovery_epcs)
+        return self._probe_nodes(self._initial_discovery_epcs)
 
-    async def _probe_nodes(self, epcs: list[int]) -> bool:
+    def _probe_nodes(self, epcs: list[int]) -> bool:
         """Send a multicast node probe request for the given EPCs."""
         if not self._protocol:
             return False
@@ -267,7 +265,7 @@ class HemsClient:
             esv=ESV.GET,
             properties=[Property(epc=epc) for epc in epcs],
         )
-        return await self._send_to_address(frame, ECHONET_MULTICAST)
+        return self._send_to_address(frame, ECHONET_MULTICAST)
 
     def start_periodic_discovery(self) -> None:
         """Start recurring node discovery immediately."""
@@ -547,7 +545,7 @@ class HemsClient:
             if address not in self._device_addresses:
                 self._pending_frames.pop(address, None)
 
-    async def send(self, node_id: str, frame: Frame) -> bool:
+    def send(self, node_id: str, frame: Frame) -> bool:
         """Send a frame to a device by node ID.
 
         Args:
@@ -562,7 +560,7 @@ class HemsClient:
         if not address:
             _LOGGER.warning("No address known for device %s", node_id)
             return False
-        return await self._send_to_address(frame, address)
+        return self._send_to_address(frame, address)
 
     async def request_notifications(
         self,
@@ -613,7 +611,7 @@ class HemsClient:
             properties=[Property(epc=epc) for epc in epcs],
         )
 
-        if not await self._send_to_address(frame, address):
+        if not self._send_to_address(frame, address):
             self._pending_infs.pop(tid, None)
             return NotificationRequestResult(
                 successful_epcs=frozenset(),
@@ -663,7 +661,7 @@ class HemsClient:
             unanswered_epcs=unanswered,
         )
 
-    async def set_property(
+    def set_property(
         self,
         node_id: str,
         deoj: EOJ,
@@ -683,14 +681,14 @@ class HemsClient:
         Returns:
             True if sent successfully.
         """
-        return await self.set_properties(
+        return self.set_properties(
             node_id=node_id,
             deoj=deoj,
             properties=[Property(epc=epc, edt=edt)],
             seoj=seoj,
         )
 
-    async def set_properties(
+    def set_properties(
         self,
         node_id: str,
         deoj: EOJ,
@@ -717,7 +715,7 @@ class HemsClient:
             esv=ESV.SETC,
             properties=properties,
         )
-        return await self.send(node_id, frame)
+        return self.send(node_id, frame)
 
     def _on_receive(self, data: bytes, addr: tuple[str, int]) -> None:
         """Handle received UDP data."""
@@ -825,9 +823,7 @@ class HemsClient:
                     esv=ESV.INFC_RES,
                     properties=frame.properties,
                 )
-                task = asyncio.create_task(self._send_to_address(infc_res, address))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                self._send_to_address(infc_res, address)
 
             # For non-node-profile frames, lookup node_id by address
             node_id = self._device_addresses.get(address)
@@ -842,9 +838,7 @@ class HemsClient:
                 pending_frames = self._pending_frames.setdefault(address, [])
                 pending_frames.append((frame, frame.seoj, time.monotonic()))
                 # Trigger node probe to discover the device
-                task = asyncio.create_task(self.probe_nodes())
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                self.probe_nodes()
                 return
 
             # Dispatch frame event
@@ -925,7 +919,7 @@ class HemsClient:
         """Periodic polling loop for node probe."""
         while self._protocol:
             try:
-                await self.probe_nodes()
+                self.probe_nodes()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -963,7 +957,7 @@ class HemsClient:
                 " ".join(f"{epc:02X}" for epc in epcs),
             )
 
-        if not await self._send_to_address(frame, address):
+        if not self._send_to_address(frame, address):
             self._pending_gets.pop(tid, None)
             return None
 
@@ -986,7 +980,7 @@ class HemsClient:
 
         return response_props
 
-    async def _send_to_address(self, frame: Frame, address: str) -> bool:
+    def _send_to_address(self, frame: Frame, address: str) -> bool:
         """Send a frame to a specific address.
 
         Args:

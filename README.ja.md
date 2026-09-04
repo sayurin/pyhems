@@ -113,7 +113,7 @@ async def write_properties(node_id: str):
     await client.start()
 
     # 単一プロパティの書き込み（例: 動作状態 ON）
-    await client.set_property(
+    client.set_property(
         node_id=node_id,
         deoj=EOJ(0x013001),
         epc=0x80,
@@ -121,7 +121,7 @@ async def write_properties(node_id: str):
     )
 
     # 複数プロパティの書き込み
-    await client.set_properties(
+    client.set_properties(
         node_id=node_id,
         deoj=EOJ(0x013001),
         properties=[
