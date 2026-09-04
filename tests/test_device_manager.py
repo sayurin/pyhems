@@ -300,7 +300,7 @@ async def _default_request_notifications(
 def _make_client() -> AsyncMock:
     client = AsyncMock()
     client.get = AsyncMock(return_value=[])
-    client.send = AsyncMock(return_value=True)
+    client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
     return client
@@ -943,15 +943,14 @@ class TestProcessInstanceListEvent:
 class TestPollDevice:
     """Tests for DeviceManager.poll_device."""
 
-    @pytest.mark.asyncio
-    async def test_poll_known_device(self) -> None:
+    def test_poll_known_device(self) -> None:
         """Polling a known device sends a GET frame."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
-        result = await dm.poll_device(node.device_key)
+        result = dm.poll_device(node.device_key)
         assert result is not None
         client.send.assert_called_once()
         _node_id, frame = client.send.call_args.args
@@ -959,29 +958,26 @@ class TestPollDevice:
         assert {p.epc for p in frame.properties} == {0x80, 0xB0}
         assert frame.tid == result
 
-    @pytest.mark.asyncio
-    async def test_poll_unknown_device(self) -> None:
+    def test_poll_unknown_device(self) -> None:
         """Polling an unknown device returns False."""
         client = _make_client()
         dm = DeviceManager(client, {})
 
-        result = await dm.poll_device("unknown-device")
+        result = dm.poll_device("unknown-device")
         assert result is None
         client.send.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_poll_device_no_poll_epcs(self) -> None:
+    def test_poll_device_no_poll_epcs(self) -> None:
         """Polling a device with no poll EPCs returns False."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset())
         dm.data[node.device_key] = node
 
-        result = await dm.poll_device(node.device_key)
+        result = dm.poll_device(node.device_key)
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_poll_device_send_failure(self) -> None:
+    def test_poll_device_send_failure(self) -> None:
         """Polling handles OSError gracefully."""
         client = _make_client()
         client.send.side_effect = OSError("Network error")
@@ -989,32 +985,30 @@ class TestPollDevice:
         node = _make_node()
         dm.data[node.device_key] = node
 
-        result = await dm.poll_device(node.device_key)
+        result = dm.poll_device(node.device_key)
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_poll_device_with_explicit_epcs(self) -> None:
+    def test_poll_device_with_explicit_epcs(self) -> None:
         """An explicit epcs argument overrides the device's poll_epcs."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
-        result = await dm.poll_device(node.device_key, frozenset({0xE0}))
+        result = dm.poll_device(node.device_key, frozenset({0xE0}))
         assert result is not None
         _node_id, frame = client.send.call_args.args
         assert {p.epc for p in frame.properties} == {0xE0}
         assert frame.tid == result
 
-    @pytest.mark.asyncio
-    async def test_poll_device_with_empty_explicit_epcs(self) -> None:
+    def test_poll_device_with_empty_explicit_epcs(self) -> None:
         """An explicit empty epcs argument returns False without sending."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
-        result = await dm.poll_device(node.device_key, frozenset())
+        result = dm.poll_device(node.device_key, frozenset())
         assert result is None
         client.send.assert_not_called()
 

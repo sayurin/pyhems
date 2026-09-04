@@ -49,7 +49,7 @@ async def main():
             print(f"Frame from {event.node_id}: {event.frame}")
 
     unsubscribe = client.subscribe(on_event)
-    await client.probe_initial_nodes()
+    client.probe_initial_nodes()
     client.start_periodic_discovery()
 
     # Read properties from a discovered device
@@ -57,7 +57,7 @@ async def main():
     # props = await client.get(node_id, EOJ(0x013001), [0x80, 0xB3])
 
     # Write a property (example: power ON)
-    # await client.set_property(node_id, EOJ(0x013001), 0x80, b"\x30")
+    # client.set_property(node_id, EOJ(0x013001), 0x80, b"\x30")
 
     await asyncio.sleep(60)
     unsubscribe()

@@ -129,8 +129,7 @@ class TestHemsClient:
         unknown = "fe00000000000000000000000000000002"
         assert client._device_addresses.inverse.get(unknown) is None
 
-    @pytest.mark.asyncio
-    async def test_async_set_property_sends_setc_frame(self) -> None:
+    def test_set_property_sends_setc_frame(self) -> None:
         """Test set_property builds and sends a SetC frame."""
         original_tid = Frame._tid_counter
         client = HemsClient()
@@ -139,7 +138,7 @@ class TestHemsClient:
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.100", node_id)
 
-        sent = await client.set_property(
+        sent = client.set_property(
             node_id=node_id,
             deoj=EOJ(0x013001),
             epc=0x80,
@@ -156,11 +155,10 @@ class TestHemsClient:
         assert frame.properties == [Property(epc=0x80, edt=b"\x30")]
         Frame._tid_counter = original_tid
 
-    @pytest.mark.asyncio
-    async def test_async_set_properties_without_properties_returns_false(self) -> None:
+    def test_set_properties_without_properties_returns_false(self) -> None:
         """Test set_properties returns False when nothing is requested."""
         client = HemsClient()
-        result = await client.set_properties(
+        result = client.set_properties(
             node_id="fe00000000000000000000000000000001",
             deoj=EOJ(0x013001),
             properties=[],
@@ -195,15 +193,13 @@ class TestNodeProbe:
         finally:
             Frame._tid_counter = original_tid
 
-    @pytest.mark.asyncio
-    async def test_async_probe_nodes_not_running(self) -> None:
+    def test_probe_nodes_not_running(self) -> None:
         """Test probe fails when not running."""
         client = HemsClient()
-        result = await client.probe_nodes()
+        result = client.probe_nodes()
         assert result is False
 
-    @pytest.mark.asyncio
-    async def test_async_probe_nodes_sends_correct_frame(self) -> None:
+    def test_probe_nodes_sends_correct_frame(self) -> None:
         """Test probe sends correct Get request with default EPCs."""
         client = HemsClient()
 
@@ -211,7 +207,7 @@ class TestNodeProbe:
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
 
-        result = await client.probe_nodes()
+        result = client.probe_nodes()
         assert result is True
 
         # Verify send was called
@@ -234,8 +230,7 @@ class TestNodeProbe:
         assert EPC_SELF_NODE_INSTANCE_LIST in epcs
         assert epcs == [EPC_SELF_NODE_INSTANCE_LIST]
 
-    @pytest.mark.asyncio
-    async def test_async_probe_initial_nodes_with_extra_epcs(self) -> None:
+    def test_probe_initial_nodes_with_extra_epcs(self) -> None:
         """Test initial probe sends extra EPCs when specified in constructor."""
         extra_epcs = [EPC_MANUFACTURER_CODE, EPC_PRODUCT_CODE, EPC_SERIAL_NUMBER]
         client = HemsClient(extra_epcs=extra_epcs)
@@ -244,7 +239,7 @@ class TestNodeProbe:
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
 
-        result = await client.probe_initial_nodes()
+        result = client.probe_initial_nodes()
         assert result is True
 
         # Verify send was called
@@ -300,11 +295,11 @@ class TestNodeProbe:
                 new_callable=AsyncMock,
                 side_effect=asyncio.CancelledError,
             ) as mock_sleep,
-            patch.object(client, "probe_nodes", new_callable=AsyncMock) as mock_probe,
+            patch.object(client, "probe_nodes") as mock_probe,
         ):
             await client._poll_loop()
 
-        mock_probe.assert_awaited_once_with()
+        mock_probe.assert_called_once_with()
         mock_sleep.assert_awaited_once_with(60.0)
 
     @pytest.mark.asyncio
