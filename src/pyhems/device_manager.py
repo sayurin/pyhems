@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from collections import Counter
@@ -26,7 +28,12 @@ from .installation_location import (
     InstallationLocation,
     decode_installation_location,
 )
-from .runtime import HemsClient, HemsFrameEvent, HemsInstanceListEvent
+from .runtime import (
+    HemsClient,
+    HemsFrameEvent,
+    HemsInstanceListEvent,
+    RuntimeEvent,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +43,7 @@ DeviceCallback = Callable[[str], None]
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
 # they requested to detect partial responses.
 FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
+RuntimeActivityCallback = Callable[[float], None]
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int]:
@@ -261,6 +269,11 @@ class DeviceManager:
         self.last_frame_received_at: float | None = None
 
         self._pending_setups: set[str] = set()
+        self._event_queue: asyncio.Queue[HemsFrameEvent | HemsInstanceListEvent] = (
+            asyncio.Queue()
+        )
+        self._event_consumer_task: asyncio.Task[None] | None = None
+        self._unsubscribe_runtime: Callable[[], None] | None = None
 
         # device_key -> EPC -> number of active subscribers. See
         # :meth:`subscribe_epcs`/:meth:`effective_poll_epcs`.
@@ -275,6 +288,56 @@ class DeviceManager:
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
         self._on_frame_received: list[FrameReceivedCallback] = []
+        self._on_runtime_activity: list[RuntimeActivityCallback] = []
+
+    async def async_start(self) -> None:
+        """Subscribe to runtime events and start serialized event processing."""
+        if self._event_consumer_task is not None:
+            return
+
+        self._event_queue = asyncio.Queue()
+        self._unsubscribe_runtime = self._client.subscribe(self._handle_runtime_event)
+        self._event_consumer_task = asyncio.create_task(
+            self._consume_runtime_events(),
+            name="pyhems_device_manager_event_consumer",
+        )
+
+    async def async_stop(self) -> None:
+        """Unsubscribe from runtime events and stop event processing."""
+        if self._unsubscribe_runtime is not None:
+            self._unsubscribe_runtime()
+            self._unsubscribe_runtime = None
+
+        if self._event_consumer_task is None:
+            return
+
+        self._event_consumer_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._event_consumer_task
+        self._event_consumer_task = None
+        self._event_queue = asyncio.Queue()
+
+    @property
+    def event_consumer_task_done(self) -> bool:
+        """Return whether the event consumer is stopped or has completed."""
+        return self._event_consumer_task is None or self._event_consumer_task.done()
+
+    def on_runtime_activity(
+        self, callback: RuntimeActivityCallback
+    ) -> Callable[[], None]:
+        """Register a callback for every received runtime event timestamp."""
+        self._on_runtime_activity.append(callback)
+
+        def unsub() -> None:
+            if callback in self._on_runtime_activity:
+                self._on_runtime_activity.remove(callback)
+
+        return unsub
+
+    def _record_runtime_activity(self, timestamp: float) -> None:
+        """Notify listeners that a runtime event was received."""
+        for callback in self._on_runtime_activity:
+            callback(timestamp)
 
     def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
         """Register a callback for when a new device is added.
@@ -336,6 +399,32 @@ class DeviceManager:
                 self._on_frame_received.remove(callback)
 
         return unsub
+
+    def _handle_runtime_event(self, event: RuntimeEvent) -> None:
+        """Queue device events for serialized processing."""
+        if isinstance(event, (HemsFrameEvent, HemsInstanceListEvent)):
+            self._event_queue.put_nowait(event)
+
+    async def _consume_runtime_events(self) -> None:
+        """Process device events in the order received from the runtime client."""
+        while True:
+            event = await self._event_queue.get()
+            try:
+                if isinstance(event, HemsFrameEvent):
+                    self.process_frame_event(event)
+                else:
+                    _LOGGER.debug(
+                        "Runtime event: HemsInstanceListEvent from %s with %d instances",
+                        event.node_id,
+                        len(event.instances),
+                    )
+                    await self.process_instance_list_event(event)
+            except OSError, LookupError, TypeError, ValueError:
+                _LOGGER.exception(
+                    "Failed to process ECHONET Lite runtime event: %r", event
+                )
+            finally:
+                self._event_queue.task_done()
 
     def subscribe_epcs(
         self, device_key: str, epcs: frozenset[int]
@@ -457,6 +546,8 @@ class DeviceManager:
         if not frame.is_response_frame():
             return False
 
+        self._record_runtime_activity(event.received_at)
+
         device_key = f"{node_id}-{eoj:06x}"
         existing = self.data.get(device_key)
 
@@ -511,6 +602,7 @@ class DeviceManager:
         Returns:
             List of device_keys for newly set up devices.
         """
+        self._record_runtime_activity(event.received_at)
         node_id = event.node_id
 
         new_device_keys: list[str] = []

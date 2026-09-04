@@ -40,7 +40,6 @@ from pyhems import EOJ, HemsClient, HemsFrameEvent, HemsInstanceListEvent
 
 async def main():
     client = HemsClient(interface="0.0.0.0")
-    await client.start()
 
     def on_event(event):
         if isinstance(event, HemsInstanceListEvent):
@@ -49,8 +48,7 @@ async def main():
             print(f"Frame from {event.node_id}: {event.frame}")
 
     unsubscribe = client.subscribe(on_event)
-    client.probe_initial_nodes()
-    client.start_periodic_discovery()
+    await client.start()
 
     # Read properties from a discovered device
     # node_id = "fe..."  # obtained from HemsInstanceListEvent
@@ -69,6 +67,8 @@ asyncio.run(main())
 ## Runtime API Overview
 
 - `HemsClient.start()` / `HemsClient.stop()`: Start and stop UDP transport.
+  Starting also sends the initial discovery probe and starts recurring discovery
+  after 30 seconds.
 - `HemsClient.subscribe(callback)`: Subscribe to runtime events.
 - `HemsClient.probe_initial_nodes()`: Trigger the initial multicast node
   discovery using the identification number and self-node instance list.
@@ -78,6 +78,8 @@ asyncio.run(main())
 - `HemsClient.get(node_id, deoj, epcs)`: Read property values.
 - `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple properties.
+- `DeviceManager.async_start()` / `DeviceManager.async_stop()`: Subscribe to
+  runtime events and process device events in arrival order.
 
 ## Adaptive Property Polling
 
