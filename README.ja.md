@@ -230,6 +230,8 @@ client = HemsClient(
 - `poll_interval`: 定期的なノード検出の間隔
 - `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
 
+`HemsClient.start()` は初期探索を開始し、30 秒後に定期探索を開始します。
+
 ## DeviceManager と PropertyPoller
 
 `DeviceManager` は `HemsInstanceListEvent` / `HemsFrameEvent` を処理して、ノードごとの状態を保持します。
@@ -245,17 +247,15 @@ monitored_epcs = {
 device_manager = DeviceManager(client, monitored_epcs)
 poller = PropertyPoller(device_manager, poll_interval=30.0)
 
+await device_manager.async_start()
+await client.start()
 poller.start()
 
-def handle_event(event):
-    if isinstance(event, HemsInstanceListEvent):
-        # 新規デバイスセットアップ
-        asyncio.create_task(device_manager.process_instance_list_event(event))
-    elif isinstance(event, HemsFrameEvent):
-        # プロパティ更新反映
-        device_manager.process_frame_event(event)
-
-unsubscribe = client.subscribe(handle_event)
+# DeviceManager が HemsInstanceListEvent / HemsFrameEvent を処理する
+# ...
+poller.stop()
+await device_manager.async_stop()
+await client.stop()
 ```
 
 `PropertyPoller` は固定周期ではなく、機器状態に応じてポーリング間隔を調整します。

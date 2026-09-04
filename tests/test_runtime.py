@@ -2,7 +2,7 @@
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -259,28 +259,66 @@ class TestNodeProbe:
         assert EPC_SERIAL_NUMBER in epcs
 
     @pytest.mark.asyncio
-    async def test_start_periodic_discovery_creates_poll_task(self) -> None:
-        """Test that recurring discovery can be started after initial setup."""
-        with patch(
-            "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
-        ) as mock_create:
+    async def test_start_starts_periodic_discovery_after_initial_delay(self) -> None:
+        """Test that start performs initial and recurring discovery."""
+        with (
+            patch(
+                "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
+            ) as mock_create,
+        ):
             mock_protocol = MagicMock()
             mock_create.return_value = mock_protocol
 
             client = HemsClient(poll_interval=60.0)
-            await client.start()
+            with (
+                patch.object(
+                    client, "probe_initial_nodes", return_value=True
+                ) as initial_probe,
+                patch.object(
+                    client,
+                    "start_periodic_discovery",
+                    wraps=client.start_periodic_discovery,
+                ) as periodic_start,
+            ):
+                await client.start()
 
             assert client._protocol is not None
-            assert client._poll_task is None
-
-            client.start_periodic_discovery()
             assert client._poll_task is not None
+            initial_probe.assert_called_once_with()
+            periodic_start.assert_called_once_with()
 
             # Clean up
             await client.stop()
             assert client._protocol is None
             assert client._poll_task is None
             # Ensure protocol is closed (protocol manages transport internally)
+            mock_protocol.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_does_not_start_periodic_discovery_when_probe_fails(
+        self,
+    ) -> None:
+        """Test that recurring discovery is not started after a failed probe."""
+        with patch(
+            "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
+        ) as mock_create:
+            mock_protocol = MagicMock()
+            mock_create.return_value = mock_protocol
+
+            client = HemsClient()
+            with (
+                patch.object(client, "probe_initial_nodes", return_value=False),
+                patch.object(
+                    client,
+                    "start_periodic_discovery",
+                    wraps=client.start_periodic_discovery,
+                ) as periodic_start,
+            ):
+                await client.start()
+
+            assert client._poll_task is None
+            periodic_start.assert_not_called()
+            await client.stop()
             mock_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
@@ -293,14 +331,15 @@ class TestNodeProbe:
             patch(
                 "pyhems.runtime.asyncio.sleep",
                 new_callable=AsyncMock,
-                side_effect=asyncio.CancelledError,
+                side_effect=[None, asyncio.CancelledError],
             ) as mock_sleep,
             patch.object(client, "probe_nodes") as mock_probe,
+            patch("pyhems.runtime._INITIAL_DISCOVERY_DELAY", 30.0),
         ):
             await client._poll_loop()
 
         mock_probe.assert_called_once_with()
-        mock_sleep.assert_awaited_once_with(60.0)
+        assert mock_sleep.await_args_list == [call(30.0), call(60.0)]
 
     @pytest.mark.asyncio
     async def test_known_node_profile_d6_response_dispatches_instance_list(

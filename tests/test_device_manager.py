@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -303,7 +304,102 @@ def _make_client() -> AsyncMock:
     client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
+    client.subscribe = MagicMock()
     return client
+
+
+class TestDeviceManagerRuntimeEvents:
+    """Tests for DeviceManager runtime event processing."""
+
+    @pytest.mark.asyncio
+    async def test_async_start_processes_events_in_order(self) -> None:
+        """Instance lists are processed before following frame events."""
+        client = _make_client()
+        unsubscribe = MagicMock()
+        client.subscribe.return_value = unsubscribe
+        dm = DeviceManager(client, {})
+        processed: list[str] = []
+
+        async def _process_instance_list_event(
+            _event: HemsInstanceListEvent,
+        ) -> list[str]:
+            processed.append("instance_list")
+            return []
+
+        def _process_frame_event(_event: HemsFrameEvent) -> bool:
+            processed.append("frame")
+            return False
+
+        with (
+            patch.object(
+                dm,
+                "process_instance_list_event",
+                AsyncMock(side_effect=_process_instance_list_event),
+            ),
+            patch.object(
+                dm,
+                "process_frame_event",
+                MagicMock(side_effect=_process_frame_event),
+            ),
+        ):
+            await dm.async_start()
+            callback = client.subscribe.call_args.args[0]
+            callback(
+                HemsInstanceListEvent(
+                    received_at=1.0,
+                    instances=[],
+                    node_id="node",
+                    properties={},
+                )
+            )
+            callback(
+                _make_frame_event(
+                    "node",
+                    EOJ(0x013001),
+                    ESV.GET_RES,
+                    [],
+                )
+            )
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+            assert processed == ["instance_list", "frame"]
+
+            await dm.async_stop()
+
+        unsubscribe.assert_called_once()
+        assert dm.event_consumer_task_done
+
+    @pytest.mark.asyncio
+    async def test_async_stop_without_start_is_noop(self) -> None:
+        """Stopping an unstarted manager does not subscribe or create tasks."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+
+        await dm.async_stop()
+
+        client.subscribe.assert_not_called()
+        assert dm.event_consumer_task_done
+
+    @pytest.mark.asyncio
+    async def test_runtime_activity_callback(self) -> None:
+        """Runtime activity callbacks receive the event timestamp."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        received_at: list[float] = []
+        dm.on_runtime_activity(received_at.append)
+
+        await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[],
+                node_id="node",
+                properties={},
+            )
+        )
+
+        assert received_at == [1.0]
 
 
 # ---------------------------------------------------------------------------

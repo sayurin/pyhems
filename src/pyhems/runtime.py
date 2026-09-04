@@ -26,6 +26,7 @@ from .frame import Frame, Property
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 _LOGGER = logging.getLogger(__name__)
+_INITIAL_DISCOVERY_DELAY = 30.0
 
 
 def _format_frame(frame: Frame) -> str:
@@ -195,6 +196,10 @@ class HemsClient:
             self._interface, self._on_receive
         )
         _LOGGER.debug("HEMS runtime client started on %s", self._interface)
+        if not self.probe_initial_nodes():
+            _LOGGER.warning("Initial ECHONET Lite node discovery could not be sent")
+            return
+        self.start_periodic_discovery()
 
     async def stop(self) -> None:
         """Stop the runtime client."""
@@ -917,6 +922,7 @@ class HemsClient:
 
     async def _poll_loop(self) -> None:
         """Periodic polling loop for node probe."""
+        await asyncio.sleep(_INITIAL_DISCOVERY_DELAY)
         while self._protocol:
             try:
                 self.probe_nodes()
