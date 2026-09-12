@@ -295,10 +295,10 @@ class TestNodeProbe:
             mock_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_does_not_start_periodic_discovery_when_probe_fails(
+    async def test_start_raises_and_closes_protocol_when_probe_fails(
         self,
     ) -> None:
-        """Test that recurring discovery is not started after a failed probe."""
+        """Test that a failed initial probe aborts startup and closes the protocol."""
         with patch(
             "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
         ) as mock_create:
@@ -313,13 +313,46 @@ class TestNodeProbe:
                     "start_periodic_discovery",
                     wraps=client.start_periodic_discovery,
                 ) as periodic_start,
+                pytest.raises(
+                    OSError,
+                    match="Initial ECHONET Lite node discovery could not be sent",
+                ),
             ):
                 await client.start()
 
             assert client._poll_task is None
+            assert client._protocol is None
             periodic_start.assert_not_called()
-            await client.stop()
             mock_protocol.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_can_retry_after_initial_probe_failure(self) -> None:
+        """Test that startup can be retried after an initial probe failure."""
+        with patch(
+            "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
+        ) as mock_create:
+            failed_protocol = MagicMock()
+            working_protocol = MagicMock()
+            mock_create.side_effect = [failed_protocol, working_protocol]
+
+            client = HemsClient()
+            with patch.object(
+                client, "probe_initial_nodes", side_effect=[False, True]
+            ) as initial_probe:
+                with pytest.raises(
+                    OSError,
+                    match="Initial ECHONET Lite node discovery could not be sent",
+                ):
+                    await client.start()
+                await client.start()
+
+            initial_probe.assert_has_calls([call(), call()])
+            assert client._protocol is working_protocol
+            assert client._poll_task is not None
+
+            await client.stop()
+            failed_protocol.close.assert_called_once()
+            working_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_poll_loop_probes_before_waiting_for_next_interval(self) -> None:

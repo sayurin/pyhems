@@ -197,8 +197,8 @@ class HemsClient:
         )
         _LOGGER.debug("HEMS runtime client started on %s", self._interface)
         if not self.probe_initial_nodes():
-            _LOGGER.warning("Initial ECHONET Lite node discovery could not be sent")
-            return
+            await self.stop()
+            raise OSError("Initial ECHONET Lite node discovery could not be sent")
         self.start_periodic_discovery()
 
     async def stop(self) -> None:
