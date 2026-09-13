@@ -101,7 +101,12 @@ class BinaryCodec:
 
 @dataclass(frozen=True, slots=True)
 class EnumCodec:
-    """Multi-state codec exchanging :class:`str` keys from ``enum_values``."""
+    """Multi-state codec exchanging keys from ``enum_values``.
+
+    ``by_key`` preserves the insertion order of the source enum definitions.
+    Consumers that expose enum values as an ordered list should iterate over
+    this mapping without sorting it.
+    """
 
     by_key: dict[str, int]
     by_edt: dict[int, str]
