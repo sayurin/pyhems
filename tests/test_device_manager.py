@@ -704,6 +704,38 @@ class TestProcessInstanceListEvent:
         assert node.fast_poll_epcs == frozenset()
 
     @pytest.mark.asyncio
+    async def test_liveness_epc_stays_polled_after_inf_success(self) -> None:
+        """The liveness EPC remains polled after a successful INF request."""
+        client = _make_client()
+        eoj = EOJ(0x013001)
+        node_id = "fe00000000000000000000000000000001"
+
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(frozenset({0x88}))),
+            Property(epc=0x9E, edt=_make_property_map_edt(frozenset())),
+            Property(epc=0x9F, edt=_make_property_map_edt(frozenset({0x88}))),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x88, edt=b"\x42"),
+        ]
+
+        dm = DeviceManager(client, {})
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[eoj],
+                node_id=node_id,
+                properties={},
+            )
+        )
+
+        node = dm.data[result[0]]
+        assert node.monitored_epcs == frozenset({0x88})
+        assert node.attempted_inf_epcs == frozenset({0x88})
+        assert node.confirmed_inf_epcs == frozenset({0x88})
+        assert node.poll_epcs == frozenset({0x88})
+        assert node.polling_available is True
+
+    @pytest.mark.asyncio
     async def test_setup_new_device_splits_fast_poll_epcs(self) -> None:
         """fast_epcs are split out of poll_epcs into fast_poll_epcs."""
         client = _make_client()
@@ -1172,6 +1204,17 @@ class TestSubscribeEpcs:
         dm.subscribe_epcs(node.device_key, frozenset())
 
         assert dm.effective_poll_epcs(node.device_key) == frozenset()
+
+    def test_effective_poll_epcs_keeps_liveness_epc_without_subscription(self) -> None:
+        """The liveness EPC is polled even without active entity subscriptions."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x88}))
+        dm.data[node.device_key] = node
+
+        dm.subscribe_epcs(node.device_key, frozenset())
+
+        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x88})
 
     def test_unsubscribe_removes_epc_from_effective_set(self) -> None:
         """Unsubscribing removes the EPC once no subscriber remains."""

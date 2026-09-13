@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from ._definitions_generated import REGISTRY
 from .const import (
     CONTROLLER_INSTANCE,
+    EPC_FAULT_STATUS,
     EPC_GET_PROPERTY_MAP,
     EPC_INF_PROPERTY_MAP,
     EPC_INSTALLATION_LOCATION,
@@ -38,6 +39,7 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
+_ALWAYS_POLL_EPCS = frozenset({EPC_FAULT_STATUS})
 # Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
 # response frame. epcs_in_frame is the set of EPCs actually present in that
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
@@ -130,8 +132,9 @@ def _compute_poll_epcs(
     get_epcs: frozenset[int],
     fast_candidate_epcs: frozenset[int],
     confirmed_inf_epcs: frozenset[int],
+    always_poll_epcs: frozenset[int] = frozenset(),
 ) -> tuple[frozenset[int], frozenset[int]]:
-    """Split monitored, gettable EPCs not confirmed via INF into poll tiers.
+    """Split monitored, gettable EPCs into normal and fast poll tiers.
 
     An EPC is only excluded from polling once its INF_REQ (0x63)
     subscription is *confirmed* successful (``confirmed_inf_epcs``); EPCs
@@ -140,12 +143,15 @@ def _compute_poll_epcs(
     re-run whenever ``confirmed_inf_epcs`` changes (see
     :meth:`DeviceManager._send_initial_notification`).
 
+    ``always_poll_epcs`` remains in the normal polling tier even after a
+    successful INF subscription so callers can use it for liveness checks.
+
     Returns:
         ``(poll_epcs, fast_poll_epcs)``, a partition of the pollable EPCs.
     """
-    pollable = (monitored_epcs & get_epcs) - confirmed_inf_epcs
-    fast_poll_epcs = pollable & fast_candidate_epcs
-    poll_epcs = pollable - fast_candidate_epcs
+    pollable = (monitored_epcs & get_epcs) - (confirmed_inf_epcs - always_poll_epcs)
+    fast_poll_epcs = (pollable & fast_candidate_epcs) - always_poll_epcs
+    poll_epcs = pollable - fast_poll_epcs
     return poll_epcs, fast_poll_epcs
 
 
@@ -183,7 +189,8 @@ class NodeState:
     class_name_en: str | None = None
     class_name_ja: str | None = None
     # Monitored EPCs for this device's class (candidate set for both Get
-    # polling and INF_REQ subscription), as configured for the DeviceManager.
+    # polling and INF_REQ subscription), including internally required
+    # liveness EPCs.
     monitored_epcs: frozenset[int] = field(default_factory=frozenset)
     # Subset of monitored_epcs earmarked for the high-frequency poll tier
     # (see DeviceManager's fast_epcs). Static: does not change once set.
@@ -201,6 +208,9 @@ class NodeState:
     failed_inf_epcs: frozenset[int] = field(default_factory=frozenset)
     # Safe upper bound for EPCs requested in one GET, learned during setup.
     observed_batch_capacity: int | None = None
+    # Whether the most recent liveness poll received a response. None means
+    # the device does not advertise a GET-capable liveness EPC.
+    polling_available: bool | None = None
 
     @property
     def device_key(self) -> str:
@@ -264,6 +274,7 @@ class DeviceManager:
         self._monitored_epcs = monitored_epcs
         self._class_code_filter = class_code_filter
         self._fast_epcs = fast_epcs or {}
+        self._always_poll_epcs = _ALWAYS_POLL_EPCS
 
         self.data: dict[str, NodeState] = {}
         self.last_frame_received_at: float | None = None
@@ -478,6 +489,8 @@ class DeviceManager:
         This is ``NodeState.poll_epcs`` narrowed to the EPCs currently
         subscribed via :meth:`subscribe_epcs` (see that method for the race-
         safe fallback behavior before any subscription has been registered).
+        Always-polled liveness EPCs remain in the result even after all
+        entity subscriptions are removed.
 
         Args:
             device_key: The device key to compute the effective set for.
@@ -489,7 +502,9 @@ class DeviceManager:
         node = self.data.get(device_key)
         if node is None:
             return frozenset()
-        return self._effective_epcs(device_key, node.poll_epcs)
+        return self._effective_epcs(
+            device_key, node.poll_epcs, include_always_poll=True
+        )
 
     def effective_fast_poll_epcs(self, device_key: str) -> frozenset[int]:
         """Return the fast-tier EPCs actually being polled for a device.
@@ -507,7 +522,31 @@ class DeviceManager:
         node = self.data.get(device_key)
         if node is None:
             return frozenset()
-        return self._effective_epcs(device_key, node.fast_poll_epcs)
+        return self._effective_epcs(
+            device_key, node.fast_poll_epcs, include_always_poll=False
+        )
+
+    @property
+    def always_poll_epcs(self) -> frozenset[int]:
+        """Return EPCs that remain in the normal polling tier."""
+        return self._always_poll_epcs
+
+    def is_device_polling_available(self, device_key: str) -> bool | None:
+        """Return the latest liveness polling state for a device."""
+        node = self.data.get(device_key)
+        return None if node is None else node.polling_available
+
+    def record_poll_success(self, device_key: str) -> None:
+        """Record a successful liveness polling response."""
+        node = self.data.get(device_key)
+        if node is not None:
+            node.polling_available = True
+
+    def record_poll_failure(self, device_key: str) -> None:
+        """Record an unanswered liveness polling request."""
+        node = self.data.get(device_key)
+        if node is not None:
+            node.polling_available = False
 
     def update_observed_batch_capacity(self, device_key: str, capacity: int) -> None:
         """Record a smaller safe GET batch capacity for a device."""
@@ -523,11 +562,17 @@ class DeviceManager:
         self._client.update_observed_batch_capacity(node.node_id, node.eoj, capacity)
 
     def _effective_epcs(
-        self, device_key: str, candidate_epcs: frozenset[int]
+        self,
+        device_key: str,
+        candidate_epcs: frozenset[int],
+        *,
+        include_always_poll: bool,
     ) -> frozenset[int]:
         if device_key not in self._subscription_confirmed:
             return candidate_epcs
         subscribed = frozenset(self._subscribed_epcs.get(device_key, ()))
+        if include_always_poll:
+            subscribed |= candidate_epcs & self._always_poll_epcs
         return candidate_epcs & subscribed
 
     def process_frame_event(self, event: HemsFrameEvent) -> bool:
@@ -651,7 +696,10 @@ class DeviceManager:
                 EPC_SERIAL_NUMBER,
             ]
 
-            initial_epcs = self._monitored_epcs.get(eoj.class_code, frozenset())
+            initial_epcs = (
+                self._monitored_epcs.get(eoj.class_code, frozenset())
+                | self._always_poll_epcs
+            )
             monitored_epcs = initial_epcs - set(base_epcs)
             all_epcs = base_epcs + list(monitored_epcs)
 
@@ -699,6 +747,7 @@ class DeviceManager:
                 get_epcs=get_epcs,
                 fast_candidate_epcs=fast_candidate_epcs,
                 confirmed_inf_epcs=frozenset(),
+                always_poll_epcs=self._always_poll_epcs,
             )
 
             mfr = REGISTRY.manufacturers.get(manufacturer_code)
@@ -730,6 +779,7 @@ class DeviceManager:
                 class_name_en=class_name_en,
                 class_name_ja=class_name_ja,
                 observed_batch_capacity=observed_batch_capacity,
+                polling_available=(True if self._always_poll_epcs & get_epcs else None),
             )
 
             self.last_frame_received_at = timestamp
@@ -798,6 +848,7 @@ class DeviceManager:
             get_epcs=node.get_epcs,
             fast_candidate_epcs=node.fast_candidate_epcs,
             confirmed_inf_epcs=node.confirmed_inf_epcs,
+            always_poll_epcs=self._always_poll_epcs,
         )
 
         _LOGGER.debug(

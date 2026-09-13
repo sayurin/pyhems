@@ -71,6 +71,9 @@ class _DeviceScheduleState:
     # immediate poll after a Set) and partial-response detection does not
     # apply to it.
     requested_epcs: frozenset[int] | None = None
+    # Whether the current poll includes an always-polled EPC used for
+    # liveness tracking.
+    liveness_requested: bool = False
     # Remaining chunks still to be sent for the poll cycle currently in
     # progress (populated when the target EPC set exceeds
     # observed_batch_capacity). Sent one at a time, each only after the
@@ -138,7 +141,8 @@ class PropertyPoller:
     ``NodeState.poll_epcs``/``fast_poll_epcs``: callers can narrow the set of
     EPCs actually polled per device via ``DeviceManager.subscribe_epcs()``
     (e.g. Home Assistant unsubscribing a disabled Entity's EPC). A device
-    with no active subscribers for a tier is skipped entirely for that tier.
+    with no active subscribers for a tier is skipped entirely for that tier,
+    except for always-polled liveness EPCs in the normal tier.
     """
 
     def __init__(
@@ -415,11 +419,15 @@ class PropertyPoller:
         if state is None or state.awaiting_since is None:
             return False
         if time.monotonic() - state.awaiting_since >= self._awaiting_timeout:
+            liveness_requested = state.liveness_requested
             state.awaiting_since = None
             state.awaiting_tid = None
             state.requested_epcs = None
+            state.liveness_requested = False
             state.pending_chunks = []
             state.consecutive_failures += 1
+            if liveness_requested:
+                self._device_manager.record_poll_failure(device_key)
             return False
         return True
 
@@ -542,9 +550,13 @@ class PropertyPoller:
         state.awaiting_tid = None
         requested = state.requested_epcs
         state.requested_epcs = None
+        liveness_requested = state.liveness_requested
+        state.liveness_requested = False
         if sent_at is not None:
             self._update_latency(state, time.monotonic() - sent_at)
         state.consecutive_failures = 0
+        if liveness_requested:
+            self._device_manager.record_poll_success(device_key)
 
         if requested is not None:
             self._update_batch_capacity(device_key, state, requested, received_epcs)
@@ -559,6 +571,12 @@ class PropertyPoller:
         track_requested: bool = True,
     ) -> None:
         send_epcs = epcs
+        always_poll_epcs = getattr(self._device_manager, "always_poll_epcs", None)
+        liveness_requested = (
+            isinstance(always_poll_epcs, frozenset)
+            and send_epcs is not None
+            and bool(send_epcs & always_poll_epcs)
+        )
         remaining_chunks: list[frozenset[int]] = []
         if track_requested and epcs is not None:
             capacity = self._get_state(device_key).observed_batch_capacity
@@ -579,6 +597,7 @@ class PropertyPoller:
                 state.awaiting_since = now
                 state.awaiting_tid = sent_tid
                 state.requested_epcs = send_epcs if track_requested else None
+                state.liveness_requested = liveness_requested
                 state.pending_chunks = remaining_chunks if track_requested else []
                 state.pending_chunks_fast = fast
                 if fast:
@@ -590,10 +609,14 @@ class PropertyPoller:
                     "Failed to poll node %s: no poll EPCs or address unknown",
                     device_key,
                 )
+                if liveness_requested:
+                    self._device_manager.record_poll_failure(device_key)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err
             )
+            if liveness_requested:
+                self._device_manager.record_poll_failure(device_key)
         finally:
             self._pending.discard(device_key)
 
