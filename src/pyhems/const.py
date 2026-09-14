@@ -38,29 +38,32 @@ class ESV(IntEnum):
     SETGET_RES = 0x7E
 
 
-# EPC (Property Codes)
-EPC_INSTALLATION_LOCATION = 0x81
-EPC_IDENTIFICATION_NUMBER = 0x83
-EPC_FAULT_STATUS = 0x88
-EPC_MANUFACTURER_CODE = 0x8A
-EPC_PRODUCT_CODE = 0x8C
-EPC_SERIAL_NUMBER = 0x8D
-EPC_INF_PROPERTY_MAP = 0x9D
-EPC_SET_PROPERTY_MAP = 0x9E
-EPC_GET_PROPERTY_MAP = 0x9F
-EPC_INSTANCE_LIST = 0xD5
-EPC_SELF_NODE_INSTANCE_LIST = 0xD6
+class EPC(IntEnum):
+    """ECHONET Lite property codes."""
+
+    INSTALLATION_LOCATION = 0x81
+    IDENTIFICATION_NUMBER = 0x83
+    FAULT_STATUS = 0x88
+    MANUFACTURER_CODE = 0x8A
+    PRODUCT_CODE = 0x8C
+    SERIAL_NUMBER = 0x8D
+    INF_PROPERTY_MAP = 0x9D
+    SET_PROPERTY_MAP = 0x9E
+    GET_PROPERTY_MAP = 0x9F
+    INSTANCE_LIST = 0xD5
+    SELF_NODE_INSTANCE_LIST = 0xD6
+
 
 # EPCs requested by the initial multicast discovery. The identification number
 # is needed to associate a node profile response with its source address.
 DISCOVERY_INITIAL_EPCS: list[int] = [
-    EPC_IDENTIFICATION_NUMBER,
-    EPC_SELF_NODE_INSTANCE_LIST,
+    EPC.IDENTIFICATION_NUMBER,
+    EPC.SELF_NODE_INSTANCE_LIST,
 ]
 
 # EPCs requested by recurring multicast discovery. Known source addresses are
 # already mapped to identification numbers, so only the instance list is needed.
-DISCOVERY_DEFAULT_EPCS: list[int] = [EPC_SELF_NODE_INSTANCE_LIST]
+DISCOVERY_DEFAULT_EPCS: list[int] = [EPC.SELF_NODE_INSTANCE_LIST]
 
 # Timeout for one-time, setup-phase requests: the initial multi-property Get
 # (base_epcs + monitored_epcs) in DeviceManager.setup_device(), and the

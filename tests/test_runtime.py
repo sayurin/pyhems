@@ -11,12 +11,7 @@ from pyhems import (
     DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
     EOJ,
-    EPC_IDENTIFICATION_NUMBER,
-    EPC_INSTANCE_LIST,
-    EPC_MANUFACTURER_CODE,
-    EPC_PRODUCT_CODE,
-    EPC_SELF_NODE_INSTANCE_LIST,
-    EPC_SERIAL_NUMBER,
+    EPC,
     ESV,
     NODE_PROFILE_INSTANCE,
     Frame,
@@ -227,12 +222,16 @@ class TestNodeProbe:
         assert len(frame.properties) == 1
 
         epcs = [p.epc for p in frame.properties]
-        assert EPC_SELF_NODE_INSTANCE_LIST in epcs
-        assert epcs == [EPC_SELF_NODE_INSTANCE_LIST]
+        assert EPC.SELF_NODE_INSTANCE_LIST in epcs
+        assert epcs == [EPC.SELF_NODE_INSTANCE_LIST]
 
     def test_probe_initial_nodes_with_extra_epcs(self) -> None:
         """Test initial probe sends extra EPCs when specified in constructor."""
-        extra_epcs = [EPC_MANUFACTURER_CODE, EPC_PRODUCT_CODE, EPC_SERIAL_NUMBER]
+        extra_epcs: list[int] = [
+            EPC.MANUFACTURER_CODE,
+            EPC.PRODUCT_CODE,
+            EPC.SERIAL_NUMBER,
+        ]
         client = HemsClient(extra_epcs=extra_epcs)
 
         # Mock protocol
@@ -252,11 +251,11 @@ class TestNodeProbe:
         assert len(frame.properties) == len(DISCOVERY_INITIAL_EPCS) + len(extra_epcs)
 
         epcs = [p.epc for p in frame.properties]
-        assert EPC_IDENTIFICATION_NUMBER in epcs
-        assert EPC_SELF_NODE_INSTANCE_LIST in epcs
-        assert EPC_MANUFACTURER_CODE in epcs
-        assert EPC_PRODUCT_CODE in epcs
-        assert EPC_SERIAL_NUMBER in epcs
+        assert EPC.IDENTIFICATION_NUMBER in epcs
+        assert EPC.SELF_NODE_INSTANCE_LIST in epcs
+        assert EPC.MANUFACTURER_CODE in epcs
+        assert EPC.PRODUCT_CODE in epcs
+        assert EPC.SERIAL_NUMBER in epcs
 
     @pytest.mark.asyncio
     async def test_start_starts_periodic_discovery_after_initial_delay(self) -> None:
@@ -395,7 +394,7 @@ class TestNodeProbe:
                 esv=ESV.GET_RES,
                 properties=[
                     Property(
-                        epc=EPC_SELF_NODE_INSTANCE_LIST,
+                        epc=EPC.SELF_NODE_INSTANCE_LIST,
                         edt=bytes([1, 0x01, 0x30, 0x01]),
                     )
                 ],
@@ -426,7 +425,7 @@ class TestNodeProbe:
                 esv=ESV.GET_RES,
                 properties=[
                     Property(
-                        epc=EPC_SELF_NODE_INSTANCE_LIST,
+                        epc=EPC.SELF_NODE_INSTANCE_LIST,
                         edt=bytes([1, 0x01, 0x30, 0x01]),
                     )
                 ],
@@ -441,8 +440,8 @@ class TestNodeProbe:
         assert request.deoj == NODE_PROFILE_INSTANCE
         assert request.esv == ESV.GET
         assert [prop.epc for prop in request.properties] == [
-            EPC_IDENTIFICATION_NUMBER,
-            EPC_SELF_NODE_INSTANCE_LIST,
+            EPC.IDENTIFICATION_NUMBER,
+            EPC.SELF_NODE_INSTANCE_LIST,
         ]
         assert address in client._address_discovery_tasks
         await client.stop()
@@ -466,8 +465,8 @@ class TestNodeProbe:
             deoj=CONTROLLER_INSTANCE,
             esv=ESV.GET_RES,
             properties=[
-                Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
-                Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                Property(epc=EPC.IDENTIFICATION_NUMBER, edt=identification),
+                Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
             ],
         )
 
@@ -503,7 +502,7 @@ class TestNodeProbe:
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=NODE_PROFILE_INSTANCE,
                 esv=ESV.INF,
-                properties=[Property(epc=EPC_INSTANCE_LIST, edt=instance_list)],
+                properties=[Property(epc=EPC.INSTANCE_LIST, edt=instance_list)],
             ),
             address,
         )
@@ -526,11 +525,11 @@ class TestNodeProbe:
                 deoj=CONTROLLER_INSTANCE,
                 esv=ESV.GET_RES,
                 properties=[
-                    Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
-                    Property(epc=EPC_MANUFACTURER_CODE, edt=b"\x00\x00\x01"),
-                    Property(epc=EPC_PRODUCT_CODE, edt=b"PRODUCT"),
-                    Property(epc=EPC_SERIAL_NUMBER, edt=b"SERIAL"),
-                    Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                    Property(epc=EPC.IDENTIFICATION_NUMBER, edt=identification),
+                    Property(epc=EPC.MANUFACTURER_CODE, edt=b"\x00\x00\x01"),
+                    Property(epc=EPC.PRODUCT_CODE, edt=b"PRODUCT"),
+                    Property(epc=EPC.SERIAL_NUMBER, edt=b"SERIAL"),
+                    Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
                 ],
             ),
             address,
@@ -574,8 +573,8 @@ class TestNodeProbe:
                 deoj=CONTROLLER_INSTANCE,
                 esv=ESV.GET_RES,
                 properties=[
-                    Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification),
-                    Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                    Property(epc=EPC.IDENTIFICATION_NUMBER, edt=identification),
+                    Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
                 ],
             ),
             address,
@@ -648,7 +647,7 @@ class TestNodeProbe:
             seoj=CONTROLLER_INSTANCE,
             deoj=NODE_PROFILE_INSTANCE,
             esv=ESV.GET,
-            properties=[Property(epc=EPC_IDENTIFICATION_NUMBER)],
+            properties=[Property(epc=EPC.IDENTIFICATION_NUMBER)],
         )
 
         self._simulate_receive(client, frame, "192.168.1.100")
@@ -723,8 +722,8 @@ class TestNodeProbe:
             deoj=CONTROLLER_INSTANCE,
             esv=ESV.GET_RES,
             properties=[
-                Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
-                Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                Property(epc=EPC.IDENTIFICATION_NUMBER, edt=identification_bytes),
+                Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
             ],
         )
         self._simulate_receive(client, frame1, "192.168.1.100")
@@ -739,8 +738,8 @@ class TestNodeProbe:
             deoj=CONTROLLER_INSTANCE,
             esv=ESV.GET_RES,
             properties=[
-                Property(epc=EPC_IDENTIFICATION_NUMBER, edt=identification_bytes),
-                Property(epc=EPC_SELF_NODE_INSTANCE_LIST, edt=instance_list),
+                Property(epc=EPC.IDENTIFICATION_NUMBER, edt=identification_bytes),
+                Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
             ],
         )
         self._simulate_receive(client, frame2, "192.168.1.200")
