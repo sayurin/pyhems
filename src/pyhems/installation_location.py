@@ -51,17 +51,35 @@ class InstallationLocation:
 
     Attributes:
         code: ``LLLL`` (1..15).
-        key: ``snake_case`` translation key matching ``INSTALLATION_LOCATIONS``.
-        name: English display name from the ECHONET Lite specification.
-        name_ja: Japanese display name from the ECHONET Lite specification.
         instance: ``NNN`` location number (0..7; 0 = not specified).
     """
 
     code: int
-    key: str
-    name: str
-    name_ja: str
     instance: int
+
+    def _metadata(self) -> tuple[str, str, str]:
+        """Return the standard metadata for this location code."""
+        try:
+            return INSTALLATION_LOCATIONS[self.code]
+        except KeyError as err:
+            raise ValueError(
+                f"Unknown installation location code: {self.code}"
+            ) from err
+
+    @property
+    def key(self) -> str:
+        """Return the Home Assistant translation key."""
+        return self._metadata()[0]
+
+    @property
+    def name(self) -> str:
+        """Return the English display name."""
+        return self._metadata()[1]
+
+    @property
+    def name_ja(self) -> str:
+        """Return the Japanese display name."""
+        return self._metadata()[2]
 
     @classmethod
     def from_code(cls, code: int, instance: int = 0) -> InstallationLocation:
@@ -79,8 +97,7 @@ class InstallationLocation:
             raise ValueError(
                 f"Installation location instance must be 0..7, got {instance}"
             )
-        key, name, name_ja = entry
-        return cls(code=code, key=key, name=name, name_ja=name_ja, instance=instance)
+        return cls(code=code, instance=instance)
 
 
 def decode_installation_location(
@@ -106,10 +123,6 @@ def decode_installation_location(
     if byte & 0x80:
         return None
     code = (byte >> 3) & 0x0F
-    entry = INSTALLATION_LOCATIONS.get(code)
-    if entry is None:
+    if code not in INSTALLATION_LOCATIONS:
         return None
-    key, name, name_ja = entry
-    return InstallationLocation(
-        code=code, key=key, name=name, name_ja=name_ja, instance=byte & 0x07
-    )
+    return InstallationLocation.from_code(code, byte & 0x07)

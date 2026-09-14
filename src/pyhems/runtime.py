@@ -238,6 +238,12 @@ class HemsClient:
         self._protocol = None
         _LOGGER.debug("HEMS runtime client stopped")
 
+    def _clear_get_capabilities_for_address(self, address: str) -> None:
+        """Discard learned GET behavior for an address no longer in use."""
+        for key in tuple(self._get_capabilities):
+            if key[0] == address:
+                del self._get_capabilities[key]
+
     def probe_nodes(self) -> bool:
         """Send a recurring node probe request to discover devices.
 
@@ -865,7 +871,12 @@ class HemsClient:
         node_id, instances = _extract_discovery_info(frame)
 
         if node_id:
-            # Use forceput to handle address changes.
+            previous_address = self._device_addresses.inverse.get(node_id)
+            previous_node_id = self._device_addresses.get(address)
+            if previous_address and previous_address != address:
+                self._clear_get_capabilities_for_address(previous_address)
+            if previous_node_id and previous_node_id != node_id:
+                self._clear_get_capabilities_for_address(address)
             self._device_addresses.forceput(address, node_id)
         else:
             node_id = self._device_addresses.get(address)

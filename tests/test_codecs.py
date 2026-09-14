@@ -73,11 +73,8 @@ def _make_node(
     return NodeState(
         eoj=EOJ((class_code << 8) | 1),
         properties=properties,
-        last_seen=0.0,
         node_id="node1",
         manufacturer_code=0x000001,
-        manufacturer_name_en=None,
-        manufacturer_name_ja=None,
         get_epcs=frozenset(),
         set_epcs=frozenset(),
         inf_epcs=frozenset(),
@@ -367,13 +364,7 @@ class TestInstallationLocationCodec:
     def test_round_trip_living_room_instance_1(self) -> None:
         """Living room (LLLL=0x1, NNN=1) round-trips through one byte."""
         codec = InstallationLocationCodec()
-        original = InstallationLocation(
-            code=0x1,
-            key="living_room",
-            name="Living room",
-            name_ja="リビング",
-            instance=1,
-        )
+        original = InstallationLocation.from_code(0x1, instance=1)
         encoded = codec.encode(original)
         assert encoded == b"\x09"
         decoded = codec.decode(encoded)
@@ -385,20 +376,14 @@ class TestInstallationLocationCodec:
     def test_encode_rejects_unknown_code(self) -> None:
         """Codes outside the standard table raise :class:`ValueError`."""
         codec = InstallationLocationCodec()
-        bad = InstallationLocation(code=0x0, key="x", name="x", name_ja="x", instance=0)
+        bad = InstallationLocation(code=0x0, instance=0)
         with pytest.raises(ValueError, match="Unknown installation location"):
             codec.encode(bad)
 
     def test_encode_rejects_instance_out_of_range(self) -> None:
         """Instances outside 0..7 raise :class:`ValueError`."""
         codec = InstallationLocationCodec()
-        bad = InstallationLocation(
-            code=0x1,
-            key="living_room",
-            name="Living room",
-            name_ja="リビング",
-            instance=8,
-        )
+        bad = InstallationLocation(code=0x1, instance=8)
         with pytest.raises(ValueError, match="instance must be"):
             codec.encode(bad)
 

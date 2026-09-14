@@ -65,13 +65,7 @@ class TestDecodeInstallationLocation:
         """Byte 0x08 decodes to living_room with instance 0."""
         # byte 0b0000_1000 -> LLLL=1 (living_room), NNN=0
         loc = decode_installation_location(b"\x08")
-        assert loc == InstallationLocation(
-            code=0x1,
-            key="living_room",
-            name="Living room",
-            name_ja="リビング",
-            instance=0,
-        )
+        assert loc == InstallationLocation.from_code(0x1)
 
     def test_kitchen_with_instance(self) -> None:
         """Byte 0x1b decodes to kitchen with instance 3."""
