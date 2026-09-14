@@ -264,10 +264,9 @@ class NumericValueCodec:
 class InstallationLocationCodec:
     r"""Codec for EPC 0x81 exchanging :class:`InstallationLocation`.
 
-    Encoding requires a fully populated :class:`InstallationLocation`. To
-    write the "unset" or "indefinite" sentinel bytes, callers should send
-    the raw byte directly (``b"\x00"`` or ``b"\xff"``) via the low-level
-    API; this codec only handles standard ``LLLL``/``NNN`` values.
+    Encoding accepts standard ``LLLL``/``NNN`` values. To write the "unset"
+    or "indefinite" sentinel bytes, callers should send the raw byte directly
+    (``b"\x00"`` or ``b"\xff"``) via the low-level API.
     """
 
     def decode(self, edt: bytes) -> InstallationLocation | None:

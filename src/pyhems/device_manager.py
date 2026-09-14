@@ -161,17 +161,19 @@ def _extract_node_profile_info(
     return manufacturer_code, product_code, serial_number
 
 
+def _device_key(node_id: str, eoj: EOJ) -> str:
+    """Return the unique key for a node object."""
+    return f"{node_id}-{eoj:06x}"
+
+
 @dataclass(slots=True)
 class NodeState:
     """State for a discovered ECHONET Lite node."""
 
     eoj: EOJ
     properties: dict[int, bytes]
-    last_seen: float
     node_id: str
     manufacturer_code: int
-    manufacturer_name_en: str | None
-    manufacturer_name_ja: str | None
     get_epcs: frozenset[int]
     set_epcs: frozenset[int]
     inf_epcs: frozenset[int]
@@ -179,8 +181,6 @@ class NodeState:
     fast_poll_epcs: frozenset[int]
     product_code: str | None
     serial_number: str | None
-    class_name_en: str | None = None
-    class_name_ja: str | None = None
     # Monitored EPCs for this device's class (candidate set for both Get
     # polling and INF_REQ subscription), including internally required
     # liveness EPCs.
@@ -208,7 +208,19 @@ class NodeState:
     @property
     def device_key(self) -> str:
         """Return the unique device key."""
-        return f"{self.node_id}-{self.eoj:06x}"
+        return _device_key(self.node_id, self.eoj)
+
+    @property
+    def manufacturer_name_en(self) -> str | None:
+        """Return the English manufacturer name, if known."""
+        manufacturer = REGISTRY.manufacturers.get(self.manufacturer_code)
+        return manufacturer.name_en if manufacturer else None
+
+    @property
+    def manufacturer_name_ja(self) -> str | None:
+        """Return the Japanese manufacturer name, if known."""
+        manufacturer = REGISTRY.manufacturers.get(self.manufacturer_code)
+        return manufacturer.name_ja if manufacturer else None
 
     @property
     def manufacturer_name(self) -> str:
@@ -218,6 +230,18 @@ class NodeState:
         hexadecimal manufacturer code such as ``"0xABCDEF"``.
         """
         return self.manufacturer_name_en or f"0x{self.manufacturer_code:06X}"
+
+    @property
+    def class_name_en(self) -> str | None:
+        """Return the English device class name, if known."""
+        device = REGISTRY.devices.get(self.eoj.class_code)
+        return device.name_en if device else None
+
+    @property
+    def class_name_ja(self) -> str | None:
+        """Return the Japanese device class name, if known."""
+        device = REGISTRY.devices.get(self.eoj.class_code)
+        return device.name_ja if device else None
 
     @property
     def class_name(self) -> str:
@@ -586,7 +610,7 @@ class DeviceManager:
 
         self._record_runtime_activity(event.received_at)
 
-        device_key = f"{node_id}-{eoj:06x}"
+        device_key = _device_key(node_id, eoj)
         existing = self.data.get(device_key)
 
         if existing is None:
@@ -645,7 +669,7 @@ class DeviceManager:
 
         new_device_keys: list[str] = []
         for eoj in event.instances:
-            device_key = f"{node_id}-{eoj:06x}"
+            device_key = _device_key(node_id, eoj)
             if device_key in self.data or device_key in self._pending_setups:
                 continue
 
@@ -678,7 +702,7 @@ class DeviceManager:
         Returns:
             True if setup was successful.
         """
-        device_key = f"{node_id}-{eoj:06x}"
+        device_key = _device_key(node_id, eoj)
         try:
             base_epcs = [
                 EPC.INF_PROPERTY_MAP,
@@ -743,18 +767,9 @@ class DeviceManager:
                 always_poll_epcs=self._always_poll_epcs,
             )
 
-            mfr = REGISTRY.manufacturers.get(manufacturer_code)
-            manufacturer_name_en = mfr.name_en if mfr else None
-            manufacturer_name_ja = mfr.name_ja if mfr else None
-
-            device_def = REGISTRY.devices.get(eoj.class_code)
-            class_name_en = device_def.name_en if device_def else None
-            class_name_ja = device_def.name_ja if device_def else None
-
             node = NodeState(
                 eoj=eoj,
                 properties=properties,
-                last_seen=timestamp,
                 node_id=node_id,
                 get_epcs=get_epcs,
                 set_epcs=set_epcs,
@@ -765,12 +780,8 @@ class DeviceManager:
                 fast_candidate_epcs=fast_candidate_epcs,
                 attempted_inf_epcs=attempted_inf_epcs,
                 manufacturer_code=manufacturer_code,
-                manufacturer_name_en=manufacturer_name_en,
-                manufacturer_name_ja=manufacturer_name_ja,
                 product_code=product_code,
                 serial_number=serial_number,
-                class_name_en=class_name_en,
-                class_name_ja=class_name_ja,
                 observed_batch_capacity=observed_batch_capacity,
                 polling_available=(True if self._always_poll_epcs & get_epcs else None),
             )

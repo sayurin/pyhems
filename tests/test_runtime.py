@@ -731,6 +731,10 @@ class TestNodeProbe:
             client._device_addresses.inverse.get(identification_hex) == "192.168.1.100"
         )
 
+        deoj = EOJ(0x013001)
+        client.update_observed_batch_capacity(identification_hex, deoj, 1)
+        assert ("192.168.1.100", deoj) in client._get_capabilities
+
         # Device gets new IP address (192.168.1.200)
         frame2 = Frame(
             tid=2,
@@ -753,6 +757,7 @@ class TestNodeProbe:
         assert client._device_addresses.get("192.168.1.200") == identification_hex
         # Old address should no longer be mapped
         assert client._device_addresses.get("192.168.1.100") is None
+        assert ("192.168.1.100", deoj) not in client._get_capabilities
 
 
 class TestAsyncGet:

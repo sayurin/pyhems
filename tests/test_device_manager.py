@@ -176,11 +176,8 @@ class TestNodeState:
         node = NodeState(
             eoj=EOJ(0x013001),
             properties={},
-            last_seen=0.0,
             node_id="fe00000000000000000000000000000001",
             manufacturer_code=0x000001,
-            manufacturer_name_en=None,
-            manufacturer_name_ja=None,
             get_epcs=frozenset(),
             set_epcs=frozenset(),
             inf_epcs=frozenset(),
@@ -194,27 +191,27 @@ class TestNodeState:
     def test_manufacturer_name_uses_english_when_known(self) -> None:
         """English name is returned when the manufacturer code is known."""
         node = _make_node()
-        node.manufacturer_name_en = "Acme Corp"
-        node.manufacturer_name_ja = "アクメ株式会社"
-        assert node.manufacturer_name == "Acme Corp"
+        assert node.manufacturer_name_en == "Hitachi, Ltd."
+        assert node.manufacturer_name_ja == "株式会社日立製作所"
+        assert node.manufacturer_name == "Hitachi, Ltd."
 
     def test_manufacturer_name_falls_back_to_hex_code(self) -> None:
         """When the manufacturer code is unknown to the registry."""
-        node = _make_node()
-        assert node.manufacturer_code == 0x000001
-        assert node.manufacturer_name == "0x000001"
+        node = _make_node(manufacturer_code=0xABCDEF)
+        assert node.manufacturer_code == 0xABCDEF
+        assert node.manufacturer_name == "0xABCDEF"
 
     def test_class_name_uses_english_when_known(self) -> None:
         """English class name is returned when the class code is known."""
         node = _make_node()
-        node.class_name_en = "Home air conditioner"
-        node.class_name_ja = "家庭用エアコン"
+        assert node.class_name_en == "Home air conditioner"
+        assert node.class_name_ja == "家庭用エアコン"
         assert node.class_name == "Home air conditioner"
 
     def test_class_name_falls_back_to_class_code_hex(self) -> None:
         """When the class code is unknown to the registry."""
-        node = _make_node(eoj=0x013001)
-        assert node.class_name == "ECHONET Lite class 0x0130"
+        node = _make_node(eoj=0xFFFF01)
+        assert node.class_name == "ECHONET Lite class 0xFFFF"
 
     def test_installation_location_unset(self) -> None:
         """EPC 0x81 absent or set to 0x00 yields None."""
@@ -262,6 +259,7 @@ def _make_frame_event(
 def _make_node(
     eoj: int = 0x013001,
     node_id: str = "fe00000000000000000000000000000001",
+    manufacturer_code: int = 0x000001,
     properties: dict[int, bytes] | None = None,
     get_epcs: frozenset[int] | None = None,
     set_epcs: frozenset[int] | None = None,
@@ -272,11 +270,8 @@ def _make_node(
     return NodeState(
         eoj=EOJ(eoj),
         properties=properties or {},
-        last_seen=1.0,
         node_id=node_id,
-        manufacturer_code=0x000001,
-        manufacturer_name_en=None,
-        manufacturer_name_ja=None,
+        manufacturer_code=manufacturer_code,
         get_epcs=get_epcs if get_epcs is not None else frozenset(),
         set_epcs=set_epcs if set_epcs is not None else frozenset(),
         inf_epcs=inf_epcs if inf_epcs is not None else frozenset(),
