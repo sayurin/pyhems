@@ -13,14 +13,7 @@ from dataclasses import dataclass, field
 from ._definitions_generated import REGISTRY
 from .const import (
     CONTROLLER_INSTANCE,
-    EPC_FAULT_STATUS,
-    EPC_GET_PROPERTY_MAP,
-    EPC_INF_PROPERTY_MAP,
-    EPC_INSTALLATION_LOCATION,
-    EPC_MANUFACTURER_CODE,
-    EPC_PRODUCT_CODE,
-    EPC_SERIAL_NUMBER,
-    EPC_SET_PROPERTY_MAP,
+    EPC,
     ESV,
 )
 from .eoj import EOJ
@@ -39,7 +32,7 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-_ALWAYS_POLL_EPCS = frozenset({EPC_FAULT_STATUS})
+_ALWAYS_POLL_EPCS: frozenset[int] = frozenset({EPC.FAULT_STATUS})
 # Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
 # response frame. epcs_in_frame is the set of EPCs actually present in that
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
@@ -120,9 +113,9 @@ def _extract_property_maps(
     properties: Mapping[int, bytes],
 ) -> tuple[frozenset[int], frozenset[int], frozenset[int]]:
     """Extract and parse Get/Set/Inf property maps from property values."""
-    get_epcs = _parse_property_map(properties.get(EPC_GET_PROPERTY_MAP, b""))
-    set_epcs = _parse_property_map(properties.get(EPC_SET_PROPERTY_MAP, b""))
-    inf_epcs = _parse_property_map(properties.get(EPC_INF_PROPERTY_MAP, b""))
+    get_epcs = _parse_property_map(properties.get(EPC.GET_PROPERTY_MAP, b""))
+    set_epcs = _parse_property_map(properties.get(EPC.SET_PROPERTY_MAP, b""))
+    inf_epcs = _parse_property_map(properties.get(EPC.INF_PROPERTY_MAP, b""))
     return get_epcs, set_epcs, inf_epcs
 
 
@@ -160,11 +153,11 @@ def _extract_node_profile_info(
 ) -> tuple[int | None, str | None, str | None]:
     """Extract manufacturer code, product code, and serial number."""
     manufacturer_code: int | None = None
-    if (edt := properties.get(EPC_MANUFACTURER_CODE)) and len(edt) >= 3:
+    if (edt := properties.get(EPC.MANUFACTURER_CODE)) and len(edt) >= 3:
         manufacturer_code = int.from_bytes(edt[:3], "big")
 
-    product_code = _decode_ascii_property(properties.get(EPC_PRODUCT_CODE, b""))
-    serial_number = _decode_ascii_property(properties.get(EPC_SERIAL_NUMBER, b""))
+    product_code = _decode_ascii_property(properties.get(EPC.PRODUCT_CODE, b""))
+    serial_number = _decode_ascii_property(properties.get(EPC.SERIAL_NUMBER, b""))
     return manufacturer_code, product_code, serial_number
 
 
@@ -239,7 +232,7 @@ class NodeState:
     def installation_location(self) -> InstallationLocation | None:
         """Decoded EPC 0x81 (installation location), if available."""
         return decode_installation_location(
-            self.properties.get(EPC_INSTALLATION_LOCATION)
+            self.properties.get(EPC.INSTALLATION_LOCATION)
         )
 
 
@@ -688,12 +681,12 @@ class DeviceManager:
         device_key = f"{node_id}-{eoj:06x}"
         try:
             base_epcs = [
-                EPC_INF_PROPERTY_MAP,
-                EPC_SET_PROPERTY_MAP,
-                EPC_GET_PROPERTY_MAP,
-                EPC_MANUFACTURER_CODE,
-                EPC_PRODUCT_CODE,
-                EPC_SERIAL_NUMBER,
+                EPC.INF_PROPERTY_MAP,
+                EPC.SET_PROPERTY_MAP,
+                EPC.GET_PROPERTY_MAP,
+                EPC.MANUFACTURER_CODE,
+                EPC.PRODUCT_CODE,
+                EPC.SERIAL_NUMBER,
             ]
 
             initial_epcs = (

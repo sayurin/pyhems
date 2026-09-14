@@ -2,12 +2,7 @@
 
 import pytest
 
-from pyhems import EOJ, ESV, Frame, Property
-from pyhems.const import (
-    EPC_IDENTIFICATION_NUMBER,
-    EPC_INSTANCE_LIST,
-    EPC_SELF_NODE_INSTANCE_LIST,
-)
+from pyhems import EOJ, EPC, ESV, Frame, Property
 from pyhems.discovery import _extract_discovery_info
 
 
@@ -30,6 +25,23 @@ def test_esv_values() -> None:
         "INFC": 0x74,
         "INFC_RES": 0x7A,
         "SETGET_RES": 0x7E,
+    }
+
+
+def test_epc_values() -> None:
+    """Test all common ECHONET Lite property codes are defined."""
+    assert {member.name: member.value for member in EPC} == {
+        "INSTALLATION_LOCATION": 0x81,
+        "IDENTIFICATION_NUMBER": 0x83,
+        "FAULT_STATUS": 0x88,
+        "MANUFACTURER_CODE": 0x8A,
+        "PRODUCT_CODE": 0x8C,
+        "SERIAL_NUMBER": 0x8D,
+        "INF_PROPERTY_MAP": 0x9D,
+        "SET_PROPERTY_MAP": 0x9E,
+        "GET_PROPERTY_MAP": 0x9F,
+        "INSTANCE_LIST": 0xD5,
+        "SELF_NODE_INSTANCE_LIST": 0xD6,
     }
 
 
@@ -129,11 +141,11 @@ class TestExtractDiscoveryInfo:
             esv=ESV.GET_RES,
             properties=[
                 Property(
-                    epc=EPC_IDENTIFICATION_NUMBER,
+                    epc=EPC.IDENTIFICATION_NUMBER,
                     edt=bytes.fromhex("fe00000601058c53e6fffe513d890ef001"),
                 ),
                 Property(
-                    epc=EPC_SELF_NODE_INSTANCE_LIST,
+                    epc=EPC.SELF_NODE_INSTANCE_LIST,
                     edt=bytes([0x01, 0x01, 0x30, 0x01]),
                 ),
             ],
@@ -152,11 +164,11 @@ class TestExtractDiscoveryInfo:
             esv=ESV.GET_RES,
             properties=[
                 Property(
-                    epc=EPC_IDENTIFICATION_NUMBER,
+                    epc=EPC.IDENTIFICATION_NUMBER,
                     edt=bytes.fromhex("fe00000601058c53e6fffe513d890ef001"),
                 ),
                 Property(
-                    epc=EPC_INSTANCE_LIST,
+                    epc=EPC.INSTANCE_LIST,
                     edt=bytes([0x02, 0x01, 0x30, 0x01, 0x02, 0x79, 0x01]),
                 ),
             ],
@@ -175,7 +187,7 @@ class TestExtractDiscoveryInfo:
             esv=ESV.GET_RES,
             properties=[
                 Property(
-                    epc=EPC_SELF_NODE_INSTANCE_LIST,
+                    epc=EPC.SELF_NODE_INSTANCE_LIST,
                     edt=bytes([0x01, 0x01, 0x30, 0x01]),
                 ),
             ],
@@ -194,7 +206,7 @@ class TestExtractDiscoveryInfo:
             esv=ESV.GET_RES,
             properties=[
                 Property(
-                    epc=EPC_IDENTIFICATION_NUMBER,
+                    epc=EPC.IDENTIFICATION_NUMBER,
                     edt=bytes.fromhex("fe00000601058c53e6fffe513d890ef001"),
                 ),
             ],
