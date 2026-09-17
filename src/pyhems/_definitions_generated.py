@@ -1924,10 +1924,12 @@ STRUCTURED_VALUES: dict[int, dict[int, PropertyValueDefinition]] = {
 
 COLLECTION_BINDINGS: dict[int, tuple[CollectionBinding, ...]] = {
     647: (
-        CollectionBinding(result_epc=179, count_epc=177, items_path=('electricEnergy',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL),
-        CollectionBinding(result_epc=183, count_epc=177, items_path=('instantaneousElectricPower',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL),
-        CollectionBinding(result_epc=186, count_epc=184, items_path=('electricEnergy',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL),
-        CollectionBinding(result_epc=190, count_epc=184, items_path=('instantaneousElectricPower',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL),
+        CollectionBinding(result_epc=179, count_epc=177, items_path=('electricEnergy',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=178, max_range=60),
+        CollectionBinding(result_epc=181, count_epc=177, items_path=('instantaneousCurrent',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=180, max_range=60),
+        CollectionBinding(result_epc=183, count_epc=177, items_path=('instantaneousElectricPower',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=182, max_range=60),
+        CollectionBinding(result_epc=186, count_epc=184, items_path=('electricEnergy',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=185, max_range=30),
+        CollectionBinding(result_epc=188, count_epc=184, items_path=('instantaneousCurrent',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=187, max_range=60),
+        CollectionBinding(result_epc=190, count_epc=184, items_path=('instantaneousElectricPower',), start_path=('startChannel',), page_count_path=('range',), index_kind=CollectionIndex.CHANNEL, selector_epc=189, max_range=60),
     ),
 }
 

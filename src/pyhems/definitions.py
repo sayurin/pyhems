@@ -340,6 +340,10 @@ class CollectionBinding:
         result_epc: EPC of the property holding the decoded list (e.g. 0xBE).
         count_epc: EPC of the sibling property declaring the total number of
           items available across all pages (e.g. 0xB8), or None.
+        selector_epc: EPC of the sibling property selecting the range returned
+          by ``result_epc``, or None when range recovery is not configured.
+        max_range: Maximum number of items accepted in one range selection, or
+          None when range recovery is not configured.
         items_path: Path (sequence of :class:`ObjectField` keys) from the
           decoded value root to the list of items.
         start_path: Path to the first index (1-based) covered by this page.
@@ -353,6 +357,8 @@ class CollectionBinding:
     start_path: tuple[str, ...]
     page_count_path: tuple[str, ...]
     index_kind: CollectionIndex = CollectionIndex.CHANNEL
+    selector_epc: int | None = None
+    max_range: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -299,6 +299,7 @@ def _make_client() -> AsyncMock:
     client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
+    client.set_properties = MagicMock(return_value=True)
     client.subscribe = MagicMock()
     return client
 
@@ -440,6 +441,77 @@ class TestProcessFrameEvent:
         )
         assert dm.process_frame_event(event) is True
         assert node.properties[0x80] == b"\x30"
+
+    def test_initializes_unset_collection_ranges_once_in_one_set(self) -> None:
+        """Unset 0x0287 ranges are batched and attempted only once."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(
+            eoj=0x028701,
+            properties={
+                0xB1: b"\x1c",
+                0xB3: bytes.fromhex("fd fd ff ff ff fe"),
+                0xB7: bytes.fromhex("fd fd 7f ff ff fe"),
+                0xB8: b"\x07",
+                0xBA: bytes.fromhex("fd fd ff ff ff fe ff ff ff fe"),
+                0xBE: bytes.fromhex("fd fd 7f ff ff fe"),
+            },
+        )
+        dm.data[node.device_key] = node
+
+        event = _make_frame_event(
+            node.node_id,
+            node.eoj,
+            ESV.GET_RES,
+            [
+                Property(epc=0xB3, edt=node.properties[0xB3]),
+                Property(epc=0xB7, edt=node.properties[0xB7]),
+                Property(epc=0xBA, edt=node.properties[0xBA]),
+                Property(epc=0xBE, edt=node.properties[0xBE]),
+            ],
+        )
+
+        assert dm.process_frame_event(event) is False
+        assert client.set_properties.call_count == 1
+        call = client.set_properties.call_args
+        assert call.kwargs["node_id"] == node.node_id
+        assert call.kwargs["deoj"] == node.eoj
+        assert call.kwargs["properties"] == [
+            Property(epc=0xB2, edt=b"\x01\x1c"),
+            Property(epc=0xB6, edt=b"\x01\x1c"),
+            Property(epc=0xB9, edt=b"\x01\x07"),
+            Property(epc=0xBD, edt=b"\x01\x07"),
+        ]
+
+        assert dm.process_frame_event(event) is False
+        assert client.set_properties.call_count == 1
+
+    def test_collection_range_recovery_does_not_retry_send_failure(self) -> None:
+        """A failed one-shot range recovery is not retried during runtime."""
+        client = _make_client()
+        client.set_properties.return_value = False
+        dm = DeviceManager(client, {})
+        node = _make_node(
+            eoj=0x028701,
+            properties={
+                0xB1: b"\x1c",
+                0xB3: bytes.fromhex("fd fd ff ff ff fe"),
+            },
+        )
+        dm.data[node.device_key] = node
+
+        event = _make_frame_event(
+            node.node_id,
+            node.eoj,
+            ESV.GET_RES,
+            [Property(epc=0xB3, edt=node.properties[0xB3])],
+        )
+
+        dm.process_frame_event(event)
+        dm.process_frame_event(event)
+
+        assert client.set_properties.call_count == 1
+        assert node.range_recovery_attempted_epcs == {0xB2}
 
     def test_no_update_when_same_value(self) -> None:
         """No update when property value is unchanged."""
@@ -645,6 +717,52 @@ def _make_property_map_edt(epcs: frozenset[int]) -> bytes:
 
 class TestProcessInstanceListEvent:
     """Tests for DeviceManager.process_instance_list_event."""
+
+    @pytest.mark.asyncio
+    async def test_setup_initializes_unset_collection_ranges(self) -> None:
+        """Initial collection values trigger one batched range initialization."""
+        client = _make_client()
+        eoj = EOJ(0x028701)
+        node_id = "fe00000000000000000000000000000001"
+        get_epcs = frozenset({0x80, 0xB1, 0xB3, 0xB7, 0xB8, 0xBA, 0xBE})
+        monitored_epcs = {0x0287: get_epcs}
+        client.get.return_value = [
+            Property(epc=0x9D, edt=_make_property_map_edt(frozenset())),
+            Property(
+                epc=0x9E,
+                edt=_make_property_map_edt(frozenset({0xB2, 0xB6, 0xB9, 0xBD})),
+            ),
+            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB1, edt=b"\x1c"),
+            Property(epc=0xB3, edt=bytes.fromhex("fd fd ff ff ff fe")),
+            Property(epc=0xB7, edt=bytes.fromhex("fd fd 7f ff ff fe")),
+            Property(epc=0xB8, edt=b"\x07"),
+            Property(
+                epc=0xBA,
+                edt=bytes.fromhex("fd fd ff ff ff fe ff ff ff fe"),
+            ),
+            Property(epc=0xBE, edt=bytes.fromhex("fd fd 7f ff ff fe")),
+        ]
+
+        dm = DeviceManager(client, monitored_epcs)
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[eoj],
+                node_id=node_id,
+                properties={},
+            )
+        )
+
+        assert len(result) == 1
+        assert client.set_properties.call_args.kwargs["properties"] == [
+            Property(epc=0xB2, edt=b"\x01\x1c"),
+            Property(epc=0xB6, edt=b"\x01\x1c"),
+            Property(epc=0xB9, edt=b"\x01\x07"),
+            Property(epc=0xBD, edt=b"\x01\x07"),
+        ]
 
     @pytest.mark.asyncio
     async def test_setup_new_device(self) -> None:
