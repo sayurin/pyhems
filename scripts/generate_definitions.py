@@ -1511,6 +1511,8 @@ def _load_collection_bindings(
                 start_path=tuple(entry["start_path"]),
                 page_count_path=tuple(entry["page_count_path"]),
                 index_kind=CollectionIndex(entry.get("index_kind", "channel")),
+                selector_epc=entry.get("selector_epc"),
+                max_range=entry.get("max_range"),
             )
         )
     return bindings

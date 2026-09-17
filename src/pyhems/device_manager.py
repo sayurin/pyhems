@@ -166,6 +166,45 @@ def _device_key(node_id: str, eoj: EOJ) -> str:
     return f"{node_id}-{eoj:06x}"
 
 
+def _collection_range_recovery_properties(
+    node: NodeState,
+) -> list[Property]:
+    """Build one-shot range recovery properties for unset lists."""
+    properties: list[Property] = []
+    for binding in REGISTRY.collection_bindings.get(node.eoj.class_code, ()):
+        if (
+            binding.selector_epc is None
+            or binding.count_epc is None
+            or binding.max_range is None
+            or binding.selector_epc in node.range_recovery_attempted_epcs
+        ):
+            continue
+
+        result_edt = node.properties.get(binding.result_epc)
+        if result_edt is None or len(result_edt) < 2 or 0xFD not in result_edt[:2]:
+            continue
+
+        count_edt = node.properties.get(binding.count_epc)
+        if count_edt is None or len(count_edt) != 1:
+            continue
+        channel_count = count_edt[0]
+        if not 1 <= channel_count <= 252:
+            continue
+
+        range_value = min(binding.max_range, channel_count)
+        if not 1 <= range_value <= 0xFF:
+            continue
+
+        properties.append(
+            Property(
+                epc=binding.selector_epc,
+                edt=bytes((1, range_value)),
+            )
+        )
+
+    return properties
+
+
 @dataclass(slots=True)
 class NodeState:
     """State for a discovered ECHONET Lite node."""
@@ -204,6 +243,9 @@ class NodeState:
     # Whether the most recent liveness poll received a response. None means
     # the device does not advertise a GET-capable liveness EPC.
     polling_available: bool | None = None
+    # Range-selection EPCs for collection properties that have already
+    # received a one-shot recovery attempt during this runtime.
+    range_recovery_attempted_epcs: set[int] = field(default_factory=set)
 
     @property
     def device_key(self) -> str:
@@ -592,6 +634,32 @@ class DeviceManager:
             subscribed |= candidate_epcs & self._always_poll_epcs
         return candidate_epcs & subscribed
 
+    def _recover_uninitialized_collection_ranges(
+        self,
+        node: NodeState,
+    ) -> None:
+        """Set unset collection ranges once, without waiting for a response."""
+        properties = _collection_range_recovery_properties(node)
+        if not properties:
+            return
+
+        node.range_recovery_attempted_epcs.update(prop.epc for prop in properties)
+        _LOGGER.info(
+            "Initializing unset collection ranges for %s: %s",
+            node.device_key,
+            " ".join(f"0x{prop.epc:02X}={prop.edt.hex()}" for prop in properties),
+        )
+        if not self._client.set_properties(
+            node_id=node.node_id,
+            deoj=node.eoj,
+            properties=properties,
+        ):
+            _LOGGER.warning(
+                "Failed to send collection range initialization for %s; "
+                "no retry will be attempted",
+                node.device_key,
+            )
+
     def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
 
@@ -646,6 +714,8 @@ class DeviceManager:
             if current is None or current != prop.edt:
                 existing.properties[prop.epc] = prop.edt
                 updated = True
+
+        self._recover_uninitialized_collection_ranges(existing)
 
         if updated:
             for updated_cb in self._on_device_updated:
@@ -789,6 +859,7 @@ class DeviceManager:
             self.last_frame_received_at = timestamp
             self.data[device_key] = node
 
+            self._recover_uninitialized_collection_ranges(node)
             await self._send_initial_notification(device_key, node)
 
             self._pending_setups.discard(device_key)

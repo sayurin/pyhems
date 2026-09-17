@@ -379,19 +379,25 @@ def test_0287_array_properties_preserved_as_structured_values() -> None:
         assert any(isinstance(f.value, ArrayDefinition) for f in value_def.fields)
 
 
-def test_0287_collection_bindings_match_v2_scope() -> None:
-    """Only B3/B7/BA/BE get a curated CollectionBinding (v2 HA projection scope).
-
-    B4/B5/B6/B9/BB/BC/BD (selectors + instantaneous current lists) are kept
-    as structured values but intentionally get no CollectionBinding, since
-    v2 does not project them onto HA entities.
-    """
+def test_0287_collection_bindings_include_range_recovery_metadata() -> None:
+    """All 0x0287 collection pairs have range recovery metadata."""
     bindings = {b.result_epc: b for b in REGISTRY.collection_bindings[0x0287]}
-    assert set(bindings) == {0xB3, 0xB7, 0xBA, 0xBE}
-    assert bindings[0xB3].count_epc == 0xB1
-    assert bindings[0xB7].count_epc == 0xB1
-    assert bindings[0xBA].count_epc == 0xB8
-    assert bindings[0xBE].count_epc == 0xB8
+    assert set(bindings) == {0xB3, 0xB5, 0xB7, 0xBA, 0xBC, 0xBE}
+    assert {
+        result_epc: (
+            binding.selector_epc,
+            binding.count_epc,
+            binding.max_range,
+        )
+        for result_epc, binding in bindings.items()
+    } == {
+        0xB3: (0xB2, 0xB1, 60),
+        0xB5: (0xB4, 0xB1, 60),
+        0xB7: (0xB6, 0xB1, 60),
+        0xBA: (0xB9, 0xB8, 30),
+        0xBC: (0xBB, 0xB8, 60),
+        0xBE: (0xBD, 0xB8, 60),
+    }
     for binding in bindings.values():
         assert binding.start_path == ("startChannel",)
         assert binding.page_count_path == ("range",)

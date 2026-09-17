@@ -969,33 +969,61 @@ devices:
 #     - class_code: <class_code>       # 2-byte class code as hex
 #       result_epc: <epc_code>         # EPC holding the decoded list
 #       count_epc: <epc_code>          # Optional: EPC declaring total item count
+#       selector_epc: <epc_code>       # Optional: EPC selecting the result range
+#       max_range: <number>             # Optional: Maximum range per request
 #       items_path: [<field>, ...]     # Path (ObjectField keys) to the item list
 #       start_path: [<field>, ...]     # Path to the page's first index (1-based)
 #       page_count_path: [<field>, ...] # Path to the page's declared item count
 #       index_kind: channel             # Optional: default "channel"
+#   selector_epc/max_range also provide the one-shot recovery metadata used
+#   when a result list reports an unset range; they do not enable page switching.
 collection_bindings:
   # Power distribution board metering (分電盤メータリング)
   - class_code: 0x0287
     result_epc: 0xB3
     count_epc: 0xB1
+    selector_epc: 0xB2
+    max_range: 60
     items_path: [electricEnergy]
+    start_path: [startChannel]
+    page_count_path: [range]
+  - class_code: 0x0287
+    result_epc: 0xB5
+    count_epc: 0xB1
+    selector_epc: 0xB4
+    max_range: 60
+    items_path: [instantaneousCurrent]
     start_path: [startChannel]
     page_count_path: [range]
   - class_code: 0x0287
     result_epc: 0xB7
     count_epc: 0xB1
+    selector_epc: 0xB6
+    max_range: 60
     items_path: [instantaneousElectricPower]
     start_path: [startChannel]
     page_count_path: [range]
   - class_code: 0x0287
     result_epc: 0xBA
     count_epc: 0xB8
+    selector_epc: 0xB9
+    max_range: 30
     items_path: [electricEnergy]
+    start_path: [startChannel]
+    page_count_path: [range]
+  - class_code: 0x0287
+    result_epc: 0xBC
+    count_epc: 0xB8
+    selector_epc: 0xBB
+    max_range: 60
+    items_path: [instantaneousCurrent]
     start_path: [startChannel]
     page_count_path: [range]
   - class_code: 0x0287
     result_epc: 0xBE
     count_epc: 0xB8
+    selector_epc: 0xBD
+    max_range: 60
     items_path: [instantaneousElectricPower]
     start_path: [startChannel]
     page_count_path: [range]
