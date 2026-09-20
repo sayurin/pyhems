@@ -24,6 +24,10 @@ _MAX_BACKOFF_EXPONENT = 10
 _DEFAULT_SAFETY_FACTOR = 2.5
 # Default ceiling for the adaptive interval (seconds).
 _DEFAULT_MAX_INTERVAL = 600.0
+# Default base interval for normal polling (seconds).
+_DEFAULT_POLL_INTERVAL = 60.0
+# Default base interval for fast polling (seconds).
+_DEFAULT_FAST_POLL_INTERVAL = 10.0
 
 
 def _chunk_epcs(epcs: frozenset[int], size: int) -> list[frozenset[int]]:
@@ -82,6 +86,9 @@ class _DeviceScheduleState:
     # Whether ``pending_chunks`` belongs to the fast tier (affects which
     # last-polled timestamp subsequent chunks update).
     pending_chunks_fast: bool = False
+    # Whether ``pending_chunks`` belongs to the normal tier. Both flags can be
+    # true when a merged normal/fast poll is split into chunks.
+    pending_chunks_normal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +96,7 @@ class DevicePollerStats:
     """Read-only per-device snapshot of adaptive poller state."""
 
     normal_interval: float
-    fast_interval: float | None
+    fast_interval: float
     latency_ewma: float | None
     consecutive_failures: int
     observed_batch_capacity: int | None
@@ -115,13 +122,13 @@ class PropertyPoller:
     exponentially. Both are capped by ``max_interval``. See
     :meth:`_effective_interval`.
 
-    If ``fast_poll_interval`` is given, devices with a non-empty
-    ``NodeState.fast_poll_epcs`` (e.g. instantaneous power) are additionally
-    polled on a second, faster cadence (:meth:`schedule_fast_polls`). The fast
-    tier shares the same in-flight tracking and latency/backoff signals as
-    the normal tier, so a device that turns out to be slow automatically has
-    its fast-tier cadence folded back into the normal one instead of being
-    hammered independently. See :meth:`_effective_fast_interval`.
+    Devices with a non-empty ``NodeState.fast_poll_epcs`` (e.g. instantaneous
+    power) are additionally polled on a second, faster cadence
+    by the combined scheduler. The fast tier shares the same in-flight
+    tracking and latency/backoff signals as the normal tier, so a device that
+    turns out to be slow automatically has its fast-tier cadence folded back
+    into the normal one instead of being hammered independently. See
+    :meth:`_effective_fast_interval`.
 
     ECHONET Lite does not guarantee that a multi-property GET response
     includes every requested EPC (see spec discussion in the design doc).
@@ -149,18 +156,19 @@ class PropertyPoller:
         self,
         device_manager: DeviceManager,
         *,
-        poll_interval: float,
+        poll_interval: float = _DEFAULT_POLL_INTERVAL,
         awaiting_timeout: float | None = None,
         safety_factor: float = _DEFAULT_SAFETY_FACTOR,
-        max_interval: float | None = None,
-        fast_poll_interval: float | None = None,
+        max_interval: float = _DEFAULT_MAX_INTERVAL,
+        fast_poll_interval: float = _DEFAULT_FAST_POLL_INTERVAL,
     ) -> None:
         """Initialize the poller with a device manager and polling interval.
 
         Args:
             device_manager: The device manager to poll.
             poll_interval: Base interval between poll cycles (seconds). Also
-                the lower bound of the per-device adaptive interval.
+                the lower bound of the per-device adaptive interval. Defaults
+                to 60 seconds.
             awaiting_timeout: How long to wait for a response to an
                 outstanding poll before giving up and allowing a new one to
                 be sent (seconds). Defaults to ``poll_interval`` so a device
@@ -172,9 +180,7 @@ class PropertyPoller:
                 (seconds), regardless of observed latency or backoff.
                 Defaults to 600 seconds (10 minutes).
             fast_poll_interval: Base interval for the high-frequency tier
-                (seconds). If ``None`` (default), the fast tier is disabled
-                entirely and ``NodeState.fast_poll_epcs`` is never polled by
-                this poller.
+                (seconds). Defaults to 10 seconds.
         """
         self._device_manager = device_manager
         self._poll_interval = max(1.0, float(poll_interval))
@@ -184,18 +190,11 @@ class PropertyPoller:
             else max(0.0, float(awaiting_timeout))
         )
         self._safety_factor = max(1.0, float(safety_factor))
-        self._max_interval = max(
-            self._poll_interval,
-            _DEFAULT_MAX_INTERVAL if max_interval is None else float(max_interval),
-        )
-        self._fast_poll_interval = (
-            None if fast_poll_interval is None else max(1.0, float(fast_poll_interval))
-        )
-
+        self._max_interval = max(self._poll_interval, float(max_interval))
+        self._fast_poll_interval = max(1.0, float(fast_poll_interval))
         self._pending: set[str] = set()
         self._scheduled: dict[str, asyncio.TimerHandle] = {}
         self._task: asyncio.Task[None] | None = None
-        self._fast_task: asyncio.Task[None] | None = None
 
         # device_key -> per-device scheduling state (in-flight tracking,
         # latency EWMA, backoff, last-polled timestamps). See
@@ -210,24 +209,21 @@ class PropertyPoller:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the periodic polling loop(s)."""
+        """Start the periodic polling loop.
+
+        Fast and normal polling are merged into the same scheduler, so a device
+        that becomes due on both tiers is requested once with the union of EPCs.
+        """
         if self._task is None:
             self._task = asyncio.get_running_loop().create_task(
                 self._poll_loop(), name="pyhems_property_poller"
             )
-        if self._fast_poll_interval is not None and self._fast_task is None:
-            self._fast_task = asyncio.get_running_loop().create_task(
-                self._fast_poll_loop(), name="pyhems_property_poller_fast"
-            )
 
     def stop(self) -> None:
-        """Cancel the polling loop(s) and all scheduled callbacks."""
+        """Cancel the polling loop and all scheduled callbacks."""
         if self._task is not None:
             self._task.cancel()
             self._task = None
-        if self._fast_task is not None:
-            self._fast_task.cancel()
-            self._fast_task = None
         for handle in self._scheduled.values():
             handle.cancel()
         self._scheduled.clear()
@@ -258,10 +254,6 @@ class PropertyPoller:
             handle.cancel()
 
         delay = max(0.0, float(delay))
-        if delay <= 0:
-            self._fire_immediate_poll(device_key)
-            return
-
         loop = asyncio.get_running_loop()
         self._scheduled[device_key] = loop.call_later(
             delay, self._scheduled_fire, device_key
@@ -272,11 +264,7 @@ class PropertyPoller:
         state = self._state.get(device_key)
         return DevicePollerStats(
             normal_interval=self._effective_interval(device_key),
-            fast_interval=(
-                self._effective_fast_interval(device_key)
-                if self._fast_poll_interval is not None
-                else None
-            ),
+            fast_interval=self._effective_fast_interval(device_key),
             latency_ewma=None if state is None else state.latency_ewma,
             consecutive_failures=0 if state is None else state.consecutive_failures,
             observed_batch_capacity=(
@@ -289,19 +277,17 @@ class PropertyPoller:
     # ------------------------------------------------------------------
 
     async def _poll_loop(self) -> None:
-        """Run forever, polling on every interval tick."""
-        while True:
-            await asyncio.sleep(self._poll_interval)
-            self._cleanup_stale()
-            self.schedule_polls()
+        """Run forever, polling each device on the combined cadence.
 
-    async def _fast_poll_loop(self) -> None:
-        """Run forever, polling the fast tier on every (shorter) interval tick."""
-        assert self._fast_poll_interval is not None
+        When the fast tier is enabled, the loop wakes on the faster tick and
+        then decides whether normal and/or fast EPCs are due. This avoids two
+        separate poll tasks racing on the same device while still respecting
+        each tier's adaptive timing.
+        """
         while True:
             await asyncio.sleep(self._fast_poll_interval)
             self._cleanup_stale()
-            self.schedule_fast_polls()
+            self._schedule_polls()
 
     def _cleanup_stale(self) -> None:
         """Remove pending/scheduled entries for devices no longer present."""
@@ -329,81 +315,78 @@ class PropertyPoller:
             self._state[device_key] = state
         return state
 
-    def schedule_polls(self) -> None:
-        """Enqueue poll requests for devices that need polling."""
+    def _schedule_polls(self) -> None:
+        """Enqueue poll requests for devices that need polling.
+
+        When both tiers are due for the same device, the request is merged into a
+        single GET containing the union of the normal and fast EPC sets. This
+        avoids the race where a slow device would otherwise receive separate
+        overlapping polls on the same tick.
+        """
         now = time.monotonic()
         for device_key, node in self._device_manager.data.items():
-            if not node.poll_epcs:
-                continue
-            effective_epcs = self._device_manager.effective_poll_epcs(device_key)
-            if not effective_epcs:
-                continue
             if device_key in self._pending or device_key in self._scheduled:
                 continue
             if self._is_awaiting(device_key):
+                continue
+            if not node.poll_epcs and not node.fast_poll_epcs:
                 continue
             state = self._state.get(device_key)
             last_polled_at = state.last_polled_at if state is not None else None
-            if (
-                last_polled_at is not None
-                and now - last_polled_at < self._effective_interval(device_key)
-            ):
-                continue
-            self._fire_poll(device_key, epcs=effective_epcs)
+            normal_due = bool(node.poll_epcs) and (
+                last_polled_at is None
+                or now - last_polled_at >= self._effective_interval(device_key)
+            )
+            last_fast_polled_at = (
+                state.last_fast_polled_at if state is not None else None
+            )
+            fast_due = bool(node.fast_poll_epcs) and (
+                last_fast_polled_at is None
+                or now - last_fast_polled_at
+                >= self._effective_fast_interval(device_key)
+            )
 
-    def schedule_fast_polls(self) -> None:
-        """Enqueue fast-tier poll requests (e.g. instantaneous values).
+            if not normal_due and not fast_due:
+                continue
 
-        No-op if ``fast_poll_interval`` was not configured.
-        """
-        if self._fast_poll_interval is None:
-            return
-        now = time.monotonic()
-        for device_key, node in self._device_manager.data.items():
-            if not node.fast_poll_epcs:
-                continue
-            effective_epcs = self._device_manager.effective_fast_poll_epcs(device_key)
-            if not effective_epcs:
-                continue
-            if device_key in self._pending or device_key in self._scheduled:
-                continue
-            if self._is_awaiting(device_key):
-                continue
-            state = self._state.get(device_key)
-            last_polled_at = state.last_fast_polled_at if state is not None else None
-            if (
-                last_polled_at is not None
-                and now - last_polled_at < self._effective_fast_interval(device_key)
-            ):
-                continue
-            self._fire_poll(device_key, epcs=effective_epcs, fast=True)
+            self._fire_poll(device_key, fast=fast_due, normal=normal_due)
 
     def _scheduled_fire(self, device_key: str) -> None:
         self._scheduled.pop(device_key, None)
-        self._fire_immediate_poll(device_key)
-
-    def _fire_immediate_poll(self, device_key: str) -> None:
-        """Fire an immediate poll using the device's current effective EPC set."""
-        effective_epcs = self._device_manager.effective_poll_epcs(device_key)
-        if not effective_epcs:
-            return
-        self._fire_poll(device_key, epcs=effective_epcs, track_requested=False)
+        self._fire_poll(device_key, normal=True, fast=True, track_requested=False)
 
     def _fire_poll(
         self,
         device_key: str,
         *,
         epcs: frozenset[int] | None = None,
-        fast: bool = False,
+        fast: bool,
+        normal: bool,
         track_requested: bool = True,
     ) -> None:
         if device_key in self._pending:
             return
+        if epcs is None:
+            node = self._device_manager.data.get(device_key)
+            normal_epcs = (
+                self._device_manager.effective_poll_epcs(device_key)
+                if normal
+                else frozenset()
+            )
+            fast_epcs = (
+                self._device_manager.effective_fast_poll_epcs(device_key)
+                if fast and node is not None and node.fast_poll_epcs
+                else frozenset()
+            )
+            epcs = normal_epcs | fast_epcs
+            if not epcs:
+                return
         self._pending.add(device_key)
         self._poll_node(
             device_key,
             epcs=epcs,
             fast=fast,
+            normal=normal,
             track_requested=track_requested,
         )
 
@@ -425,6 +408,8 @@ class PropertyPoller:
             state.requested_epcs = None
             state.liveness_requested = False
             state.pending_chunks = []
+            state.pending_chunks_fast = False
+            state.pending_chunks_normal = False
             state.consecutive_failures += 1
             if liveness_requested:
                 self._device_manager.record_poll_failure(device_key)
@@ -466,7 +451,6 @@ class PropertyPoller:
         enough that the fast tier offers no benefit, there is no point
         polling it on a separate, independently-growing schedule.
         """
-        assert self._fast_poll_interval is not None
         interval = self._fast_poll_interval
 
         state = self._state.get(device_key)
@@ -526,7 +510,12 @@ class PropertyPoller:
         if not state.pending_chunks:
             return
         next_chunk = state.pending_chunks.pop(0)
-        self._fire_poll(device_key, epcs=next_chunk, fast=state.pending_chunks_fast)
+        self._fire_poll(
+            device_key,
+            epcs=next_chunk,
+            fast=state.pending_chunks_fast,
+            normal=state.pending_chunks_normal,
+        )
 
     def _on_frame_received(
         self, device_key: str, tid: int, _esv: ESV, received_epcs: frozenset[int]
@@ -567,7 +556,8 @@ class PropertyPoller:
         device_key: str,
         *,
         epcs: frozenset[int] | None = None,
-        fast: bool = False,
+        fast: bool,
+        normal: bool,
         track_requested: bool = True,
     ) -> None:
         send_epcs = epcs
@@ -600,10 +590,11 @@ class PropertyPoller:
                 state.liveness_requested = liveness_requested
                 state.pending_chunks = remaining_chunks if track_requested else []
                 state.pending_chunks_fast = fast
+                state.pending_chunks_normal = normal
+                if normal:
+                    state.last_polled_at = now
                 if fast:
                     state.last_fast_polled_at = now
-                else:
-                    state.last_polled_at = now
             else:
                 _LOGGER.debug(
                     "Failed to poll node %s: no poll EPCs or address unknown",
