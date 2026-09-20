@@ -481,7 +481,7 @@ class DeviceManager:
             event = await self._event_queue.get()
             try:
                 if isinstance(event, HemsFrameEvent):
-                    self.process_frame_event(event)
+                    await self.process_frame_event(event)
                 else:
                     _LOGGER.debug(
                         "Runtime event: HemsInstanceListEvent from %s with %d instances",
@@ -634,11 +634,11 @@ class DeviceManager:
             subscribed |= candidate_epcs & self._always_poll_epcs
         return candidate_epcs & subscribed
 
-    def _recover_uninitialized_collection_ranges(
+    async def _recover_uninitialized_collection_ranges(
         self,
         node: NodeState,
     ) -> None:
-        """Set unset collection ranges once, without waiting for a response."""
+        """Set unset collection ranges once and log the acknowledged result."""
         properties = _collection_range_recovery_properties(node)
         if not properties:
             return
@@ -649,18 +649,27 @@ class DeviceManager:
             node.device_key,
             " ".join(f"0x{prop.epc:02X}={prop.edt.hex()}" for prop in properties),
         )
-        if not self._client.set_properties(
+        result = await self._client.set_properties(
             node_id=node.node_id,
             deoj=node.eoj,
             properties=properties,
-        ):
+        )
+        if not result.sent:
             _LOGGER.warning(
                 "Failed to send collection range initialization for %s; "
                 "no retry will be attempted",
                 node.device_key,
             )
+        elif result.rejected_epcs or result.unanswered_epcs:
+            _LOGGER.warning(
+                "Collection range initialization for %s was not fully accepted: "
+                "rejected=[%s] unanswered=[%s]",
+                node.device_key,
+                " ".join(f"{epc:02X}" for epc in sorted(result.rejected_epcs)),
+                " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
+            )
 
-    def process_frame_event(self, event: HemsFrameEvent) -> bool:
+    async def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
 
         Args:
@@ -715,7 +724,7 @@ class DeviceManager:
                 existing.properties[prop.epc] = prop.edt
                 updated = True
 
-        self._recover_uninitialized_collection_ranges(existing)
+        await self._recover_uninitialized_collection_ranges(existing)
 
         if updated:
             for updated_cb in self._on_device_updated:
@@ -859,7 +868,7 @@ class DeviceManager:
             self.last_frame_received_at = timestamp
             self.data[device_key] = node
 
-            self._recover_uninitialized_collection_ranges(node)
+            await self._recover_uninitialized_collection_ranges(node)
             await self._send_initial_notification(device_key, node)
 
             self._pending_setups.discard(device_key)

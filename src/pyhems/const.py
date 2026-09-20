@@ -77,5 +77,8 @@ DISCOVERY_DEFAULT_EPCS: list[int] = [EPC.SELF_NODE_INSTANCE_LIST]
 # ends up answering the same large request twice.
 SETUP_REQUEST_TIMEOUT = 30.0
 
+# Timeout for acknowledged SetC requests from callers.
+SET_REQUEST_TIMEOUT = 10.0
+
 # Retry settings for the initial setup Get (see SETUP_REQUEST_TIMEOUT above).
 GET_MAX_RETRIES = 3  # Maximum retry attempts for failed properties

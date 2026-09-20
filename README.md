@@ -54,8 +54,8 @@ async def main():
     # node_id = "fe..."  # obtained from HemsInstanceListEvent
     # props = await client.get(node_id, EOJ(0x013001), [0x80, 0xB3])
 
-    # Write a property (example: power ON)
-    # client.set_property(node_id, EOJ(0x013001), 0x80, b"\x30")
+    # Write a property and wait for Set_Res/SetC_SNA
+    # result = await client.set_property(node_id, EOJ(0x013001), 0x80, b"\x30")
 
     await asyncio.sleep(60)
     unsubscribe()
@@ -76,8 +76,11 @@ asyncio.run(main())
   only the self-node instance list.
 - `HemsClient.start_periodic_discovery()`: Start recurring discovery immediately.
 - `HemsClient.get(node_id, deoj, epcs)`: Read property values.
-- `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property.
-- `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple properties.
+- `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property and
+  wait for the acknowledged result.
+- `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple
+  properties and wait for the acknowledged result. The returned
+  `SetRequestResult` separates accepted, rejected, and unanswered EPCs.
 - `DeviceManager.async_start()` / `DeviceManager.async_stop()`: Subscribe to
   runtime events and process device events in arrival order.
 

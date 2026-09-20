@@ -18,6 +18,7 @@ from .const import (
     GET_MAX_RETRIES,
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
+    SET_REQUEST_TIMEOUT,
     SETUP_REQUEST_TIMEOUT,
 )
 from .discovery import _extract_discovery_info
@@ -102,6 +103,17 @@ class NotificationRequestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SetRequestResult:
+    """Result of an acknowledged ESV.SETC request."""
+
+    sent: bool
+    response_esv: ESV | None
+    accepted_epcs: frozenset[int]
+    rejected_epcs: frozenset[int]
+    unanswered_epcs: frozenset[int]
+
+
+@dataclass(frozen=True, slots=True)
 class _GetResponse:
     """Response received for one ESV.GET request."""
 
@@ -167,6 +179,10 @@ class HemsClient:
         # tid -> (address, requested_epcs, future)
         self._pending_infs: dict[
             int, tuple[str, frozenset[int], asyncio.Future[Frame]]
+        ] = {}
+        # Pending SetC requests: tid -> (address, deoj, seoj, requested_epcs, future)
+        self._pending_sets: dict[
+            int, tuple[str, EOJ, EOJ, frozenset[int], asyncio.Future[Frame]]
         ] = {}
 
     def subscribe(self, callback: EventCallback) -> Callable[[], None]:
@@ -234,9 +250,31 @@ class HemsClient:
                 inf_future.cancel()
         self._pending_infs.clear()
 
+        # Cancel pending SetC requests
+        for (
+            _tid,
+            (_addr, _deoj, _seoj, _set_epcs, set_future),
+        ) in list(self._pending_sets.items()):
+            if not set_future.done():
+                set_future.cancel()
+        self._pending_sets.clear()
+
         self._protocol.close()
         self._protocol = None
         _LOGGER.debug("HEMS runtime client stopped")
+
+    def _next_transaction_id(self) -> int:
+        """Return a transaction ID that is not used by a pending request."""
+        pending_tids = (
+            self._pending_gets.keys()
+            | self._pending_infs.keys()
+            | self._pending_sets.keys()
+        )
+        for _ in range(0xFFFF):
+            tid = Frame.next_tid()
+            if tid not in pending_tids:
+                return tid
+        raise RuntimeError("No transaction ID is available")
 
     def _clear_get_capabilities_for_address(self, address: str) -> None:
         """Discard learned GET behavior for an address no longer in use."""
@@ -418,7 +456,7 @@ class HemsClient:
                 )
             return
 
-        tid = Frame.next_tid()
+        tid = self._next_transaction_id()
         remaining_epcs = epcs
         for attempt in range(max_retries + 1):
             if not remaining_epcs:
@@ -610,7 +648,7 @@ class HemsClient:
                 unanswered_epcs=requested,
             )
 
-        tid = Frame.next_tid()
+        tid = self._next_transaction_id()
         future: asyncio.Future[Frame] = asyncio.Future()
         self._pending_infs[tid] = (address, requested, future)
 
@@ -672,14 +710,15 @@ class HemsClient:
             unanswered_epcs=unanswered,
         )
 
-    def set_property(
+    async def set_property(
         self,
         node_id: str,
         deoj: EOJ,
         epc: int,
         edt: bytes,
         seoj: EOJ = CONTROLLER_INSTANCE,
-    ) -> bool:
+        request_timeout: float = SET_REQUEST_TIMEOUT,
+    ) -> SetRequestResult:
         """Send a SetC request with a single EPC/EDT pair.
 
         Args:
@@ -688,24 +727,27 @@ class HemsClient:
             epc: Property code.
             edt: Property value.
             seoj: Source EOJ (default: controller).
+            request_timeout: Timeout in seconds for the response.
 
         Returns:
-            True if sent successfully.
+            The acknowledged SetC result.
         """
-        return self.set_properties(
+        return await self.set_properties(
             node_id=node_id,
             deoj=deoj,
             properties=[Property(epc=epc, edt=edt)],
             seoj=seoj,
+            request_timeout=request_timeout,
         )
 
-    def set_properties(
+    async def set_properties(
         self,
         node_id: str,
         deoj: EOJ,
         properties: list[Property],
         seoj: EOJ = CONTROLLER_INSTANCE,
-    ) -> bool:
+        request_timeout: float = SET_REQUEST_TIMEOUT,
+    ) -> SetRequestResult:
         """Send a SetC request with multiple properties.
 
         Args:
@@ -713,20 +755,105 @@ class HemsClient:
             deoj: Destination EOJ.
             properties: List of properties to write.
             seoj: Source EOJ (default: controller).
+            request_timeout: Timeout in seconds for the response.
 
         Returns:
-            True if sent successfully.
+            The acknowledged SetC result.
         """
         if not properties:
-            return False
+            return SetRequestResult(
+                sent=False,
+                response_esv=None,
+                accepted_epcs=frozenset(),
+                rejected_epcs=frozenset(),
+                unanswered_epcs=frozenset(),
+            )
+
+        requested_epcs = frozenset(prop.epc for prop in properties)
+        address = self._device_addresses.inverse.get(node_id)
+        if not address or not self._protocol:
+            _LOGGER.warning("No address known for device %s", node_id)
+            return SetRequestResult(
+                sent=False,
+                response_esv=None,
+                accepted_epcs=frozenset(),
+                rejected_epcs=frozenset(),
+                unanswered_epcs=requested_epcs,
+            )
+
+        tid = self._next_transaction_id()
+        future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
+        self._pending_sets[tid] = (address, deoj, seoj, requested_epcs, future)
 
         frame = Frame(
+            tid=tid,
             seoj=seoj,
             deoj=deoj,
             esv=ESV.SETC,
             properties=properties,
         )
-        return self.send(node_id, frame)
+
+        if not self._send_to_address(frame, address):
+            self._pending_sets.pop(tid, None)
+            return SetRequestResult(
+                sent=False,
+                response_esv=None,
+                accepted_epcs=frozenset(),
+                rejected_epcs=frozenset(),
+                unanswered_epcs=requested_epcs,
+            )
+
+        try:
+            response_frame = await asyncio.wait_for(
+                asyncio.shield(future), request_timeout
+            )
+        except TimeoutError:
+            if not future.done():
+                _LOGGER.debug(
+                    "SetC request to %s %r timed out for EPCs: [%s]",
+                    address,
+                    deoj,
+                    " ".join(f"{epc:02X}" for epc in sorted(requested_epcs)),
+                )
+                return SetRequestResult(
+                    sent=True,
+                    response_esv=None,
+                    accepted_epcs=frozenset(),
+                    rejected_epcs=frozenset(),
+                    unanswered_epcs=requested_epcs,
+                )
+            response_frame = future.result()
+        finally:
+            self._pending_sets.pop(tid, None)
+
+        if response_frame.esv == ESV.SET_RES:
+            return SetRequestResult(
+                sent=True,
+                response_esv=response_frame.esv,
+                accepted_epcs=requested_epcs,
+                rejected_epcs=frozenset(),
+                unanswered_epcs=frozenset(),
+            )
+
+        accepted_epcs: set[int] = set()
+        rejected_epcs: set[int] = set()
+        for prop in response_frame.properties:
+            if prop.epc not in requested_epcs:
+                continue
+            if prop.edt:
+                rejected_epcs.add(prop.epc)
+            else:
+                accepted_epcs.add(prop.epc)
+
+        return SetRequestResult(
+            sent=True,
+            response_esv=response_frame.esv,
+            accepted_epcs=frozenset(accepted_epcs),
+            rejected_epcs=frozenset(rejected_epcs),
+            unanswered_epcs=requested_epcs
+            - frozenset(accepted_epcs)
+            - frozenset(rejected_epcs),
+        )
 
     def _on_receive(self, data: bytes, addr: tuple[str, int]) -> None:
         """Handle received UDP data."""
@@ -776,6 +903,32 @@ class HemsClient:
                         "(expected %s): %s",
                         address,
                         req_address,
+                        _format_frame(frame),
+                    )
+                # Continue processing to also dispatch the event
+
+            # Check if this is a response to a pending SetC request
+            if frame.esv in (ESV.SET_RES, ESV.SETC_SNA) and (
+                pending_set := self._pending_sets.get(frame.tid)
+            ):
+                req_address, req_deoj, req_seoj, _set_epcs, set_future = pending_set
+                if (
+                    address == req_address
+                    and frame.seoj == req_deoj
+                    and frame.deoj == req_seoj
+                ):
+                    self._pending_sets.pop(frame.tid, None)
+                    if not set_future.done():
+                        _LOGGER.debug(
+                            "Matched pending SetC response from %s: %s",
+                            address,
+                            _format_frame(frame),
+                        )
+                        set_future.set_result(frame)
+                else:
+                    _LOGGER.debug(
+                        "Ignoring pending SetC response from %s: %s",
+                        address,
                         _format_frame(frame),
                     )
                 # Continue processing to also dispatch the event
