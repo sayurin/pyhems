@@ -232,6 +232,41 @@ devices:
         name_ja: "入力電力4"
         role: status
 
+    # Multiple input PCS (マルチ入力PCS) - Nichicon manufacturer-specific properties
+  0x02A5:
+    properties:
+      - epc: 0xF5
+        manufacturer_code: 0x00006C
+        byte_offset: 0
+        format: int32
+        unit: "W"
+        minimum: -999999999
+        maximum: 999999999
+        get: optional
+        name_en: "Measured instantaneous grid electric power"
+        name_ja: "系統瞬時電力計測値"
+        description_en: >-
+          Instantaneous power exchanged with the grid. Negative while
+          purchasing from the grid, positive while selling to it.
+        description_ja: >-
+          系統との瞬時電力。買電時は負値、売電時は正値。
+        role: instantaneous
+      - epc: 0xF5
+        manufacturer_code: 0x00006C
+        byte_offset: 4
+        format: int32
+        unit: "W"
+        minimum: -999999999
+        maximum: 999999999
+        get: optional
+        name_en: "Measured instantaneous house consumption"
+        name_ja: "宅内消費瞬時電力計測値"
+        description_en: >-
+          Instantaneous electric power consumed by the household.
+        description_ja: >-
+          宅内で消費されている瞬時電力。
+        role: instantaneous
+
     # Controller (コントローラ) - Sharp manufacturer-specific properties
   0x05FF:
     properties:
