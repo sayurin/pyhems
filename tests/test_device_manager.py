@@ -371,7 +371,7 @@ class TestDeviceManagerRuntimeEvents:
     async def test_async_stop_without_start_is_noop(self) -> None:
         """Stopping an unstarted manager does not subscribe or create tasks."""
         client = _make_client()
-        dm = DeviceManager(client, {})
+        dm = DeviceManager(client, {0x0130: frozenset({0x88})})
 
         await dm.async_stop()
 
@@ -817,8 +817,8 @@ class TestProcessInstanceListEvent:
         assert node.fast_poll_epcs == frozenset()
 
     @pytest.mark.asyncio
-    async def test_liveness_epc_stays_polled_after_inf_success(self) -> None:
-        """The liveness EPC remains polled after a successful INF request."""
+    async def test_all_inf_epcs_skip_polling_and_remain_available(self) -> None:
+        """Devices with only INF EPCs skip polling and remain available."""
         client = _make_client()
         eoj = EOJ(0x013001)
         node_id = "fe00000000000000000000000000000001"
@@ -831,7 +831,7 @@ class TestProcessInstanceListEvent:
             Property(epc=0x88, edt=b"\x42"),
         ]
 
-        dm = DeviceManager(client, {})
+        dm = DeviceManager(client, {0x0130: frozenset({0x88})})
         result = await dm.process_instance_list_event(
             HemsInstanceListEvent(
                 received_at=1.0,
@@ -845,8 +845,8 @@ class TestProcessInstanceListEvent:
         assert node.monitored_epcs == frozenset({0x88})
         assert node.attempted_inf_epcs == frozenset({0x88})
         assert node.confirmed_inf_epcs == frozenset({0x88})
-        assert node.poll_epcs == frozenset({0x88})
-        assert node.polling_available is True
+        assert node.poll_epcs == frozenset()
+        assert node.polling_available is None
 
     @pytest.mark.asyncio
     async def test_setup_new_device_splits_fast_poll_epcs(self) -> None:
@@ -1318,8 +1318,8 @@ class TestSubscribeEpcs:
 
         assert dm.effective_poll_epcs(node.device_key) == frozenset()
 
-    def test_effective_poll_epcs_keeps_liveness_epc_without_subscription(self) -> None:
-        """The liveness EPC is polled even without active entity subscriptions."""
+    def test_effective_poll_epcs_empty_without_subscription(self) -> None:
+        """No EPC is polled without an active entity subscription."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x88}))
@@ -1327,7 +1327,7 @@ class TestSubscribeEpcs:
 
         dm.subscribe_epcs(node.device_key, frozenset())
 
-        assert dm.effective_poll_epcs(node.device_key) == frozenset({0x88})
+        assert dm.effective_poll_epcs(node.device_key) == frozenset()
 
     def test_unsubscribe_removes_epc_from_effective_set(self) -> None:
         """Unsubscribing removes the EPC once no subscriber remains."""

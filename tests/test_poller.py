@@ -431,12 +431,11 @@ class TestAdaptiveInterval:
         assert _consecutive_failures(poller, "k1") == 1
 
     @pytest.mark.asyncio
-    async def test_liveness_timeout_marks_device_unavailable(self) -> None:
-        """An unanswered liveness poll marks the device unavailable."""
+    async def test_poll_timeout_marks_device_unavailable(self) -> None:
+        """An unanswered scheduled poll marks the device unavailable."""
         dm = MagicMock(spec=DeviceManager)
-        dm.always_poll_epcs = frozenset({0x88})
         poller = PropertyPoller(dm, poll_interval=60, awaiting_timeout=0.01)
-        poller._poll_node("k1", epcs=frozenset({0x88}), fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
         _set_state(poller, "k1", awaiting_since=time.monotonic() - 1.0)
 
         assert poller._is_awaiting("k1") is False
@@ -465,18 +464,17 @@ class TestAdaptiveInterval:
         assert _latency_ewma(poller, "k1") == pytest.approx(5.0, abs=0.5)
 
     @pytest.mark.asyncio
-    async def test_liveness_response_marks_device_available(self) -> None:
-        """A response to a liveness poll marks the device available."""
+    async def test_poll_response_marks_device_available(self) -> None:
+        """A response to a scheduled poll marks the device available."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
-        dm.always_poll_epcs = frozenset({0x88})
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node("k1", epcs=frozenset({0x88}), fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
         callback = dm.on_frame_received.call_args.args[0]
-        callback("k1", 1, 0x72, frozenset({0x88}))
+        callback("k1", 1, 0x72, frozenset({0xE0}))
 
         dm.record_poll_success.assert_called_once_with("k1")
 
@@ -1121,10 +1119,10 @@ class TestSubscriptionFiltering:
     """Tests for effective_poll_epcs/effective_fast_poll_epcs use (Step 6)."""
 
     @pytest.mark.asyncio
-    async def test_schedule_polls_keeps_liveness_epc_without_subscriptions(
+    async def test_schedule_polls_skips_without_subscriptions(
         self,
     ) -> None:
-        """A liveness EPC is polled even when no entity EPCs are subscribed."""
+        """No poll is sent when no entity EPCs are subscribed."""
         client = MagicMock()
         dm = DeviceManager(client, {})
         node = _make_node("k1", poll_epcs=frozenset({0x88}))
@@ -1134,9 +1132,7 @@ class TestSubscriptionFiltering:
 
         poller._schedule_polls()
 
-        client.send.assert_called_once()
-        _node_id, frame = client.send.call_args.args
-        assert {property_.epc for property_ in frame.properties} == {0x88}
+        client.send.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_schedule_polls_uses_effective_poll_epcs(self) -> None:

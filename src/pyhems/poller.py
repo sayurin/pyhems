@@ -75,8 +75,7 @@ class _DeviceScheduleState:
     # immediate poll after a Set) and partial-response detection does not
     # apply to it.
     requested_epcs: frozenset[int] | None = None
-    # Whether the current poll includes an always-polled EPC used for
-    # liveness tracking.
+    # Whether the current scheduled poll can be used for liveness tracking.
     liveness_requested: bool = False
     # Remaining chunks still to be sent for the poll cycle currently in
     # progress (populated when the target EPC set exceeds
@@ -148,8 +147,7 @@ class PropertyPoller:
     ``NodeState.poll_epcs``/``fast_poll_epcs``: callers can narrow the set of
     EPCs actually polled per device via ``DeviceManager.subscribe_epcs()``
     (e.g. Home Assistant unsubscribing a disabled Entity's EPC). A device
-    with no active subscribers for a tier is skipped entirely for that tier,
-    except for always-polled liveness EPCs in the normal tier.
+    with no active subscribers for a tier is skipped entirely for that tier.
     """
 
     def __init__(
@@ -561,11 +559,8 @@ class PropertyPoller:
         track_requested: bool = True,
     ) -> None:
         send_epcs = epcs
-        always_poll_epcs = getattr(self._device_manager, "always_poll_epcs", None)
         liveness_requested = (
-            isinstance(always_poll_epcs, frozenset)
-            and send_epcs is not None
-            and bool(send_epcs & always_poll_epcs)
+            track_requested and send_epcs is not None and bool(send_epcs)
         )
         remaining_chunks: list[frozenset[int]] = []
         if track_requested and epcs is not None:

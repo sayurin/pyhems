@@ -33,7 +33,6 @@ def test_epc_values() -> None:
     assert {member.name: member.value for member in EPC} == {
         "INSTALLATION_LOCATION": 0x81,
         "IDENTIFICATION_NUMBER": 0x83,
-        "FAULT_STATUS": 0x88,
         "MANUFACTURER_CODE": 0x8A,
         "PRODUCT_CODE": 0x8C,
         "SERIAL_NUMBER": 0x8D,
