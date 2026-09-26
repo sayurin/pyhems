@@ -42,6 +42,7 @@ class DeviceClass(IntEnum):
     VENTILATION_FAN = 0x0133
     AIR_CONDITIONER_VENTILATION_FAN = 0x0134
     AIR_CLEANER = 0x0135
+    CEILING_FAN = 0x013A
     COMMERCIAL_AIR_CONDITIONER_INDOOR_UNIT = 0x0156
     COMMERCIAL_AIR_CONDITIONER_OUTDOOR_UNIT = 0x0157
     ELECTRIC_BLIND_SHADE = 0x0260
@@ -347,6 +348,28 @@ DEVICES: dict[int, DeviceDefinition] = {
                 EntityDefinition(id='class_0135_epc_f1_000005_03', epc=241, name_en='Temperature', name_ja='温度', get='optional', set='notApplicable', format='int8', unit='Celsius', minimum=-127, maximum=125, byte_offset=3, manufacturer_code=5),
                 EntityDefinition(id='class_0135_epc_f1_000005_04', epc=241, name_en='Humidity', name_ja='湿度', get='optional', set='notApplicable', format='uint8', unit='%RH', minimum=0, maximum=100, byte_offset=4, manufacturer_code=5),
                 EntityDefinition(id='class_0135_epc_f1_000005_1c', epc=241, name_en='PM2.5', name_ja='PM2.5', get='optional', set='notApplicable', format='uint8', unit='µg/m³', minimum=0, maximum=255, byte_offset=28, manufacturer_code=5),
+            ),
+        ),
+    ),
+    314: DeviceDefinition(
+        class_code=314,
+        name_en='Ceiling fan',
+        name_ja='シーリングファン',
+        entities=_merge_entities(
+            _COMMON,
+            (
+                EntityDefinition(id='class_013a_epc_93', epc=147, name_en='Remote control setting', name_ja='遠隔操作設定', get='optional', set='optional', description_en='This property indicates whether remote control is through a public network or not.', description_ja='公衆回線を介した操作か否かを示す。', enum_values=(EnumValue(edt=65, key='notPublicNetwork', name_en='Not through a public network', name_ja='公衆回線未経由操作'), EnumValue(edt=66, key='publicNetwork', name_en='Through a public network', name_ja='公衆回線経由操作')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f0', epc=240, name_en='Air flow rate setting', name_ja='風量設定', get='optional', set='optional', description_en='Used to specify the air flow rate by selecting a level from among the predefined levels, and to acquire the current setting. The last setting is kept while power is off.', description_ja='風量レベルを設定し、設定状態を取得する。電源オフ中も直前の風量を保持する。', enum_values=(EnumValue(edt=49, key='level_1', name_en='10%', name_ja='10%'), EnumValue(edt=50, key='level_2', name_en='20%', name_ja='20%'), EnumValue(edt=51, key='level_3', name_en='30%', name_ja='30%'), EnumValue(edt=52, key='level_4', name_en='40%', name_ja='40%'), EnumValue(edt=53, key='level_5', name_en='50%', name_ja='50%'), EnumValue(edt=54, key='level_6', name_en='60%', name_ja='60%'), EnumValue(edt=55, key='level_7', name_en='70%', name_ja='70%'), EnumValue(edt=56, key='level_8', name_en='80%', name_ja='80%'), EnumValue(edt=57, key='level_9', name_en='90%', name_ja='90%'), EnumValue(edt=58, key='level_10', name_en='100%', name_ja='100%'))),
+                EntityDefinition(id='class_013a_epc_f1', epc=241, name_en='Air flow direction setting', name_ja='風向', get='optional', set='optional', description_en='Downward or upward air flow.', description_ja='下向きまたは上向きの風向。', enum_values=(EnumValue(edt=65, key='down', name_en='Down', name_ja='下向き'), EnumValue(edt=66, key='up', name_en='Up', name_ja='上向き')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f2', epc=242, name_en='Natural wind', name_ja='自然風', get='optional', set='optional', description_en='Varies the air flow like outdoor wind.', description_ja='屋外の風のように風量を変化させる。', enum_values=(EnumValue(edt=48, key='true', name_en='On', name_ja='入'), EnumValue(edt=49, key='false', name_en='Off', name_ja='切')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f3', epc=243, name_en='Light', name_ja='照明', get='optional', set='optional', description_en='This property indicates whether the light is on.', description_ja='照明の点灯状態を示す。', enum_values=(EnumValue(edt=48, key='true', name_en='On', name_ja='入'), EnumValue(edt=49, key='false', name_en='Off', name_ja='切'))),
+                EntityDefinition(id='class_013a_epc_f4', epc=244, name_en='Lighting mode setting', name_ja='点灯モード設定', get='optional', set='optional', description_en='Main lighting or night lighting.', description_ja='通常灯または常夜灯。', enum_values=(EnumValue(edt=66, key='normal', name_en='Main lighting', name_ja='通常灯'), EnumValue(edt=67, key='night', name_en='Night lighting', name_ja='常夜灯')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f5', epc=245, name_en='Light level setting', name_ja='照明の明るさ設定', get='optional', set='optional', description_en='This property indicates light level in %.', description_ja='照明の明るさを%で示す。', format='uint8', unit='%', minimum=1, maximum=100, role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f6', epc=246, name_en='Light color setting', name_ja='光色設定', get='optional', set='optional', description_en='0 is warm, 100 is cool.', description_ja='0は暖色、100は寒色。', format='uint8', minimum=0, maximum=100, role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_f7', epc=247, name_en='Night lighting level', name_ja='常夜灯レベル', get='optional', set='optional', description_en='This property indicates the night lighting level.', description_ja='常夜灯のレベルを示す。', enum_values=(EnumValue(edt=1, key='low', name_en='Low', name_ja='低'), EnumValue(edt=50, key='medium', name_en='Medium', name_ja='中'), EnumValue(edt=100, key='high', name_en='High', name_ja='高')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_fc', epc=252, name_en='Buzzer', name_ja='ブザー', get='optional', set='optional', description_en='Used to sound the confirmation beep for this command.', description_ja='この操作の確認音を鳴らす。', enum_values=(EnumValue(edt=48, key='true', name_en='Beep', name_ja='鳴動'), EnumValue(edt=49, key='false', name_en='Silent', name_ja='無音')), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_fd', epc=253, name_en='Control source', name_ja='制御元', get='optional', set='optional', description_en='This property indicates the source of the control command.', description_ja='操作元を示す。', enum_values=(EnumValue(edt=3, key='wifi', name_en='Wi-Fi', name_ja='Wi-Fi'),), role=PropertyRole.SETTING),
+                EntityDefinition(id='class_013a_epc_fe', epc=254, name_en='Melody', name_ja='メロディ', get='optional', set='optional', description_en='This property indicates the melody.', description_ja='メロディを示す。', enum_values=(EnumValue(edt=64, key='none', name_en='No melody', name_ja='メロディなし'), EnumValue(edt=65, key='melody_1', name_en='Melody 1', name_ja='メロディ1'), EnumValue(edt=66, key='melody_2', name_en='Melody 2', name_ja='メロディ2'), EnumValue(edt=67, key='melody_3', name_en='Melody 3', name_ja='メロディ3')), role=PropertyRole.SETTING),
             ),
         ),
     ),
