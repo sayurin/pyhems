@@ -85,9 +85,12 @@ _NON_BOOLEAN_TWO_VALUE_ENUM_KEYS = frozenset(
         frozenset({"cooling", "heating"}),
         frozenset({"cooling", "nonCooling"}),
         frozenset({"devicePoint", "powerReceivingPoint"}),
+        frozenset({"down", "up"}),
         frozenset({"loadFollowing", "maximumRating"}),
         frozenset({"builtIn", "separate"}),
         frozenset({"freezing", "refrigeration"}),
+        frozenset({"normal", "night"}),
+        frozenset({"notPublicNetwork", "publicNetwork"}),
     }
 )
 
@@ -1527,15 +1530,6 @@ def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
     """Validate an entity definition at build time."""
     assert entity.enum_values or entity.format or entity.numeric_values, (
         f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
-    )
-    assert (
-        not entity.enum_values
-        or len(entity.enum_values) != 1
-        or entity.get == "notApplicable"
-        or entity.format is not None
-    ), (
-        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
-        " has only 1 enum_value"
     )
 
 

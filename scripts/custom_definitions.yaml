@@ -88,7 +88,247 @@ devices:
         name_en: "PM2.5"
         name_ja: "PM2.5"
 
-  # Housing solar power generation (住宅用太陽光発電)
+  # Ceiling fan (シーリングファン). Class 0x013A has no published properties.
+  # These optional properties are the ones KDK/Panasonic units implement.
+  # A unit without a light omits the light EPCs from its property maps.
+  0x013A:
+    short_name: ceilingFan
+    name_en: Ceiling fan
+    name_ja: シーリングファン
+    properties:
+      - epc: 0x93
+        enum_values:
+          - edt: 0x41
+            key: notPublicNetwork
+            name_en: Not through a public network
+            name_ja: 公衆回線未経由操作
+          - edt: 0x42
+            key: publicNetwork
+            name_en: Through a public network
+            name_ja: 公衆回線経由操作
+        get: optional
+        set: optional
+        name_en: Remote control setting
+        name_ja: 遠隔操作設定
+        description_en: This property indicates whether remote control is through a public network or not.
+        description_ja: 公衆回線を介した操作か否かを示す。
+        role: setting
+      - epc: 0xF0
+        enum_values:
+          - edt: 0x31
+            key: level_1
+            name_en: "10%"
+            name_ja: "10%"
+          - edt: 0x32
+            key: level_2
+            name_en: "20%"
+            name_ja: "20%"
+          - edt: 0x33
+            key: level_3
+            name_en: "30%"
+            name_ja: "30%"
+          - edt: 0x34
+            key: level_4
+            name_en: "40%"
+            name_ja: "40%"
+          - edt: 0x35
+            key: level_5
+            name_en: "50%"
+            name_ja: "50%"
+          - edt: 0x36
+            key: level_6
+            name_en: "60%"
+            name_ja: "60%"
+          - edt: 0x37
+            key: level_7
+            name_en: "70%"
+            name_ja: "70%"
+          - edt: 0x38
+            key: level_8
+            name_en: "80%"
+            name_ja: "80%"
+          - edt: 0x39
+            key: level_9
+            name_en: "90%"
+            name_ja: "90%"
+          - edt: 0x3A
+            key: level_10
+            name_en: "100%"
+            name_ja: "100%"
+        get: optional
+        set: optional
+        name_en: Air flow rate setting
+        name_ja: 風量設定
+        description_en: Used to specify the air flow rate by selecting a level from among the predefined levels, and to acquire the current setting. The last setting is kept while power is off.
+        description_ja: 風量レベルを設定し、設定状態を取得する。電源オフ中も直前の風量を保持する。
+        role: primary
+      - epc: 0xF1
+        enum_values:
+          - edt: 0x41
+            key: down
+            name_en: Down
+            name_ja: 下向き
+          - edt: 0x42
+            key: up
+            name_en: Up
+            name_ja: 上向き
+        get: optional
+        set: optional
+        name_en: Air flow direction setting
+        name_ja: 風向
+        description_en: Downward or upward air flow.
+        description_ja: 下向きまたは上向きの風向。
+        role: setting
+      - epc: 0xF2
+        enum_values:
+          - edt: 0x30
+            key: "on"
+            name_en: "On"
+            name_ja: 入
+          - edt: 0x31
+            key: "off"
+            name_en: "Off"
+            name_ja: 切
+        get: optional
+        set: optional
+        name_en: Natural wind
+        name_ja: 自然風
+        description_en: Varies the air flow like outdoor wind.
+        description_ja: 屋外の風のように風量を変化させる。
+        role: setting
+      - epc: 0xF3
+        enum_values:
+          - edt: 0x30
+            key: "on"
+            name_en: "On"
+            name_ja: 入
+          - edt: 0x31
+            key: "off"
+            name_en: "Off"
+            name_ja: 切
+        get: optional
+        set: optional
+        name_en: Light
+        name_ja: 照明
+        description_en: This property indicates whether the light is on.
+        description_ja: 照明の点灯状態を示す。
+        role: primary
+      - epc: 0xF4
+        enum_values:
+          - edt: 0x42
+            key: normal
+            name_en: Main lighting
+            name_ja: 通常灯
+          - edt: 0x43
+            key: night
+            name_en: Night lighting
+            name_ja: 常夜灯
+        get: optional
+        set: optional
+        name_en: Lighting mode setting
+        name_ja: 点灯モード設定
+        description_en: Main lighting or night lighting.
+        description_ja: 通常灯または常夜灯。
+        role: setting
+      - epc: 0xF5
+        format: uint8
+        unit: "%"
+        minimum: 1
+        maximum: 100
+        get: optional
+        set: optional
+        name_en: Light level setting
+        name_ja: 照明の明るさ設定
+        description_en: This property indicates light level in %.
+        description_ja: 照明の明るさを%で示す。
+        role: setting
+      - epc: 0xF6
+        format: uint8
+        minimum: 0
+        maximum: 100
+        get: optional
+        set: optional
+        name_en: Light color setting
+        name_ja: 光色設定
+        description_en: 0 is warm, 100 is cool.
+        description_ja: 0は暖色、100は寒色。
+        role: setting
+      - epc: 0xF7
+        enum_values:
+          - edt: 0x01
+            key: low
+            name_en: Low
+            name_ja: 低
+          - edt: 0x32
+            key: medium
+            name_en: Medium
+            name_ja: 中
+          - edt: 0x64
+            key: high
+            name_en: High
+            name_ja: 高
+        get: optional
+        set: optional
+        name_en: Night lighting level
+        name_ja: 常夜灯レベル
+        description_en: This property indicates the night lighting level.
+        description_ja: 常夜灯のレベルを示す。
+        role: setting
+      - epc: 0xFC
+        enum_values:
+          - edt: 0x30
+            key: "on"
+            name_en: Beep
+            name_ja: 鳴動
+          - edt: 0x31
+            key: "off"
+            name_en: Silent
+            name_ja: 無音
+        get: optional
+        set: optional
+        name_en: Buzzer
+        name_ja: ブザー
+        description_en: Used to sound the confirmation beep for this command.
+        description_ja: この操作の確認音を鳴らす。
+        role: setting
+      - epc: 0xFD
+        enum_values:
+          - edt: 0x03
+            key: wifi
+            name_en: Wi-Fi
+            name_ja: Wi-Fi
+        get: optional
+        set: optional
+        name_en: Control source
+        name_ja: 制御元
+        description_en: This property indicates the source of the control command.
+        description_ja: 操作元を示す。
+        role: setting
+      - epc: 0xFE
+        enum_values:
+          - edt: 0x40
+            key: none
+            name_en: No melody
+            name_ja: メロディなし
+          - edt: 0x41
+            key: melody_1
+            name_en: Melody 1
+            name_ja: メロディ1
+          - edt: 0x42
+            key: melody_2
+            name_en: Melody 2
+            name_ja: メロディ2
+          - edt: 0x43
+            key: melody_3
+            name_en: Melody 3
+            name_ja: メロディ3
+        get: optional
+        set: optional
+        name_en: Melody
+        name_ja: メロディ
+        description_en: This property indicates the melody.
+        description_ja: メロディを示す。
+        role: setting
   0x0279:
     properties:
       - epc: 0xF2
