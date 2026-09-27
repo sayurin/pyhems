@@ -63,6 +63,7 @@ from .runtime import (
     HemsInstanceListEvent,
     NotificationRequestResult,
     RuntimeEvent,
+    SetRequestResult,
 )
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
@@ -117,6 +118,7 @@ __all__ = [
     "PropertyValueDefinition",
     "RuntimeEvent",
     "ScalarDefinition",
+    "SetRequestResult",
     "create_multicast_socket",
     "decode_collection",
     "decode_collection_page",

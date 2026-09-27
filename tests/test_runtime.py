@@ -16,6 +16,7 @@ from pyhems import (
     NODE_PROFILE_INSTANCE,
     Frame,
     Property,
+    SetRequestResult,
 )
 from pyhems.runtime import (
     HemsClient,
@@ -124,41 +125,132 @@ class TestHemsClient:
         unknown = "fe00000000000000000000000000000002"
         assert client._device_addresses.inverse.get(unknown) is None
 
-    def test_set_property_sends_setc_frame(self) -> None:
-        """Test set_property builds and sends a SetC frame."""
-        original_tid = Frame._tid_counter
+    @pytest.mark.asyncio
+    async def test_set_property_waits_for_set_res(self) -> None:
+        """Test set_property builds a SetC frame and waits for Set_Res."""
         client = HemsClient()
         mock_protocol = MagicMock()
         client._protocol = mock_protocol
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.100", node_id)
 
-        sent = client.set_property(
-            node_id=node_id,
-            deoj=EOJ(0x013001),
-            epc=0x80,
-            edt=b"\x30",
+        request = asyncio.create_task(
+            client.set_property(
+                node_id=node_id,
+                deoj=EOJ(0x013001),
+                epc=0x80,
+                edt=b"\x30",
+            )
         )
+        await asyncio.sleep(0)
 
-        assert sent is True
+        tid = next(iter(client._pending_sets))
         mock_protocol.send.assert_called_once()
         payload, address = mock_protocol.send.call_args.args
         assert address == "192.168.1.100"
         frame = Frame.decode(payload)
         assert frame.esv == ESV.SETC
+        assert frame.tid == tid
         assert frame.deoj == EOJ(0x013001)
         assert frame.properties == [Property(epc=0x80, edt=b"\x30")]
-        Frame._tid_counter = original_tid
 
-    def test_set_properties_without_properties_returns_false(self) -> None:
-        """Test set_properties returns False when nothing is requested."""
+        client._on_receive(
+            Frame(
+                tid=tid,
+                seoj=EOJ(0x013001),
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.SET_RES,
+            ).encode(),
+            ("192.168.1.100", 3610),
+        )
+
+        result = await request
+        assert result == SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_properties_without_properties_returns_unsent(self) -> None:
+        """Test set_properties returns an unsent result when empty."""
         client = HemsClient()
-        result = client.set_properties(
+        result = await client.set_properties(
             node_id="fe00000000000000000000000000000001",
             deoj=EOJ(0x013001),
             properties=[],
         )
-        assert result is False
+        assert result == SetRequestResult(
+            sent=False,
+            response_esv=None,
+            accepted_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_properties_classifies_setc_sna(self) -> None:
+        """Test SetC_SNA classifies accepted, rejected, and unanswered EPCs."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.100", node_id)
+
+        request = asyncio.create_task(
+            client.set_properties(
+                node_id=node_id,
+                deoj=EOJ(0x013001),
+                properties=[
+                    Property(epc=0x80, edt=b"\x30"),
+                    Property(epc=0xB0, edt=b"\x40"),
+                    Property(epc=0xB1, edt=b"\x41"),
+                ],
+            )
+        )
+        await asyncio.sleep(0)
+
+        tid = next(iter(client._pending_sets))
+        client._on_receive(
+            Frame(
+                tid=tid,
+                seoj=EOJ(0x013001),
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.SETC_SNA,
+                properties=[
+                    Property(epc=0x80),
+                    Property(epc=0xB0, edt=b"\x40"),
+                ],
+            ).encode(),
+            ("192.168.1.100", 3610),
+        )
+
+        result = await request
+        assert result.response_esv == ESV.SETC_SNA
+        assert result.accepted_epcs == frozenset({0x80})
+        assert result.rejected_epcs == frozenset({0xB0})
+        assert result.unanswered_epcs == frozenset({0xB1})
+
+    @pytest.mark.asyncio
+    async def test_set_properties_timeout(self) -> None:
+        """Test an acknowledged SetC request that receives no response."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.100", node_id)
+
+        result = await client.set_properties(
+            node_id=node_id,
+            deoj=EOJ(0x013001),
+            properties=[Property(epc=0x80, edt=b"\x30")],
+            request_timeout=0.01,
+        )
+
+        assert result.sent is True
+        assert result.response_esv is None
+        assert result.unanswered_epcs == frozenset({0x80})
+        assert not client._pending_sets
 
 
 class TestNodeProbe:

@@ -113,7 +113,7 @@ async def write_properties(node_id: str):
     await client.start()
 
     # 単一プロパティの書き込み（例: 動作状態 ON）
-    client.set_property(
+    result = await client.set_property(
         node_id=node_id,
         deoj=EOJ(0x013001),
         epc=0x80,
@@ -121,7 +121,7 @@ async def write_properties(node_id: str):
     )
 
     # 複数プロパティの書き込み
-    client.set_properties(
+    result = await client.set_properties(
         node_id=node_id,
         deoj=EOJ(0x013001),
         properties=[
@@ -132,6 +132,9 @@ async def write_properties(node_id: str):
 
     await client.stop()
 ```
+
+`set_property()` と `set_properties()` は `Set_Res` または `SetC_SNA` の応答を
+待機し、受理・拒否・未応答のEPCを `SetRequestResult` で返します。
 
 ### フレームの直接操作
 

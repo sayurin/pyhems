@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyhems import EOJ, ESV, Property
+from pyhems import EOJ, ESV, Property, SetRequestResult
 from pyhems.device_manager import (
     DeviceManager,
     NodeState,
@@ -299,7 +299,15 @@ def _make_client() -> AsyncMock:
     client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
-    client.set_properties = MagicMock(return_value=True)
+    client.set_properties = AsyncMock(
+        return_value=SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+    )
     client.subscribe = MagicMock()
     return client
 
@@ -322,7 +330,7 @@ class TestDeviceManagerRuntimeEvents:
             processed.append("instance_list")
             return []
 
-        def _process_frame_event(_event: HemsFrameEvent) -> bool:
+        async def _process_frame_event(_event: HemsFrameEvent) -> bool:
             processed.append("frame")
             return False
 
@@ -406,7 +414,8 @@ class TestDeviceManagerRuntimeEvents:
 class TestProcessFrameEvent:
     """Tests for DeviceManager.process_frame_event."""
 
-    def test_ignores_non_response_frame(self) -> None:
+    @pytest.mark.asyncio
+    async def test_ignores_non_response_frame(self) -> None:
         """Non-response frames (e.g. SETC requests) are ignored."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -414,9 +423,10 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         event = _make_frame_event(node.node_id, node.eoj, ESV.SETC, [])
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
 
-    def test_ignores_unknown_device(self) -> None:
+    @pytest.mark.asyncio
+    async def test_ignores_unknown_device(self) -> None:
         """Frames for unknown devices are ignored."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -427,9 +437,10 @@ class TestProcessFrameEvent:
             ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x30")],
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
 
-    def test_updates_properties(self) -> None:
+    @pytest.mark.asyncio
+    async def test_updates_properties(self) -> None:
         """Response frames update device properties."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -439,10 +450,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is True
+        assert await dm.process_frame_event(event) is True
         assert node.properties[0x80] == b"\x30"
 
-    def test_initializes_unset_collection_ranges_once_in_one_set(self) -> None:
+    @pytest.mark.asyncio
+    async def test_initializes_unset_collection_ranges_once_in_one_set(self) -> None:
         """Unset 0x0287 ranges are batched and attempted only once."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -471,7 +483,7 @@ class TestProcessFrameEvent:
             ],
         )
 
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert client.set_properties.call_count == 1
         call = client.set_properties.call_args
         assert call.kwargs["node_id"] == node.node_id
@@ -483,13 +495,20 @@ class TestProcessFrameEvent:
             Property(epc=0xBD, edt=b"\x01\x07"),
         ]
 
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert client.set_properties.call_count == 1
 
-    def test_collection_range_recovery_does_not_retry_send_failure(self) -> None:
+    @pytest.mark.asyncio
+    async def test_collection_range_recovery_does_not_retry_send_failure(self) -> None:
         """A failed one-shot range recovery is not retried during runtime."""
         client = _make_client()
-        client.set_properties.return_value = False
+        client.set_properties.return_value = SetRequestResult(
+            sent=False,
+            response_esv=None,
+            accepted_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset({0xB2}),
+        )
         dm = DeviceManager(client, {})
         node = _make_node(
             eoj=0x028701,
@@ -507,13 +526,14 @@ class TestProcessFrameEvent:
             [Property(epc=0xB3, edt=node.properties[0xB3])],
         )
 
-        dm.process_frame_event(event)
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
+        await dm.process_frame_event(event)
 
         assert client.set_properties.call_count == 1
         assert node.range_recovery_attempted_epcs == {0xB2}
 
-    def test_no_update_when_same_value(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_update_when_same_value(self) -> None:
         """No update when property value is unchanged."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -523,9 +543,10 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
 
-    def test_ignores_set_response(self) -> None:
+    @pytest.mark.asyncio
+    async def test_ignores_set_response(self) -> None:
         """SET_RES frames don't overwrite stored state."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -535,10 +556,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert node.properties[0x80] == b"\x31"
 
-    def test_ignores_set_sna_response(self) -> None:
+    @pytest.mark.asyncio
+    async def test_ignores_set_sna_response(self) -> None:
         """SET_SNA frames don't overwrite stored state."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -548,10 +570,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.SETC_SNA, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert node.properties[0x80] == b"\x31"
 
-    def test_ignores_inf_sna_response(self) -> None:
+    @pytest.mark.asyncio
+    async def test_ignores_inf_sna_response(self) -> None:
         """INF_SNA (0x53) frames don't overwrite stored state.
 
         A rejected notification subscription typically carries an empty
@@ -565,10 +588,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.INF_SNA, [Property(epc=0xB0, edt=b"")]
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert node.properties[0xB0] == b"\x41"
 
-    def test_inf_frame_updates_properties(self) -> None:
+    @pytest.mark.asyncio
+    async def test_inf_frame_updates_properties(self) -> None:
         """INF notification frames update device properties."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -578,10 +602,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.INF, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is True
+        assert await dm.process_frame_event(event) is True
         assert node.properties[0x80] == b"\x30"
 
-    def test_on_device_updated_callback(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_device_updated_callback(self) -> None:
         """Callback is invoked when a device is updated."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -594,10 +619,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
         assert updated_keys == [node.device_key]
 
-    def test_unsubscribe_callback(self) -> None:
+    @pytest.mark.asyncio
+    async def test_unsubscribe_callback(self) -> None:
         """Unsubscribe prevents further callbacks."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -611,10 +637,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
         assert updated_keys == []
 
-    def test_on_frame_received_fires_even_without_value_change(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_frame_received_fires_even_without_value_change(self) -> None:
         """on_frame_received fires for any response frame, unlike on_device_updated."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -629,10 +656,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        assert dm.process_frame_event(event) is False
+        assert await dm.process_frame_event(event) is False
         assert received_keys == [node.device_key]
 
-    def test_on_frame_received_passes_epcs_in_frame(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_frame_received_passes_epcs_in_frame(self) -> None:
         """on_frame_received passes the set of EPCs present in the frame."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -648,11 +676,12 @@ class TestProcessFrameEvent:
             ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x31"), Property(epc=0x81, edt=b"\x01")],
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
 
         assert received_epcs == [frozenset({0x80, 0x81})]
 
-    def test_on_frame_received_fires_for_set_response(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_frame_received_fires_for_set_response(self) -> None:
         """on_frame_received fires even for Set responses."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -665,10 +694,11 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
         assert received_keys == [node.device_key]
 
-    def test_on_frame_received_ignores_unknown_device(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_frame_received_ignores_unknown_device(self) -> None:
         """on_frame_received does not fire for unknown devices."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -682,10 +712,11 @@ class TestProcessFrameEvent:
             ESV.GET_RES,
             [Property(epc=0x80, edt=b"\x30")],
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
         assert received_keys == []
 
-    def test_on_frame_received_unsubscribe(self) -> None:
+    @pytest.mark.asyncio
+    async def test_on_frame_received_unsubscribe(self) -> None:
         """Unsubscribe prevents further on_frame_received callbacks."""
         client = _make_client()
         dm = DeviceManager(client, {})
@@ -701,7 +732,7 @@ class TestProcessFrameEvent:
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
         )
-        dm.process_frame_event(event)
+        await dm.process_frame_event(event)
         assert received_keys == []
 
 
