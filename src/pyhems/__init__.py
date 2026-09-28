@@ -1,7 +1,6 @@
 """pyhems - ECHONET Lite library for HEMS."""
 
 from ._definitions_generated import REGISTRY, DeviceClass
-from .ceiling_fan import ceiling_fan_set_properties
 from .codecs import (
     BinaryCodec,
     CollectionPage,
@@ -120,7 +119,6 @@ __all__ = [
     "RuntimeEvent",
     "ScalarDefinition",
     "SetRequestResult",
-    "ceiling_fan_set_properties",
     "create_multicast_socket",
     "decode_collection",
     "decode_collection_page",

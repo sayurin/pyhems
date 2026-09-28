@@ -88,32 +88,15 @@ devices:
         name_en: "PM2.5"
         name_ja: "PM2.5"
 
-  # Ceiling fan (シーリングファン). Class 0x013A has no published properties.
-  # These optional properties are the ones KDK/Panasonic units implement.
+  # Ceiling fan (シーリングファン)
   # A unit without a light omits the light EPCs from its property maps.
   0x013A:
     short_name: ceilingFan
     name_en: Ceiling fan
     name_ja: シーリングファン
     properties:
-      - epc: 0x93
-        enum_values:
-          - edt: 0x41
-            key: notPublicNetwork
-            name_en: Not through a public network
-            name_ja: 公衆回線未経由操作
-          - edt: 0x42
-            key: publicNetwork
-            name_en: Through a public network
-            name_ja: 公衆回線経由操作
-        get: optional
-        set: optional
-        name_en: Remote control setting
-        name_ja: 遠隔操作設定
-        description_en: This property indicates whether remote control is through a public network or not.
-        description_ja: 公衆回線を介した操作か否かを示す。
-        role: setting
       - epc: 0xF0
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x31
             key: level_1
@@ -163,6 +146,7 @@ devices:
         description_ja: 風量レベルを設定し、設定状態を取得する。電源オフ中も直前の風量を保持する。
         role: primary
       - epc: 0xF1
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x41
             key: down
@@ -180,6 +164,7 @@ devices:
         description_ja: 下向きまたは上向きの風向。
         role: setting
       - epc: 0xF2
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x30
             key: "on"
@@ -197,6 +182,7 @@ devices:
         description_ja: 屋外の風のように風量を変化させる。
         role: setting
       - epc: 0xF3
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x30
             key: "on"
@@ -214,6 +200,7 @@ devices:
         description_ja: 照明の点灯状態を示す。
         role: primary
       - epc: 0xF4
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x42
             key: normal
@@ -231,6 +218,7 @@ devices:
         description_ja: 通常灯または常夜灯。
         role: setting
       - epc: 0xF5
+        manufacturer_code: 0x0000FE
         format: uint8
         unit: "%"
         minimum: 1
@@ -243,6 +231,7 @@ devices:
         description_ja: 照明の明るさを%で示す。
         role: setting
       - epc: 0xF6
+        manufacturer_code: 0x0000FE
         format: uint8
         minimum: 0
         maximum: 100
@@ -254,6 +243,7 @@ devices:
         description_ja: 0は暖色、100は寒色。
         role: setting
       - epc: 0xF7
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x01
             key: low
@@ -275,6 +265,7 @@ devices:
         description_ja: 常夜灯のレベルを示す。
         role: setting
       - epc: 0xFC
+        manufacturer_code: 0x0000FE
         enum_values:
           - edt: 0x30
             key: "on"
@@ -292,7 +283,12 @@ devices:
         description_ja: この操作の確認音を鳴らす。
         role: setting
       - epc: 0xFD
+        manufacturer_code: 0x0000FE
         enum_values:
+          - edt: 0x01
+            key: remoteController
+            name_en: Remote Controller
+            name_ja: リモコン
           - edt: 0x03
             key: wifi
             name_en: Wi-Fi
@@ -304,31 +300,8 @@ devices:
         description_en: This property indicates the source of the control command.
         description_ja: 操作元を示す。
         role: setting
-      - epc: 0xFE
-        enum_values:
-          - edt: 0x40
-            key: none
-            name_en: No melody
-            name_ja: メロディなし
-          - edt: 0x41
-            key: melody_1
-            name_en: Melody 1
-            name_ja: メロディ1
-          - edt: 0x42
-            key: melody_2
-            name_en: Melody 2
-            name_ja: メロディ2
-          - edt: 0x43
-            key: melody_3
-            name_en: Melody 3
-            name_ja: メロディ3
-        get: optional
-        set: optional
-        name_en: Melody
-        name_ja: メロディ
-        description_en: This property indicates the melody.
-        description_ja: メロディを示す。
-        role: setting
+
+  # Housing solar power generation (住宅用太陽光発電)
   0x0279:
     properties:
       - epc: 0xF2
