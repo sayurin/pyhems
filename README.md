@@ -80,7 +80,11 @@ asyncio.run(main())
   wait for the acknowledged result.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple
   properties and wait for the acknowledged result. The returned
-  `SetRequestResult` separates accepted, rejected, and unanswered EPCs.
+  `SetRequestResult` separates accepted, rejected, and unanswered EPCs. This
+  low-level client API does not update a `DeviceManager` cache.
+- `DeviceManager.set_properties(node_id, deoj, properties)`: Write through the
+  runtime client and update cached values for accepted EPCs. Fires
+  `on_device_updated` only when cached values change.
 - `DeviceManager.async_start()` / `DeviceManager.async_stop()`: Subscribe to
   runtime events and process device events in arrival order.
 

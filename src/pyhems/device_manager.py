@@ -15,6 +15,7 @@ from .const import (
     CONTROLLER_INSTANCE,
     EPC,
     ESV,
+    SET_REQUEST_TIMEOUT,
 )
 from .eoj import EOJ
 from .frame import Frame, Property
@@ -27,6 +28,7 @@ from .runtime import (
     HemsFrameEvent,
     HemsInstanceListEvent,
     RuntimeEvent,
+    SetRequestResult,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -436,6 +438,61 @@ class DeviceManager:
 
         return unsub
 
+    def _notify_device_updated(self, device_key: str) -> None:
+        """Notify listeners that a device's cached properties changed."""
+        for updated_cb in self._on_device_updated:
+            updated_cb(device_key)
+
+    @staticmethod
+    def _apply_accepted_properties(
+        node: NodeState,
+        properties: list[Property],
+        accepted_epcs: frozenset[int],
+    ) -> bool:
+        """Apply requested EDTs only for EPCs accepted by the device."""
+        updated = False
+        for prop in properties:
+            if prop.epc in accepted_epcs and node.properties.get(prop.epc) != prop.edt:
+                node.properties[prop.epc] = prop.edt
+                updated = True
+        return updated
+
+    async def set_properties(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        properties: list[Property],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SET_REQUEST_TIMEOUT,
+    ) -> SetRequestResult:
+        """Set device properties and cache values accepted by the device.
+
+        Args:
+            node_id: Device node ID.
+            deoj: Destination EOJ.
+            properties: Properties to write.
+            seoj: Source EOJ.
+            request_timeout: Timeout in seconds for the response.
+
+        Returns:
+            The SetC result from the runtime client.
+        """
+        result = await self._client.set_properties(
+            node_id=node_id,
+            deoj=deoj,
+            properties=properties,
+            seoj=seoj,
+            request_timeout=request_timeout,
+        )
+        node = self.data.get(_device_key(node_id, deoj))
+        if (
+            node is not None
+            and result.sent
+            and self._apply_accepted_properties(node, properties, result.accepted_epcs)
+        ):
+            self._notify_device_updated(node.device_key)
+        return result
+
     def on_frame_received(self, callback: FrameReceivedCallback) -> Callable[[], None]:
         """Register a callback for when any response frame is processed for a device.
 
@@ -615,11 +672,11 @@ class DeviceManager:
     async def _recover_uninitialized_collection_ranges(
         self,
         node: NodeState,
-    ) -> None:
+    ) -> bool:
         """Set unset collection ranges once and log the acknowledged result."""
         properties = _collection_range_recovery_properties(node)
         if not properties:
-            return
+            return False
 
         node.range_recovery_attempted_epcs.update(prop.epc for prop in properties)
         _LOGGER.info(
@@ -631,6 +688,9 @@ class DeviceManager:
             node_id=node.node_id,
             deoj=node.eoj,
             properties=properties,
+        )
+        updated = result.sent and self._apply_accepted_properties(
+            node, properties, result.accepted_epcs
         )
         if not result.sent:
             _LOGGER.warning(
@@ -646,6 +706,7 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(result.rejected_epcs)),
                 " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
             )
+        return updated
 
     async def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
@@ -702,11 +763,11 @@ class DeviceManager:
                 existing.properties[prop.epc] = prop.edt
                 updated = True
 
-        await self._recover_uninitialized_collection_ranges(existing)
+        if await self._recover_uninitialized_collection_ranges(existing):
+            updated = True
 
         if updated:
-            for updated_cb in self._on_device_updated:
-                updated_cb(device_key)
+            self._notify_device_updated(device_key)
 
         return updated
 
