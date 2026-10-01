@@ -454,6 +454,112 @@ class TestProcessFrameEvent:
         assert node.properties[0x80] == b"\x30"
 
     @pytest.mark.asyncio
+    async def test_set_properties_updates_only_accepted_epcs(self) -> None:
+        """Accepted SetC values update the cache and notify listeners once."""
+        client = _make_client()
+        result = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SETC_SNA,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset({0xB0}),
+            unanswered_epcs=frozenset({0xB1}),
+        )
+        client.set_properties.return_value = result
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31", 0xB0: b"\x41", 0xB1: b"\x42"})
+        dm.data[node.device_key] = node
+        updated_keys: list[str] = []
+        dm.on_device_updated(updated_keys.append)
+        properties = [
+            Property(epc=0x80, edt=b"\x30"),
+            Property(epc=0xB0, edt=b"\x40"),
+            Property(epc=0xB1, edt=b"\x43"),
+        ]
+
+        actual_result = await dm.set_properties(
+            node_id=node.node_id,
+            deoj=node.eoj,
+            properties=properties,
+        )
+
+        assert actual_result is result
+        assert node.properties == {0x80: b"\x30", 0xB0: b"\x41", 0xB1: b"\x42"}
+        assert updated_keys == [node.device_key]
+
+    @pytest.mark.asyncio
+    async def test_set_properties_does_not_notify_when_value_is_unchanged(self) -> None:
+        """An accepted SetC value already in cache does not notify listeners."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30"})
+        dm.data[node.device_key] = node
+        updated_keys: list[str] = []
+        dm.on_device_updated(updated_keys.append)
+
+        await dm.set_properties(
+            node_id=node.node_id,
+            deoj=node.eoj,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+        assert node.properties[0x80] == b"\x30"
+        assert updated_keys == []
+
+    @pytest.mark.parametrize(
+        "result",
+        [
+            pytest.param(
+                SetRequestResult(
+                    sent=False,
+                    response_esv=None,
+                    accepted_epcs=frozenset(),
+                    rejected_epcs=frozenset(),
+                    unanswered_epcs=frozenset({0x80}),
+                ),
+                id="unsent",
+            ),
+            pytest.param(
+                SetRequestResult(
+                    sent=True,
+                    response_esv=None,
+                    accepted_epcs=frozenset(),
+                    rejected_epcs=frozenset(),
+                    unanswered_epcs=frozenset({0x80}),
+                ),
+                id="unanswered",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_set_properties_does_not_update_unaccepted_epcs(
+        self, result: SetRequestResult
+    ) -> None:
+        """Unsent and unanswered SetC requests leave cache values unchanged."""
+        client = _make_client()
+        client.set_properties.return_value = result
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x31"})
+        dm.data[node.device_key] = node
+        updated_keys: list[str] = []
+        dm.on_device_updated(updated_keys.append)
+
+        await dm.set_properties(
+            node_id=node.node_id,
+            deoj=node.eoj,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+        assert node.properties[0x80] == b"\x31"
+        assert updated_keys == []
+
+    @pytest.mark.asyncio
     async def test_initializes_unset_collection_ranges_once_in_one_set(self) -> None:
         """Unset 0x0287 ranges are batched and attempted only once."""
         client = _make_client()
@@ -497,6 +603,39 @@ class TestProcessFrameEvent:
 
         assert await dm.process_frame_event(event) is False
         assert client.set_properties.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_accepted_collection_range_update_notifies_once(self) -> None:
+        """Accepted range initialization updates cache with one notification."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0xB2}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(
+            eoj=0x028701,
+            properties={
+                0xB1: b"\x1c",
+                0xB3: bytes.fromhex("fd fd ff ff ff fe"),
+            },
+        )
+        dm.data[node.device_key] = node
+        updated_keys: list[str] = []
+        dm.on_device_updated(updated_keys.append)
+        event = _make_frame_event(
+            node.node_id,
+            node.eoj,
+            ESV.GET_RES,
+            [Property(epc=0xB3, edt=node.properties[0xB3])],
+        )
+
+        assert await dm.process_frame_event(event) is True
+        assert node.properties[0xB2] == b"\x01\x1c"
+        assert updated_keys == [node.device_key]
 
     @pytest.mark.asyncio
     async def test_collection_range_recovery_does_not_retry_send_failure(self) -> None:
