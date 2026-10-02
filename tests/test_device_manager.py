@@ -1412,6 +1412,19 @@ class TestPollDevice:
         assert {p.epc for p in frame.properties} == {0xE0}
         assert frame.tid == result
 
+    def test_poll_device_preserves_explicit_epc_order(self) -> None:
+        """An ordered explicit EPC collection is preserved in the GET frame."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+
+        result = dm.poll_device(node.device_key, (0xC0, 0xB3, 0xB8))
+
+        assert result is not None
+        _node_id, frame = client.send.call_args.args
+        assert [prop.epc for prop in frame.properties] == [0xC0, 0xB3, 0xB8]
+
     def test_poll_device_with_empty_explicit_epcs(self) -> None:
         """An explicit empty epcs argument returns False without sending."""
         client = _make_client()

@@ -12,6 +12,8 @@ from pyhems import EOJ
 from pyhems.device_manager import DeviceManager, NodeState
 from pyhems.poller import PropertyPoller, _DeviceScheduleState
 
+_TEST_EOJ = EOJ(0x013001)
+
 
 def _make_node(
     device_key: str = "node1-013001",
@@ -19,13 +21,15 @@ def _make_node(
     poll_epcs: frozenset[int] = frozenset({0xE0}),
     fast_poll_epcs: frozenset[int] = frozenset(),
     observed_batch_capacity: int | None = None,
+    eoj: EOJ = _TEST_EOJ,
+    manufacturer_code: int = 0x000001,
 ) -> NodeState:
     """Create a minimal NodeState for testing."""
     return NodeState(
-        eoj=EOJ(0x013001),
+        eoj=eoj,
         properties={},
         node_id=device_key.split("-", 1)[0],
-        manufacturer_code=0x000001,
+        manufacturer_code=manufacturer_code,
         get_epcs=frozenset(),
         set_epcs=frozenset(),
         inf_epcs=frozenset(),
@@ -989,7 +993,7 @@ class TestBatchCapacity:
         args = dm.poll_device.call_args.args
         assert args[0] == "k1"
         assert len(args[1]) == 1
-        assert args[1] <= frozenset({0xE0, 0xE1})
+        assert set(args[1]) <= {0xE0, 0xE1}
 
     @pytest.mark.asyncio
     async def test_schedule_polls_uses_setup_capacity(self) -> None:
@@ -1034,8 +1038,78 @@ class TestBatchCapacity:
 
         assert dm.poll_device.call_count == 2
         second_chunk = dm.poll_device.call_args.args[1]
-        assert first_chunk | second_chunk == frozenset({0xE0, 0xE1})
-        assert first_chunk.isdisjoint(second_chunk)
+        assert set(first_chunk) | set(second_chunk) == {0xE0, 0xE1}
+        assert set(first_chunk).isdisjoint(second_chunk)
+
+    @pytest.mark.asyncio
+    async def test_policy_batches_send_all_epcs_without_learning_capacity(self) -> None:
+        """Static policy batches all complete responses without shrinking capacity."""
+        unsub = MagicMock()
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {
+            "k1": _make_node(
+                "k1",
+                eoj=EOJ(0x028701),
+                manufacturer_code=0x00000B,
+                poll_epcs=frozenset({0xC0, 0xC1, 0xC2, 0xB3, 0xB8, 0xBA}),
+                fast_poll_epcs=frozenset({0xB7}),
+            )
+        }
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        dm.poll_device = MagicMock(return_value=1)
+        dm.effective_poll_epcs = MagicMock(
+            return_value=frozenset({0xC0, 0xC1, 0xC2, 0xB3, 0xB8, 0xBA})
+        )
+        dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset({0xB7}))
+        poller = PropertyPoller(dm, poll_interval=60)
+        _set_state(poller, "k1", observed_batch_capacity=6)
+
+        poller._schedule_polls()
+        first_batch = dm.poll_device.call_args.args[1]
+        callback = dm.on_frame_received.call_args.args[0]
+        sent_tid = poller._state["k1"].awaiting_tid
+        assert sent_tid is not None
+        callback("k1", sent_tid, 0x72, frozenset(first_batch))
+
+        second_batch = dm.poll_device.call_args.args[1]
+        sent_tid = poller._state["k1"].awaiting_tid
+        assert sent_tid is not None
+        callback("k1", sent_tid, 0x72, frozenset(second_batch))
+
+        assert dm.poll_device.call_count == 2
+        assert first_batch == (0xB3, 0xB8, 0xBA, 0xC0, 0xC1, 0xC2)
+        assert second_batch == (0xB7,)
+        assert set(first_batch).isdisjoint(second_batch)
+        assert set(first_batch) | set(second_batch) == {
+            0xB3,
+            0xB7,
+            0xB8,
+            0xBA,
+            0xC0,
+            0xC1,
+            0xC2,
+        }
+        assert _batch_capacity(poller, "k1") == 6
+        dm.update_observed_batch_capacity.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_timeout_continues_with_next_chunk(self) -> None:
+        """A timed-out chunk does not discard the remaining poll cycle."""
+        dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1, 0xE2}))}
+        dm.poll_device = MagicMock(return_value=1)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1, 0xE2}))
+        poller = PropertyPoller(dm, poll_interval=60)
+        _set_state(poller, "k1", observed_batch_capacity=1)
+
+        poller._schedule_polls()
+        state = poller._state["k1"]
+        state.awaiting_since = time.monotonic() - poller._awaiting_timeout - 1
+
+        poller._schedule_polls()
+
+        assert dm.poll_device.call_count == 2
+        assert state.pending_chunks == [(0xE2,)]
 
     @pytest.mark.asyncio
     async def test_merged_chunked_poll_preserves_both_tier_flags(self) -> None:

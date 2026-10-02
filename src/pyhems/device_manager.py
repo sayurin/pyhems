@@ -7,7 +7,7 @@ import contextlib
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 
 from ._definitions_generated import REGISTRY
@@ -979,7 +979,7 @@ class DeviceManager:
         )
 
     def poll_device(
-        self, device_key: str, epcs: frozenset[int] | None = None
+        self, device_key: str, epcs: Collection[int] | None = None
     ) -> int | None:
         """Send a GET request for a device's poll EPCs.
 
@@ -999,7 +999,8 @@ class DeviceManager:
         if not target_epcs:
             return None
 
-        properties = [Property(epc=epc, edt=b"") for epc in target_epcs]
+        ordered_epcs = tuple(target_epcs)
+        properties = [Property(epc=epc, edt=b"") for epc in ordered_epcs]
         frame = Frame(
             seoj=CONTROLLER_INSTANCE,
             deoj=node.eoj,
@@ -1010,7 +1011,7 @@ class DeviceManager:
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
-            " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
+            " ".join(f"{epc:02X}" for epc in ordered_epcs),
         )
         try:
             sent = self._client.send(node.node_id, frame)
