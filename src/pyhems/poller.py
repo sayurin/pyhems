@@ -572,16 +572,17 @@ class PropertyPoller:
         if requested is not None:
             received = requested & frozenset(received_epcs)
             all_empty = (
-                len(requested) > 1 and received == requested and requested <= empty_epcs
+                len(requested) > 1
+                and state.observed_batch_capacity is None
+                and received == requested
+                and requested <= empty_epcs
             )
             if all_empty:
-                previous = state.observed_batch_capacity or len(requested)
-                new_capacity = max(1, (previous + 1) // 2)
-                if new_capacity < previous:
-                    state.observed_batch_capacity = new_capacity
-                    self._device_manager.update_observed_batch_capacity(
-                        device_key, new_capacity
-                    )
+                new_capacity = max(1, (len(requested) + 1) // 2)
+                state.observed_batch_capacity = new_capacity
+                self._device_manager.update_observed_batch_capacity(
+                    device_key, new_capacity
+                )
                 state.remaining_epcs = tuple(requested) + state.remaining_epcs
             elif len(received) < len(requested):
                 self._update_batch_capacity(device_key, state, requested, received)

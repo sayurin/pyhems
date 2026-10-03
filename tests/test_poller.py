@@ -977,6 +977,28 @@ class TestBatchCapacity:
         assert dm.poll_device.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_all_empty_does_not_rehalve_known_capacity(self) -> None:
+        """A known capacity treats a full-empty response as unsupported EPCs."""
+        unsub = MagicMock()
+        dm = MagicMock(spec=DeviceManager)
+        epcs = frozenset({0xE0, 0xE1})
+        dm.data = {"k1": _make_node("k1", poll_epcs=epcs)}
+        dm.on_frame_received = MagicMock(return_value=unsub)
+        dm.poll_device = MagicMock(return_value=1)
+        poller = PropertyPoller(dm, poll_interval=60)
+        _set_state(poller, "k1", observed_batch_capacity=2)
+
+        poller._poll_node("k1", epcs=epcs, fast=False, normal=True)
+        callback = dm.on_frame_received.call_args.args[0]
+        sent_tid = poller._state["k1"].awaiting_tid
+        assert sent_tid is not None
+        callback("k1", sent_tid, 0x72, epcs, epcs)
+
+        assert _batch_capacity(poller, "k1") == 2
+        assert dm.poll_device.call_count == 1
+        dm.update_observed_batch_capacity.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_full_response_does_not_change_capacity(self) -> None:
         """A full response does not change the learned capacity."""
         unsub = MagicMock()

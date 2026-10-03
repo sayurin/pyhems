@@ -615,11 +615,12 @@ class HemsClient:
                 and response_epcs == requested_epcs
                 and all(not prop.edt for prop in response.properties)
             )
-            if all_empty_full_response and len(remaining_epcs) > 1:
-                previous_capacity = capability.observed_batch_capacity or len(
-                    remaining_epcs
-                )
-                midpoint = max(1, (previous_capacity + 1) // 2)
+            if (
+                all_empty_full_response
+                and capability.observed_batch_capacity is None
+                and len(remaining_epcs) > 1
+            ):
+                midpoint = max(1, (len(remaining_epcs) + 1) // 2)
                 capability.opc_truncation_confirmed = True
                 self._shrink_batch_capacity(capability, midpoint)
                 _LOGGER.debug(

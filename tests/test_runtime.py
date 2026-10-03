@@ -1293,6 +1293,42 @@ class TestAsyncGet:
         assert client.get_observed_batch_capacity(node_id, deoj) == 4
 
     @pytest.mark.asyncio
+    async def test_async_get_full_empty_does_not_rehalve_known_capacity(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A known capacity treats a full-empty response as unsupported EPCs."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        address = "192.168.1.10"
+        deoj = EOJ(0x013001)
+        requested_epcs = [0x80, 0xB0]
+        client._device_addresses.forceput(address, node_id)
+        client.update_observed_batch_capacity(node_id, deoj, 2)
+
+        get_task = asyncio.create_task(
+            client.get(
+                node_id, deoj, requested_epcs, request_timeout=1.0, max_retries=0
+            )
+        )
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=epc) for epc in requested_epcs],
+            ),
+            address,
+        )
+
+        assert await get_task == [Property(epc=0x80), Property(epc=0xB0)]
+        assert client.get_observed_batch_capacity(node_id, deoj) == 2
+        assert client._pending_gets == {}
+
+    @pytest.mark.asyncio
     async def test_async_get_sna_no_retry(
         self, client_with_protocol: HemsClient
     ) -> None:
