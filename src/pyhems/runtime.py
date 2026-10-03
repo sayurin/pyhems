@@ -14,6 +14,7 @@ from .const import (
     DISCOVERY_DEFAULT_EPCS,
     DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
+    EPC,
     ESV,
     GET_MAX_RETRIES,
     NODE_PROFILE_CLASS,
@@ -24,6 +25,10 @@ from .const import (
 from .discovery import _extract_discovery_info
 from .eoj import EOJ
 from .frame import Frame, Property
+from .get_batch_policy import (
+    has_get_batch_policy_for_class,
+    take_first_batch,
+)
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,11 +42,6 @@ def _format_frame(frame: Frame) -> str:
         f"TID=0x{frame.tid:04X} SEOJ={frame.seoj!r} DEOJ={frame.deoj!r} "
         f"ESV=0x{frame.esv:02X} EPCs=[{epcs}]"
     )
-
-
-def _chunk_epcs(epcs: list[int], size: int) -> list[list[int]]:
-    """Split EPCs into ordered batches."""
-    return [epcs[index : index + size] for index in range(0, len(epcs), size)]
 
 
 @dataclass(slots=True)
@@ -127,6 +127,7 @@ class _GetCapability:
 
     opc_truncation_confirmed: bool = False
     observed_batch_capacity: int | None = None
+    manufacturer_code: int | None = None
 
 
 EventCallback = Callable[[RuntimeEvent], None]
@@ -172,8 +173,8 @@ class HemsClient:
         self._pending_gets: dict[
             int, tuple[str, EOJ, list[int], asyncio.Future[_GetResponse]]
         ] = {}
-        # Observed GET response behavior, scoped to an address and destination
-        # EOJ. This is intentionally runtime-only and is relearned after restart.
+        # Observed GET response behavior, scoped to a node and destination EOJ.
+        # This is intentionally runtime-only and is relearned after restart.
         self._get_capabilities: dict[tuple[str, EOJ], _GetCapability] = {}
         # Pending INF_REQ (0x63) requests awaiting a 0x73/0x53 response:
         # tid -> (address, requested_epcs, future)
@@ -276,10 +277,10 @@ class HemsClient:
                 return tid
         raise RuntimeError("No transaction ID is available")
 
-    def _clear_get_capabilities_for_address(self, address: str) -> None:
-        """Discard learned GET behavior for an address no longer in use."""
+    def _clear_get_capabilities_for_node(self, node_id: str) -> None:
+        """Discard learned GET behavior for a node no longer in use."""
         for key in tuple(self._get_capabilities):
-            if key[0] == address:
+            if key[0] == node_id:
                 del self._get_capabilities[key]
 
     def probe_nodes(self) -> bool:
@@ -367,14 +368,38 @@ class HemsClient:
             seoj=seoj,
             request_timeout=request_timeout,
             max_retries=max_retries,
+            capability_key=node_id,
+        )
+
+    async def setup_get(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        epcs: list[int],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
+        max_retries: int = GET_MAX_RETRIES,
+    ) -> list[Property]:
+        """Read initial device properties with an explicit manufacturer phase."""
+        address = self._device_addresses.inverse.get(node_id)
+        if not address:
+            _LOGGER.warning("No address known for device %s", node_id)
+            return []
+
+        return await self._get_at_address(
+            address=address,
+            deoj=deoj,
+            epcs=epcs,
+            seoj=seoj,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            capability_key=node_id,
+            setup=True,
         )
 
     def get_observed_batch_capacity(self, node_id: str, deoj: EOJ) -> int | None:
         """Return the learned safe GET batch capacity for a device object."""
-        address = self._device_addresses.inverse.get(node_id)
-        if not address:
-            return None
-        capability = self._get_capabilities.get((address, deoj))
+        capability = self._get_capabilities.get((node_id, deoj))
         return None if capability is None else capability.observed_batch_capacity
 
     def update_observed_batch_capacity(
@@ -383,11 +408,8 @@ class HemsClient:
         """Record a smaller safe GET batch capacity for a device object."""
         if capacity < 1:
             return
-        address = self._device_addresses.inverse.get(node_id)
-        if not address:
-            return
         capability = self._get_capabilities.setdefault(
-            (address, deoj), _GetCapability()
+            (node_id, deoj), _GetCapability()
         )
         capability.opc_truncation_confirmed = True
         self._shrink_batch_capacity(capability, capacity)
@@ -400,28 +422,120 @@ class HemsClient:
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
         max_retries: int = GET_MAX_RETRIES,
+        setup: bool = False,
+        capability_key: str | None = None,
     ) -> list[Property]:
         """Send a Get request to an address and return its property values."""
         if not self._protocol or not epcs:
             return []
 
+        requested_epcs = list(epcs)
+        if setup and EPC.MANUFACTURER_CODE not in requested_epcs:
+            requested_epcs.insert(0, EPC.MANUFACTURER_CODE)
+
         received: dict[int, Property] = {}
         capability = self._get_capabilities.setdefault(
-            (address, deoj), _GetCapability()
+            (capability_key or address, deoj), _GetCapability()
         )
-        await self._resolve_get_batches(
+        manufacturer_ready = await self._ensure_manufacturer_code(
             address=address,
             deoj=deoj,
+            request_epcs=requested_epcs,
             seoj=seoj,
-            epcs=list(epcs),
             request_timeout=request_timeout,
             max_retries=max_retries,
             capability=capability,
             received=received,
-            was_split=False,
+            force=setup,
         )
+        if not manufacturer_ready:
+            return [Property(epc=epc, edt=b"") for epc in requested_epcs]
+        await self._resolve_get_batches(
+            address=address,
+            deoj=deoj,
+            seoj=seoj,
+            epcs=[epc for epc in requested_epcs if epc not in received],
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            capability=capability,
+            received=received,
+            learn_capacity=False,
+        )
+        manufacturer_property = received.get(EPC.MANUFACTURER_CODE)
+        if (
+            capability.manufacturer_code is None
+            and manufacturer_property is not None
+            and len(manufacturer_property.edt) >= 3
+        ):
+            capability.manufacturer_code = int.from_bytes(
+                manufacturer_property.edt[:3], "big"
+            )
 
-        return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
+        return [received.get(epc, Property(epc=epc, edt=b"")) for epc in requested_epcs]
+
+    async def _ensure_manufacturer_code(
+        self,
+        *,
+        address: str,
+        deoj: EOJ,
+        request_epcs: list[int],
+        seoj: EOJ,
+        request_timeout: float,
+        max_retries: int,
+        capability: _GetCapability,
+        received: dict[int, Property],
+        force: bool = False,
+    ) -> bool:
+        """Read and cache 0x8A before applying a class-specific GET policy."""
+        if capability.manufacturer_code is not None or (
+            not force and not has_get_batch_policy_for_class(deoj.class_code)
+        ):
+            return True
+
+        manufacturer_epc = EPC.MANUFACTURER_CODE
+        tid = self._next_transaction_id()
+        for attempt in range(max_retries + 1):
+            response = await self._attempt_get_request(
+                address,
+                deoj,
+                seoj,
+                [manufacturer_epc],
+                request_timeout,
+                attempt,
+                tid,
+            )
+            if response is None:
+                continue
+
+            manufacturer_property = next(
+                (
+                    prop
+                    for prop in response.properties
+                    if prop.epc == manufacturer_epc and len(prop.edt) >= 3
+                ),
+                None,
+            )
+            if manufacturer_property is not None:
+                capability.manufacturer_code = int.from_bytes(
+                    manufacturer_property.edt[:3], "big"
+                )
+                if manufacturer_epc in request_epcs:
+                    received[manufacturer_epc] = manufacturer_property
+                _LOGGER.debug(
+                    "Identified manufacturer 0x%06X for %s %r before GET batching",
+                    capability.manufacturer_code,
+                    address,
+                    deoj,
+                )
+                return True
+
+        _LOGGER.warning(
+            "Could not identify manufacturer for %s %r; "
+            "manufacturer-specific GET batching is disabled",
+            address,
+            deoj,
+        )
+        return False
 
     async def _resolve_get_batches(
         self,
@@ -434,33 +548,52 @@ class HemsClient:
         max_retries: int,
         capability: _GetCapability,
         received: dict[int, Property],
-        was_split: bool,
-    ) -> None:
-        """Resolve a GET batch, splitting it when an empty full response is ambiguous."""
+        learn_capacity: bool,
+    ) -> bool:
+        """Resolve a GET batch while applying policy and learned capacity."""
         if not epcs:
-            return
+            return True
 
-        capacity = capability.observed_batch_capacity
-        if capacity is not None and len(epcs) > capacity:
-            for batch in _chunk_epcs(epcs, capacity):
-                await self._resolve_get_batches(
-                    address=address,
-                    deoj=deoj,
-                    seoj=seoj,
-                    epcs=batch,
-                    request_timeout=request_timeout,
-                    max_retries=max_retries,
-                    capability=capability,
-                    received=received,
-                    was_split=True,
-                )
-            return
+        first_batch, deferred_epcs = take_first_batch(
+            epcs,
+            manufacturer_code=capability.manufacturer_code,
+            class_code=deoj.class_code,
+            observed_batch_capacity=capability.observed_batch_capacity,
+        )
+        if deferred_epcs:
+            completed = await self._resolve_get_batches(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                epcs=list(first_batch),
+                request_timeout=request_timeout,
+                max_retries=max_retries,
+                capability=capability,
+                received=received,
+                learn_capacity=learn_capacity,
+            )
+            if not completed:
+                return False
+            return await self._resolve_get_batches(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                epcs=list(deferred_epcs),
+                request_timeout=request_timeout,
+                max_retries=max_retries,
+                capability=capability,
+                received=received,
+                learn_capacity=False,
+            )
+
+        epcs = list(first_batch)
 
         tid = self._next_transaction_id()
         remaining_epcs = epcs
+        received_response = False
         for attempt in range(max_retries + 1):
             if not remaining_epcs:
-                return
+                return True
 
             response = await self._attempt_get_request(
                 address,
@@ -473,6 +606,7 @@ class HemsClient:
             )
             if response is None:
                 continue
+            received_response = True
 
             response_epcs = {prop.epc for prop in response.properties}
             requested_epcs = set(remaining_epcs)
@@ -483,10 +617,12 @@ class HemsClient:
             )
             if (
                 all_empty_full_response
-                and not capability.opc_truncation_confirmed
+                and capability.observed_batch_capacity is None
                 and len(remaining_epcs) > 1
             ):
-                midpoint = (len(remaining_epcs) + 1) // 2
+                midpoint = max(1, (len(remaining_epcs) + 1) // 2)
+                capability.opc_truncation_confirmed = True
+                self._shrink_batch_capacity(capability, midpoint)
                 _LOGGER.debug(
                     "Ambiguous empty GET response from %s %r for %d EPCs; "
                     "retrying in batches of %d",
@@ -495,30 +631,24 @@ class HemsClient:
                     len(remaining_epcs),
                     midpoint,
                 )
-                for batch in (
-                    remaining_epcs[:midpoint],
-                    remaining_epcs[midpoint:],
-                ):
-                    await self._resolve_get_batches(
-                        address=address,
-                        deoj=deoj,
-                        seoj=seoj,
-                        epcs=batch,
-                        request_timeout=request_timeout,
-                        max_retries=max_retries,
-                        capability=capability,
-                        received=received,
-                        was_split=True,
-                    )
-                return
+                return await self._resolve_get_batches(
+                    address=address,
+                    deoj=deoj,
+                    seoj=seoj,
+                    epcs=remaining_epcs,
+                    request_timeout=request_timeout,
+                    max_retries=max_retries,
+                    capability=capability,
+                    received=received,
+                    learn_capacity=False,
+                )
 
             response_opc = len(response.properties)
             if response_opc < len(remaining_epcs):
                 capability.opc_truncation_confirmed = True
-                if response_opc:
-                    self._shrink_batch_capacity(capability, response_opc)
+                self._shrink_batch_capacity(capability, response_opc)
             elif (
-                was_split
+                learn_capacity
                 and capability.observed_batch_capacity is None
                 and any(prop.edt for prop in response.properties)
             ):
@@ -537,7 +667,7 @@ class HemsClient:
             remaining_epcs = [epc for epc in remaining_epcs if epc not in response_epcs]
             capacity = capability.observed_batch_capacity
             if capacity is not None and len(remaining_epcs) > capacity:
-                await self._resolve_get_batches(
+                completed = await self._resolve_get_batches(
                     address=address,
                     deoj=deoj,
                     seoj=seoj,
@@ -546,9 +676,9 @@ class HemsClient:
                     max_retries=max_retries,
                     capability=capability,
                     received=received,
-                    was_split=True,
+                    learn_capacity=False,
                 )
-                return
+                return completed
 
         if remaining_epcs:
             _LOGGER.debug(
@@ -557,6 +687,7 @@ class HemsClient:
                 deoj,
                 [f"0x{epc:02X}" for epc in remaining_epcs],
             )
+        return received_response
 
     @staticmethod
     def _shrink_batch_capacity(capability: _GetCapability, response_opc: int) -> None:
@@ -1024,12 +1155,9 @@ class HemsClient:
         node_id, instances = _extract_discovery_info(frame)
 
         if node_id:
-            previous_address = self._device_addresses.inverse.get(node_id)
             previous_node_id = self._device_addresses.get(address)
-            if previous_address and previous_address != address:
-                self._clear_get_capabilities_for_address(previous_address)
             if previous_node_id and previous_node_id != node_id:
-                self._clear_get_capabilities_for_address(address)
+                self._clear_get_capabilities_for_node(previous_node_id)
             self._device_addresses.forceput(address, node_id)
         else:
             node_id = self._device_addresses.get(address)

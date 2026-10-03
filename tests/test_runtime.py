@@ -825,7 +825,7 @@ class TestNodeProbe:
 
         deoj = EOJ(0x013001)
         client.update_observed_batch_capacity(identification_hex, deoj, 1)
-        assert ("192.168.1.100", deoj) in client._get_capabilities
+        assert (identification_hex, deoj) in client._get_capabilities
 
         # Device gets new IP address (192.168.1.200)
         frame2 = Frame(
@@ -847,9 +847,9 @@ class TestNodeProbe:
 
         # Direct lookup should also work
         assert client._device_addresses.get("192.168.1.200") == identification_hex
-        # Old address should no longer be mapped
+        # Old address should no longer be mapped, but node capability remains.
         assert client._device_addresses.get("192.168.1.100") is None
-        assert ("192.168.1.100", deoj) not in client._get_capabilities
+        assert (identification_hex, deoj) in client._get_capabilities
 
 
 class TestAsyncGet:
@@ -904,6 +904,87 @@ class TestAsyncGet:
         assert result[0].edt == b"\x30"
         assert result[1].epc == 0xB0
         assert result[1].edt == b"\x42"
+
+    @pytest.mark.asyncio
+    async def test_async_get_applies_manufacturer_batch_policy(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """Manufacturer lookup precedes policy batches and result order is restored."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        address = "192.168.1.10"
+        deoj = EOJ(0x028701)
+        requested_epcs = [0xC0, 0xC1, 0xC2, 0xB3, 0xB7, 0xB8, 0xBA]
+        client._device_addresses.forceput(address, node_id)
+
+        get_task = asyncio.create_task(
+            client.get(
+                node_id, deoj, requested_epcs, request_timeout=1.0, max_retries=0
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        assert client._protocol is not None
+        send: Any = client._protocol.send
+        tid = next(iter(client._pending_gets))
+        sent_epcs = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert sent_epcs == [0x8A]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=0x8A, edt=b"\x00\x00\x0b")],
+            ),
+            address,
+        )
+
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        first_batch = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert first_batch == [0xC0, 0xC1, 0xC2, 0xB3, 0xB8, 0xBA]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=epc, edt=bytes([epc])) for epc in first_batch],
+            ),
+            address,
+        )
+
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        second_batch = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert second_batch == [0xB7]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=0xB7, edt=b"\xb7")],
+            ),
+            address,
+        )
+
+        result = await get_task
+        assert [prop.epc for prop in result] == requested_epcs
+        assert [prop.edt for prop in result] == [bytes([epc]) for epc in requested_epcs]
+        capability = client._get_capabilities[(node_id, deoj)]
+        assert capability.manufacturer_code == 0x00000B
+        assert capability.observed_batch_capacity is None
 
     @pytest.mark.asyncio
     async def test_async_get_partial_missing_epc_retry(
@@ -1057,7 +1138,7 @@ class TestAsyncGet:
     async def test_async_get_accepts_full_empty_response_after_opc_truncation(
         self, client_with_protocol: HemsClient
     ) -> None:
-        """A confirmed OPC-truncating device may return all requested EPCs empty."""
+        """A capacity-one device may return each requested EPC empty."""
         client = client_with_protocol
         node_id = "fe00000000000000000000000000000001"
         deoj = EOJ(0x013001)
@@ -1109,7 +1190,21 @@ class TestAsyncGet:
                 seoj=deoj,
                 deoj=CONTROLLER_INSTANCE,
                 esv=ESV.GET_RES,
-                properties=[Property(epc=epc) for epc in requested_epcs],
+                properties=[Property(epc=0x80)],
+            ),
+            "192.168.1.10",
+        )
+
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=0xB0)],
             ),
             "192.168.1.10",
         )
@@ -1120,7 +1215,118 @@ class TestAsyncGet:
         ]
         assert client._protocol is not None
         send: Any = client._protocol.send
-        assert len(send.call_args_list) == 2
+        assert len(send.call_args_list) == 4
+
+    @pytest.mark.asyncio
+    async def test_async_get_full_empty_halves_capacity_with_ceiling(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A seven-EPC full-empty response is retried as four and three."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        address = "192.168.1.10"
+        deoj = EOJ(0x013001)
+        requested_epcs = list(range(0x80, 0x87))
+        client._device_addresses.forceput(address, node_id)
+
+        get_task = asyncio.create_task(
+            client.get(
+                node_id, deoj, requested_epcs, request_timeout=1.0, max_retries=0
+            )
+        )
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=epc) for epc in requested_epcs],
+            ),
+            address,
+        )
+
+        assert client._protocol is not None
+        send: Any = client._protocol.send
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        first_batch = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert first_batch == requested_epcs[:4]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=epc, edt=bytes([epc])) for epc in first_batch],
+            ),
+            address,
+        )
+
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        second_batch = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert second_batch == requested_epcs[4:]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[
+                    Property(epc=epc, edt=bytes([epc])) for epc in second_batch
+                ],
+            ),
+            address,
+        )
+
+        result = await get_task
+        assert [prop.epc for prop in result] == requested_epcs
+        assert client.get_observed_batch_capacity(node_id, deoj) == 4
+
+    @pytest.mark.asyncio
+    async def test_async_get_full_empty_does_not_rehalve_known_capacity(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A known capacity treats a full-empty response as unsupported EPCs."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        address = "192.168.1.10"
+        deoj = EOJ(0x013001)
+        requested_epcs = [0x80, 0xB0]
+        client._device_addresses.forceput(address, node_id)
+        client.update_observed_batch_capacity(node_id, deoj, 2)
+
+        get_task = asyncio.create_task(
+            client.get(
+                node_id, deoj, requested_epcs, request_timeout=1.0, max_retries=0
+            )
+        )
+        await asyncio.sleep(0.01)
+        tid = next(iter(client._pending_gets))
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=epc) for epc in requested_epcs],
+            ),
+            address,
+        )
+
+        assert await get_task == [Property(epc=0x80), Property(epc=0xB0)]
+        assert client.get_observed_batch_capacity(node_id, deoj) == 2
+        assert client._pending_gets == {}
 
     @pytest.mark.asyncio
     async def test_async_get_sna_no_retry(

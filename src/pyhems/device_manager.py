@@ -7,7 +7,7 @@ import contextlib
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 
 from ._definitions_generated import REGISTRY
@@ -34,11 +34,11 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
+# Fired with (device_key, tid, esv, epcs_in_frame, empty_epcs) for every recognized
 # response frame. epcs_in_frame is the set of EPCs actually present in that
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
 # they requested to detect partial responses.
-FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
+FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int], frozenset[int]], None]
 RuntimeActivityCallback = Callable[[float], None]
 
 
@@ -505,9 +505,10 @@ class DeviceManager:
         the frame than were requested).
 
         Args:
-            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
+            callback: Called with (device_key, tid, esv, epcs_in_frame, empty_epcs) when a
                 response frame is processed. ``epcs_in_frame`` is the set of
                 EPCs actually present in that frame (empty for Set responses).
+                ``empty_epcs`` is the subset whose EDT is empty.
 
         Returns:
             Unsubscribe function.
@@ -740,8 +741,9 @@ class DeviceManager:
         self.last_frame_received_at = event.received_at
 
         received_epcs = frozenset(prop.epc for prop in frame.properties)
+        empty_epcs = frozenset(prop.epc for prop in frame.properties if not prop.edt)
         for frame_cb in self._on_frame_received:
-            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
+            frame_cb(device_key, frame.tid, frame.esv, received_epcs, empty_epcs)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -843,7 +845,7 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(monitored_epcs)),
             )
 
-            response_props = await self._client.get(node_id, eoj, all_epcs)
+            response_props = await self._client.setup_get(node_id, eoj, all_epcs)
             properties: dict[int, bytes] = {
                 prop.epc: prop.edt for prop in response_props if prop.edt
             }
@@ -979,7 +981,7 @@ class DeviceManager:
         )
 
     def poll_device(
-        self, device_key: str, epcs: frozenset[int] | None = None
+        self, device_key: str, epcs: Collection[int] | None = None
     ) -> int | None:
         """Send a GET request for a device's poll EPCs.
 
@@ -999,7 +1001,8 @@ class DeviceManager:
         if not target_epcs:
             return None
 
-        properties = [Property(epc=epc, edt=b"") for epc in target_epcs]
+        ordered_epcs = tuple(target_epcs)
+        properties = [Property(epc=epc, edt=b"") for epc in ordered_epcs]
         frame = Frame(
             seoj=CONTROLLER_INSTANCE,
             deoj=node.eoj,
@@ -1010,7 +1013,7 @@ class DeviceManager:
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
-            " ".join(f"{epc:02X}" for epc in sorted(target_epcs)),
+            " ".join(f"{epc:02X}" for epc in ordered_epcs),
         )
         try:
             sent = self._client.send(node.node_id, frame)

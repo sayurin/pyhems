@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -296,6 +297,11 @@ async def _default_request_notifications(
 def _make_client() -> AsyncMock:
     client = AsyncMock()
     client.get = AsyncMock(return_value=[])
+
+    async def setup_get(*args: object, **kwargs: object) -> list[Property]:
+        return cast(list[Property], await client.get(*args, **kwargs))
+
+    client.setup_get = AsyncMock(side_effect=setup_get)
     client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
@@ -788,7 +794,9 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+        dm.on_frame_received(
+            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
+        )
 
         # Same value as already stored: on_device_updated would not fire,
         # but on_frame_received should still fire (a response was observed).
@@ -807,7 +815,9 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_epcs: list[frozenset[int]] = []
-        dm.on_frame_received(lambda _key, _tid, _esv, epcs: received_epcs.append(epcs))
+        dm.on_frame_received(
+            lambda _key, _tid, _esv, epcs, _empty: received_epcs.append(epcs)
+        )
 
         event = _make_frame_event(
             node.node_id,
@@ -828,7 +838,9 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+        dm.on_frame_received(
+            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
+        )
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -843,7 +855,9 @@ class TestProcessFrameEvent:
         dm = DeviceManager(client, {})
 
         received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
+        dm.on_frame_received(
+            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
+        )
 
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
@@ -864,7 +878,7 @@ class TestProcessFrameEvent:
 
         received_keys: list[str] = []
         unsub = dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs: received_keys.append(key)
+            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
         )
         unsub()
 
@@ -1411,6 +1425,19 @@ class TestPollDevice:
         _node_id, frame = client.send.call_args.args
         assert {p.epc for p in frame.properties} == {0xE0}
         assert frame.tid == result
+
+    def test_poll_device_preserves_explicit_epc_order(self) -> None:
+        """An ordered explicit EPC collection is preserved in the GET frame."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+
+        result = dm.poll_device(node.device_key, (0xC0, 0xB3, 0xB8))
+
+        assert result is not None
+        _node_id, frame = client.send.call_args.args
+        assert [prop.epc for prop in frame.properties] == [0xC0, 0xB3, 0xB8]
 
     def test_poll_device_with_empty_explicit_epcs(self) -> None:
         """An explicit empty epcs argument returns False without sending."""
