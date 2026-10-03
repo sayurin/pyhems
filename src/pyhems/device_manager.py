@@ -34,11 +34,11 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
+# Fired with (device_key, tid, esv, epcs_in_frame, empty_epcs) for every recognized
 # response frame. epcs_in_frame is the set of EPCs actually present in that
 # frame, which callers (e.g. PropertyPoller) can compare against the EPCs
 # they requested to detect partial responses.
-FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
+FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int], frozenset[int]], None]
 RuntimeActivityCallback = Callable[[float], None]
 
 
@@ -505,9 +505,10 @@ class DeviceManager:
         the frame than were requested).
 
         Args:
-            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
+            callback: Called with (device_key, tid, esv, epcs_in_frame, empty_epcs) when a
                 response frame is processed. ``epcs_in_frame`` is the set of
                 EPCs actually present in that frame (empty for Set responses).
+                ``empty_epcs`` is the subset whose EDT is empty.
 
         Returns:
             Unsubscribe function.
@@ -740,8 +741,9 @@ class DeviceManager:
         self.last_frame_received_at = event.received_at
 
         received_epcs = frozenset(prop.epc for prop in frame.properties)
+        empty_epcs = frozenset(prop.epc for prop in frame.properties if not prop.edt)
         for frame_cb in self._on_frame_received:
-            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
+            frame_cb(device_key, frame.tid, frame.esv, received_epcs, empty_epcs)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",

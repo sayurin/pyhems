@@ -51,6 +51,37 @@ def _can_add_to_batch(
     )
 
 
+def take_first_batch(
+    epcs: Iterable[int],
+    *,
+    manufacturer_code: int | None,
+    class_code: int,
+    observed_batch_capacity: int | None = None,
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Take the first batch and return the EPCs that remain.
+
+    The remaining EPCs are intentionally not required to preserve the
+    original request order. Each subsequent batch is planned lazily from the
+    returned remainder.
+    """
+    if observed_batch_capacity is not None and observed_batch_capacity < 1:
+        raise ValueError("observed_batch_capacity must be positive")
+
+    policy = get_get_batch_policy(manufacturer_code, class_code)
+    batch: list[int] = []
+    remaining: list[int] = []
+    for epc in epcs:
+        if (
+            observed_batch_capacity is not None
+            and len(batch) >= observed_batch_capacity
+        ) or not _can_add_to_batch(batch, epc, policy):
+            remaining.append(epc)
+        else:
+            batch.append(epc)
+
+    return tuple(batch), tuple(remaining)
+
+
 def plan_get_batches(
     epcs: Iterable[int],
     *,
@@ -65,26 +96,17 @@ def plan_get_batches(
     input, while batches may contain non-contiguous EPCs when that avoids an
     unnecessary extra request.
     """
-    if observed_batch_capacity is not None and observed_batch_capacity < 1:
-        raise ValueError("observed_batch_capacity must be positive")
-
-    policy = get_get_batch_policy(manufacturer_code, class_code)
-    batches: list[list[int]] = []
-    for epc in epcs:
-        for batch in batches:
-            if (
-                observed_batch_capacity is not None
-                and len(batch) >= observed_batch_capacity
-            ):
-                continue
-            if not _can_add_to_batch(batch, epc, policy):
-                continue
-            batch.append(epc)
-            break
-        else:
-            batches.append([epc])
-
-    return [tuple(batch) for batch in batches]
+    batches: list[tuple[int, ...]] = []
+    remaining = tuple(epcs)
+    while remaining:
+        batch, remaining = take_first_batch(
+            remaining,
+            manufacturer_code=manufacturer_code,
+            class_code=class_code,
+            observed_batch_capacity=observed_batch_capacity,
+        )
+        batches.append(batch)
+    return batches
 
 
 __all__ = [
@@ -93,4 +115,5 @@ __all__ = [
     "get_get_batch_policy",
     "has_get_batch_policy_for_class",
     "plan_get_batches",
+    "take_first_batch",
 ]

@@ -6,11 +6,11 @@ import asyncio
 import logging
 import time
 from collections.abc import Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .const import ESV
 from .device_manager import DeviceManager
-from .get_batch_policy import plan_get_batches
+from .get_batch_policy import take_first_batch
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,19 +73,16 @@ class _DeviceScheduleState:
     requested_epcs: frozenset[int] | None = None
     # Whether the current scheduled poll can be used for liveness tracking.
     liveness_requested: bool = False
-    # Remaining chunks still to be sent for the poll cycle currently in
-    # progress (populated when static policy or observed capacity requires
-    # multiple batches). Sent one at a time, each only after the previous
-    # chunk's response (or timeout) is observed.
-    pending_chunks: list[tuple[int, ...]] = field(default_factory=list)
-    # Whether ``pending_chunks`` belongs to the fast tier (affects which
+    # EPCs still to be sent for the poll cycle currently in progress.
+    remaining_epcs: tuple[int, ...] = ()
+    # Whether ``remaining_epcs`` belongs to the fast tier (affects which
     # last-polled timestamp subsequent chunks update).
-    pending_chunks_fast: bool = False
-    # Whether ``pending_chunks`` belongs to the normal tier. Both flags can be
+    remaining_epcs_fast: bool = False
+    # Whether ``remaining_epcs`` belongs to the normal tier. Both flags can be
     # true when a merged normal/fast poll is split into chunks.
-    pending_chunks_normal: bool = False
-    # Whether pending chunks should contribute to adaptive capacity learning.
-    pending_chunks_track_requested: bool = True
+    remaining_epcs_normal: bool = False
+    # Whether remaining EPCs should contribute to adaptive capacity learning.
+    remaining_epcs_track_requested: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,8 +132,9 @@ class PropertyPoller:
     ``observed_batch_capacity`` is shrunk immediately and never increased
     during the runtime. Once a device's capacity is below its target EPC
     count, subsequent polls for that tier are sent as a sequence of chunks,
-    one at a time, each only after the previous chunk's response (or timeout)
-    is observed (see :meth:`_continue_chunked_poll`). Immediate polls
+    one at a time, each only after the previous chunk's response is observed
+    (see :meth:`_continue_chunked_poll`). A timeout aborts the current cycle.
+    Immediate polls
     (:meth:`schedule_immediate_poll`) do not participate in capacity learning,
     but still honor static device-specific GET policies.
 
@@ -359,7 +357,7 @@ class PropertyPoller:
         fast: bool,
         normal: bool,
         track_requested: bool = True,
-        pending_chunks: list[tuple[int, ...]] | None = None,
+        remaining_epcs: tuple[int, ...] | None = None,
     ) -> None:
         if device_key in self._pending:
             return
@@ -385,7 +383,7 @@ class PropertyPoller:
             fast=fast,
             normal=normal,
             track_requested=track_requested,
-            pending_chunks=pending_chunks,
+            remaining_epcs=remaining_epcs,
         )
 
     def _is_awaiting(self, device_key: str) -> bool:
@@ -401,27 +399,17 @@ class PropertyPoller:
             return False
         if time.monotonic() - state.awaiting_since >= self._awaiting_timeout:
             liveness_requested = state.liveness_requested
-            pending_chunks = list(state.pending_chunks)
-            pending_chunks_fast = state.pending_chunks_fast
-            pending_chunks_normal = state.pending_chunks_normal
-            pending_chunks_track_requested = state.pending_chunks_track_requested
             state.awaiting_since = None
             state.awaiting_tid = None
             state.requested_epcs = None
             state.liveness_requested = False
-            state.pending_chunks = []
-            state.pending_chunks_fast = False
-            state.pending_chunks_normal = False
-            state.pending_chunks_track_requested = True
+            state.remaining_epcs = ()
+            state.remaining_epcs_fast = False
+            state.remaining_epcs_normal = False
+            state.remaining_epcs_track_requested = True
             state.consecutive_failures += 1
             if liveness_requested:
                 self._device_manager.record_poll_failure(device_key)
-            if pending_chunks:
-                state.pending_chunks = pending_chunks
-                state.pending_chunks_fast = pending_chunks_fast
-                state.pending_chunks_normal = pending_chunks_normal
-                state.pending_chunks_track_requested = pending_chunks_track_requested
-                self._continue_chunked_poll(device_key)
             return False
         return True
 
@@ -514,23 +502,45 @@ class PropertyPoller:
             )
 
     def _continue_chunked_poll(self, device_key: str) -> None:
-        """Send the next queued chunk for a poll cycle still in progress."""
+        """Plan and send the next chunk for a poll cycle still in progress."""
         state = self._get_state(device_key)
-        if not state.pending_chunks:
+        if not state.remaining_epcs:
             return
-        next_chunk = state.pending_chunks.pop(0)
-        remaining_chunks = list(state.pending_chunks)
+        data = getattr(self._device_manager, "data", {})
+        node = data.get(device_key)
+        if node is None:
+            state.remaining_epcs = ()
+            return
+        capacity = (
+            state.observed_batch_capacity
+            if state.remaining_epcs_track_requested
+            else None
+        )
+        next_chunk, remaining = take_first_batch(
+            state.remaining_epcs,
+            manufacturer_code=node.manufacturer_code,
+            class_code=node.eoj.class_code,
+            observed_batch_capacity=capacity,
+        )
+        state.remaining_epcs = remaining
+        if not next_chunk:
+            return
         self._fire_poll(
             device_key,
             epcs=next_chunk,
-            fast=state.pending_chunks_fast,
-            normal=state.pending_chunks_normal,
-            track_requested=state.pending_chunks_track_requested,
-            pending_chunks=remaining_chunks,
+            fast=state.remaining_epcs_fast,
+            normal=state.remaining_epcs_normal,
+            track_requested=state.remaining_epcs_track_requested,
+            remaining_epcs=remaining,
         )
 
     def _on_frame_received(
-        self, device_key: str, tid: int, _esv: ESV, received_epcs: frozenset[int]
+        self,
+        device_key: str,
+        tid: int,
+        _esv: ESV,
+        received_epcs: frozenset[int],
+        empty_epcs: frozenset[int] = frozenset(),
     ) -> None:
         """Clear the awaiting state and update backoff/batch state on any frame.
 
@@ -560,7 +570,24 @@ class PropertyPoller:
             self._device_manager.record_poll_success(device_key)
 
         if requested is not None:
-            self._update_batch_capacity(device_key, state, requested, received_epcs)
+            received = requested & frozenset(received_epcs)
+            all_empty = (
+                len(requested) > 1 and received == requested and requested <= empty_epcs
+            )
+            if all_empty:
+                previous = state.observed_batch_capacity or len(requested)
+                new_capacity = max(1, (previous + 1) // 2)
+                if new_capacity < previous:
+                    state.observed_batch_capacity = new_capacity
+                    self._device_manager.update_observed_batch_capacity(
+                        device_key, new_capacity
+                    )
+                state.remaining_epcs = tuple(requested) + state.remaining_epcs
+            elif len(received) < len(requested):
+                self._update_batch_capacity(device_key, state, requested, received)
+                state.remaining_epcs = (
+                    tuple(requested - received) + state.remaining_epcs
+                )
         self._continue_chunked_poll(device_key)
 
     def _poll_node(
@@ -571,7 +598,7 @@ class PropertyPoller:
         fast: bool,
         normal: bool,
         track_requested: bool = True,
-        pending_chunks: list[tuple[int, ...]] | None = None,
+        remaining_epcs: tuple[int, ...] | None = None,
     ) -> None:
         original_epcs = epcs
         send_epcs: Collection[int] | None = (
@@ -582,8 +609,8 @@ class PropertyPoller:
         liveness_requested = (
             track_requested and send_epcs is not None and bool(send_epcs)
         )
-        remaining_chunks = list(pending_chunks) if pending_chunks is not None else []
-        if pending_chunks is None and send_epcs is not None:
+        remaining = remaining_epcs or ()
+        if remaining_epcs is None and send_epcs is not None:
             data = getattr(self._device_manager, "data", {})
             node = data.get(device_key)
             manufacturer_code = None if node is None else node.manufacturer_code
@@ -593,20 +620,15 @@ class PropertyPoller:
                 if track_requested
                 else None
             )
-            chunks = plan_get_batches(
+            first_batch, remaining = take_first_batch(
                 send_epcs,
                 manufacturer_code=manufacturer_code,
                 class_code=class_code,
                 observed_batch_capacity=capacity,
             )
-            if not chunks:
+            if not first_batch:
                 return
-            send_epcs = (
-                original_epcs
-                if len(chunks) == 1 and chunks[0] == send_epcs
-                else chunks[0]
-            )
-            remaining_chunks = chunks[1:]
+            send_epcs = original_epcs if first_batch == send_epcs else first_batch
 
         try:
             sent_tid = (
@@ -623,10 +645,10 @@ class PropertyPoller:
                     frozenset(send_epcs) if track_requested and send_epcs else None
                 )
                 state.liveness_requested = liveness_requested
-                state.pending_chunks = remaining_chunks
-                state.pending_chunks_fast = fast
-                state.pending_chunks_normal = normal
-                state.pending_chunks_track_requested = track_requested
+                state.remaining_epcs = remaining
+                state.remaining_epcs_fast = fast
+                state.remaining_epcs_normal = normal
+                state.remaining_epcs_track_requested = track_requested
                 if normal:
                     state.last_polled_at = now
                 if fast:
@@ -639,10 +661,10 @@ class PropertyPoller:
                 if liveness_requested:
                     self._device_manager.record_poll_failure(device_key)
                 state = self._get_state(device_key)
-                state.pending_chunks = remaining_chunks
-                state.pending_chunks_fast = fast
-                state.pending_chunks_normal = normal
-                state.pending_chunks_track_requested = track_requested
+                state.remaining_epcs = ()
+                state.remaining_epcs_fast = False
+                state.remaining_epcs_normal = False
+                state.remaining_epcs_track_requested = True
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err
@@ -650,10 +672,10 @@ class PropertyPoller:
             if liveness_requested:
                 self._device_manager.record_poll_failure(device_key)
             state = self._get_state(device_key)
-            state.pending_chunks = remaining_chunks
-            state.pending_chunks_fast = fast
-            state.pending_chunks_normal = normal
-            state.pending_chunks_track_requested = track_requested
+            state.remaining_epcs = ()
+            state.remaining_epcs_fast = False
+            state.remaining_epcs_normal = False
+            state.remaining_epcs_track_requested = True
         finally:
             self._pending.discard(device_key)
 

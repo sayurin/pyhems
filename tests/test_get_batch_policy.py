@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyhems.get_batch_policy import plan_get_batches
+from pyhems.get_batch_policy import plan_get_batches, take_first_batch
 
 
 def test_panasonic_metering_policy_uses_first_fit() -> None:
@@ -61,3 +61,15 @@ def test_nonpositive_capacity_is_rejected() -> None:
             class_code=0x0130,
             observed_batch_capacity=0,
         )
+
+
+def test_take_first_batch_returns_lazy_remainder() -> None:
+    first, remaining = take_first_batch(
+        [0xC0, 0xC1, 0xC2, 0xB3, 0xB7, 0xB8, 0xBA],
+        manufacturer_code=0x00000B,
+        class_code=0x0287,
+        observed_batch_capacity=6,
+    )
+
+    assert first == (0xC0, 0xC1, 0xC2, 0xB3, 0xB8, 0xBA)
+    assert remaining == (0xB7,)
