@@ -845,7 +845,7 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(monitored_epcs)),
             )
 
-            response_props = await self._client.get(node_id, eoj, all_epcs)
+            response_props = await self._client.setup_get(node_id, eoj, all_epcs)
             properties: dict[int, bytes] = {
                 prop.epc: prop.edt for prop in response_props if prop.edt
             }

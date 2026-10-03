@@ -82,38 +82,10 @@ def take_first_batch(
     return tuple(batch), tuple(remaining)
 
 
-def plan_get_batches(
-    epcs: Iterable[int],
-    *,
-    manufacturer_code: int | None,
-    class_code: int,
-    observed_batch_capacity: int | None = None,
-) -> list[tuple[int, ...]]:
-    """Pack EPCs into ordered batches while honoring all GET constraints.
-
-    EPCs are processed in input order and placed into the first existing batch
-    that can accept them. Each batch remains an ordered subsequence of the
-    input, while batches may contain non-contiguous EPCs when that avoids an
-    unnecessary extra request.
-    """
-    batches: list[tuple[int, ...]] = []
-    remaining = tuple(epcs)
-    while remaining:
-        batch, remaining = take_first_batch(
-            remaining,
-            manufacturer_code=manufacturer_code,
-            class_code=class_code,
-            observed_batch_capacity=observed_batch_capacity,
-        )
-        batches.append(batch)
-    return batches
-
-
 __all__ = [
     "GET_BATCH_POLICIES",
     "GetBatchPolicy",
     "get_get_batch_policy",
     "has_get_batch_policy_for_class",
-    "plan_get_batches",
     "take_first_batch",
 ]

@@ -27,7 +27,7 @@ from .eoj import EOJ
 from .frame import Frame, Property
 from .get_batch_policy import (
     has_get_batch_policy_for_class,
-    plan_get_batches,
+    take_first_batch,
 )
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
@@ -554,28 +554,39 @@ class HemsClient:
         if not epcs:
             return True
 
-        batches = plan_get_batches(
+        first_batch, deferred_epcs = take_first_batch(
             epcs,
             manufacturer_code=capability.manufacturer_code,
             class_code=deoj.class_code,
             observed_batch_capacity=capability.observed_batch_capacity,
         )
-        if len(batches) > 1:
-            for planned_batch in batches:
-                completed = await self._resolve_get_batches(
-                    address=address,
-                    deoj=deoj,
-                    seoj=seoj,
-                    epcs=list(planned_batch),
-                    request_timeout=request_timeout,
-                    max_retries=max_retries,
-                    capability=capability,
-                    received=received,
-                    learn_capacity=False,
-                )
-                if not completed:
-                    return False
-            return True
+        if deferred_epcs:
+            completed = await self._resolve_get_batches(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                epcs=list(first_batch),
+                request_timeout=request_timeout,
+                max_retries=max_retries,
+                capability=capability,
+                received=received,
+                learn_capacity=learn_capacity,
+            )
+            if not completed:
+                return False
+            return await self._resolve_get_batches(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                epcs=list(deferred_epcs),
+                request_timeout=request_timeout,
+                max_retries=max_retries,
+                capability=capability,
+                received=received,
+                learn_capacity=False,
+            )
+
+        epcs = list(first_batch)
 
         tid = self._next_transaction_id()
         remaining_epcs = epcs

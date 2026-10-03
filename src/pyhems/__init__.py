@@ -55,7 +55,6 @@ from .get_batch_policy import (
     GetBatchPolicy,
     get_get_batch_policy,
     has_get_batch_policy_for_class,
-    plan_get_batches,
     take_first_batch,
 )
 from .installation_location import (
@@ -140,7 +139,6 @@ __all__ = [
     "get_get_batch_policy",
     "get_structured_value",
     "has_get_batch_policy_for_class",
-    "plan_get_batches",
     "take_first_batch",
     "value_definition_byte_size",
 ]
