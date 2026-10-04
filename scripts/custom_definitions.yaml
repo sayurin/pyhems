@@ -37,6 +37,11 @@
 # A generic define and a manufacturer-specific define may not share an
 # (EPC, byte_offset). Multiple enum defines for one EPC/manufacturer are not
 # supported because Home Assistant's enum entity keys do not include offsets.
+#
+# The generator accepts class group codes 0x00-0x06 and 0x0F only. Custom
+# property EPCs must be in 0x80-0xEF or 0xF0-0xFF. For class groups 0x00-0x06,
+# manufacturer_code is forbidden for EPCs 0x80-0xEF and required for EPCs
+# 0xF0-0xFF. For class group 0x0F, manufacturer_code is always required.
 
 devices:
   # Air cleaner (空気清浄機)

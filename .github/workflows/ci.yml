@@ -23,21 +23,10 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
-          uv pip install --system ruff mypy codespell
+        run: uv pip install --system -e ".[dev]"
 
-      - name: Run ruff check
-        run: ruff check src tests
-
-      - name: Run ruff format check
-        run: ruff format --check src tests
-
-      - name: Run mypy
-        run: mypy src/pyhems
-
-      - name: Run codespell
-        run: codespell src tests
+      - name: Run prek
+        run: prek run --all-files
 
   test:
     runs-on: ubuntu-latest
