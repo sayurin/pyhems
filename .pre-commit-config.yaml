@@ -29,4 +29,12 @@ repos:
           - bidict
           - pytest
           - types-PyYAML
+  - repo: local
+    hooks:
+      - id: check-generated-definitions
+        name: Check generated definitions
+        entry: uv run scripts/generate_definitions.py --check
+        language: system
+        pass_filenames: false
+        always_run: true
 exclude: ^(mra/|src/pyhems/_definitions_generated\.py)

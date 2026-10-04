@@ -6,6 +6,7 @@ unique enum value labels.
 
 from collections.abc import Iterator
 from dataclasses import replace
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,8 @@ from pyhems import (
 )
 from pyhems._definitions_generated import _merge_entities
 from pyhems.definitions import PropertyValueDefinition
+
+_generate_definitions = import_module("scripts.generate_definitions")
 
 ALLOWED_ACCESS_VALUES = {
     "required",
@@ -275,6 +278,100 @@ def test_custom_patch_preserves_unspecified_mra_values() -> None:
     values = {value.key: value for value in entity.enum_values}
     assert values["false"].name_en == "Heat exchanger OFF"
     assert values["false"].name_ja == "熱交換機OFF"
+
+
+def test_check_generated_source_accepts_matching_file(tmp_path: Path) -> None:
+    """The generator check accepts a generated file with matching content."""
+    generated_path = tmp_path / "_definitions_generated.py"
+    generated_path.write_text("generated\n", encoding="utf-8")
+
+    assert _generate_definitions._check_generated_source(generated_path, "generated\n")
+
+
+def test_check_generated_source_rejects_stale_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The generator check rejects a generated file with stale content."""
+    generated_path = tmp_path / "_definitions_generated.py"
+    generated_path.write_text("stale\n", encoding="utf-8")
+
+    assert not _generate_definitions._check_generated_source(
+        generated_path, "generated\n"
+    )
+    assert "Generated definitions are out of date" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "class_code",
+    [0x0001, 0x0135, 0x06FF, 0x0F01],
+)
+def test_custom_class_code_allows_supported_class_groups(class_code: int) -> None:
+    """Custom definitions accept only supported class group codes."""
+    assert (
+        _generate_definitions._validate_custom_class_code(
+            class_code, "Custom definition"
+        )
+        == class_code
+    )
+
+
+@pytest.mark.parametrize("class_code", [0x0701, 0x0E01, 0x1001])
+def test_custom_class_code_rejects_unsupported_class_groups(class_code: int) -> None:
+    """Custom definitions reject unsupported class group codes."""
+    with pytest.raises(ValueError, match="class group 0x00-0x06 or 0x0F"):
+        _generate_definitions._validate_custom_class_code(
+            class_code, "Custom definition"
+        )
+
+
+@pytest.mark.parametrize(
+    ("class_code", "epc", "manufacturer_code"),
+    [
+        (0x0135, 0x80, None),
+        (0x0135, 0xEF, None),
+        (0x0135, 0xF0, 0x000001),
+        (0x0135, 0xFF, 0x000001),
+        (0x0F01, 0x80, 0x000001),
+        (0x0F01, 0xEF, 0x000001),
+        (0x0F01, 0xF0, 0x000001),
+        (0x0F01, 0xFF, 0x000001),
+    ],
+)
+def test_custom_property_accepts_supported_scopes(
+    class_code: int, epc: int, manufacturer_code: int | None
+) -> None:
+    """Custom properties accept only valid EPC and manufacturer scopes."""
+    entry = {"epc": epc}
+    if manufacturer_code is not None:
+        entry["manufacturer_code"] = manufacturer_code
+    assert _generate_definitions._validate_custom_property(class_code, entry) == (
+        epc,
+        manufacturer_code,
+    )
+
+
+@pytest.mark.parametrize(
+    ("class_code", "epc", "manufacturer_code", "message"),
+    [
+        (0x0135, 0x7F, None, "epc must be in the range"),
+        (0x0135, 0x80, 0x000001, "manufacturer_code is not allowed"),
+        (0x0135, 0xF0, None, "manufacturer_code is required"),
+        (0x0F01, 0x80, None, "manufacturer_code is required"),
+        (0x0F01, 0xF0, None, "manufacturer_code is required"),
+    ],
+)
+def test_custom_property_rejects_unsupported_scopes(
+    class_code: int,
+    epc: int,
+    manufacturer_code: int | None,
+    message: str,
+) -> None:
+    """Custom properties reject invalid EPC and manufacturer scopes."""
+    entry = {"epc": epc}
+    if manufacturer_code is not None:
+        entry["manufacturer_code"] = manufacturer_code
+    with pytest.raises(ValueError, match=message):
+        _generate_definitions._validate_custom_property(class_code, entry)
 
 
 @pytest.mark.parametrize(

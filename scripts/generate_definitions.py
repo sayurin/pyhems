@@ -23,6 +23,7 @@ Output file:
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import json
 import re
@@ -43,8 +44,10 @@ MRA_DIR = Path(__file__).parent.parent / "mra"
 CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 PROPERTY_ROLES_FILE = Path(__file__).parent / "property_roles.xlsx"
-_USER_DEFINED_CLASS_CODE_START = 0x0F00
-_USER_DEFINED_CLASS_CODE_END = 0x0FFF
+_USER_DEFINED_CLASS_GROUP_CODE = 0x0F
+_ALLOWED_CUSTOM_CLASS_GROUP_CODES = frozenset(
+    (*range(0x07), _USER_DEFINED_CLASS_GROUP_CODE)
+)
 
 # Maps known two-value state enum keys to the generated boolean keys. The
 # input order is deliberately irrelevant: boolean consumers must only use the
@@ -213,7 +216,7 @@ def _validate_short_name(value: Any, class_code: int, *, custom: bool = False) -
 
 def _short_name_to_enum_member(short_name: str, class_code: int) -> str:
     """Convert an MRA short name to a unique DeviceClass member name."""
-    if _USER_DEFINED_CLASS_CODE_START <= class_code <= _USER_DEFINED_CLASS_CODE_END:
+    if class_code >> 8 == _USER_DEFINED_CLASS_GROUP_CODE:
         return f"USER_DEFINED_{class_code:04X}"
 
     member = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", short_name)
@@ -1101,6 +1104,53 @@ def _validate_code(
     return value
 
 
+def _validate_custom_class_code(value: Any, source: str) -> int:
+    """Validate a custom definition class code and its class group."""
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 0 <= value <= 0xFFFF
+    ):
+        raise ValueError(f"{source} class_code must be 0x0-FFFF")
+    class_group_code = value >> 8
+    if class_group_code not in _ALLOWED_CUSTOM_CLASS_GROUP_CODES:
+        raise ValueError(
+            f"{source} class 0x{value:04X} must use class group 0x00-0x06 or 0x0F"
+        )
+    return value
+
+
+def _validate_custom_property(
+    class_code: int, entry: dict[str, Any]
+) -> tuple[int, int | None]:
+    """Validate a custom property EPC and manufacturer scope."""
+    epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+    manufacturer_code = (
+        _validate_code(
+            entry["manufacturer_code"], 0xFFFFFF, "manufacturer_code", class_code, entry
+        )
+        if "manufacturer_code" in entry
+        else None
+    )
+    if not 0x80 <= epc <= 0xFF:
+        raise _custom_error(
+            class_code, entry, "epc must be in the range 0x80-0xEF or 0xF0-0xFF"
+        )
+
+    manufacturer_required = (
+        class_code >> 8 == _USER_DEFINED_CLASS_GROUP_CODE or epc >= 0xF0
+    )
+    if manufacturer_required and manufacturer_code is None:
+        raise _custom_error(
+            class_code, entry, "manufacturer_code is required for this EPC"
+        )
+    if not manufacturer_required and manufacturer_code is not None:
+        raise _custom_error(
+            class_code, entry, "manufacturer_code is not allowed for this EPC"
+        )
+    return epc, manufacturer_code
+
+
 def _validate_access(
     value: Any, field: str, class_code: int, entry: dict[str, Any]
 ) -> str:
@@ -1178,7 +1228,7 @@ def _apply_patch(
         raise _custom_error(
             class_code, entry, "patch entries may not specify manufacturer_code"
         )
-    epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+    epc, _ = _validate_custom_property(class_code, entry)
     if epc not in build.mra_epcs.get(class_code, frozenset()):
         raise _custom_error(class_code, entry, "patch target is not an MRA EPC")
     if epc in build.common_epcs:
@@ -1259,14 +1309,7 @@ def _build_custom_entity(class_code: int, entry: dict[str, Any]) -> EntityDefini
         raise _custom_error(
             class_code, entry, f"unknown define fields: {sorted(unknown)}"
         )
-    epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
-    mfr_code = (
-        _validate_code(
-            entry["manufacturer_code"], 0xFFFFFF, "manufacturer_code", class_code, entry
-        )
-        if "manufacturer_code" in entry
-        else None
-    )
+    epc, mfr_code = _validate_custom_property(class_code, entry)
     byte_offset = _validate_code(
         entry.get("byte_offset", 0), 0xFF, "byte_offset", class_code, entry
     )
@@ -1372,9 +1415,7 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
     define_count = 0
     patch_count = 0
     for class_code_raw, class_entry in devices.items():
-        class_code = _validate_code(
-            class_code_raw, 0xFFFF, "class_code", 0, {"epc": class_code_raw}
-        )
+        class_code = _validate_custom_class_code(class_code_raw, "Custom definition")
         if not isinstance(class_entry, dict):
             raise ValueError(
                 f"Custom definition class 0x{class_code:04X} must be a mapping"
@@ -1442,7 +1483,7 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
             if mode != "define":
                 raise _custom_error(class_code, entry, "mode must be define or patch")
 
-            epc = _validate_code(entry.get("epc"), 0xFF, "epc", class_code, entry)
+            epc, manufacturer_code = _validate_custom_property(class_code, entry)
             if epc in build.mra_epcs.get(class_code, frozenset()):
                 raise _custom_error(
                     class_code, entry, "define target is already an MRA EPC"
@@ -1450,11 +1491,6 @@ def _apply_custom_definitions(build: _DefinitionsBuild, custom: dict[str, Any]) 
             byte_offset = _validate_code(
                 entry.get("byte_offset", 0), 0xFF, "byte_offset", class_code, entry
             )
-            manufacturer_code = entry.get("manufacturer_code")
-            if manufacturer_code is not None:
-                manufacturer_code = _validate_code(
-                    manufacturer_code, 0xFFFFFF, "manufacturer_code", class_code, entry
-                )
             define_key = (epc, byte_offset, manufacturer_code)
             if define_key in define_keys:
                 raise _custom_error(class_code, entry, "duplicate define")
@@ -1502,7 +1538,9 @@ def _load_collection_bindings(
     """
     bindings: dict[int, list[CollectionBinding]] = {}
     for entry in custom.get("collection_bindings", []):
-        class_code: int = entry["class_code"]
+        class_code = _validate_custom_class_code(
+            entry["class_code"], "Custom collection binding"
+        )
         bindings.setdefault(class_code, []).append(
             CollectionBinding(
                 result_epc=entry["result_epc"],
@@ -1693,12 +1731,13 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
 # ============================================================================
 
 
-def main() -> None:
-    """Main entry point."""
+def _build_generated_source() -> tuple[str, _DefinitionsBuild]:
+    """Build generated source and return it with its build metadata."""
     if not MRA_DIR.exists():
-        print(f"Error: MRA directory not found at {MRA_DIR}")
-        print("Please ensure the mra/ directory exists with MRA data.")
-        return
+        raise FileNotFoundError(
+            f"MRA directory not found at {MRA_DIR}. "
+            "Please ensure the mra/ directory exists with MRA data."
+        )
 
     print(f"Using MRA data from: {MRA_DIR}")
     print("Generating definitions...")
@@ -1718,8 +1757,47 @@ def main() -> None:
                 continue
             build.devices[class_code].collection_bindings.extend(bindings)
 
-    generated_source = _generate_python_source(build)
+    return _generate_python_source(build), build
+
+
+def _check_generated_source(generated_path: Path, expected_source: str) -> bool:
+    """Check that the generated file matches the current source definitions."""
+    if not generated_path.exists():
+        print(f"Error: Generated file not found at {generated_path}")
+        return False
+
+    actual_source = generated_path.read_text(encoding="utf-8")
+    if actual_source != expected_source:
+        print(
+            f"Error: Generated definitions are out of date: {generated_path}\n"
+            "Run: uv run scripts/generate_definitions.py"
+        )
+        return False
+
+    print(f"Generated definitions are up to date: {generated_path}")
+    return True
+
+
+def main() -> int:
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="check generated definitions without modifying the generated file",
+    )
+    args = parser.parse_args()
+
+    try:
+        generated_source, build = _build_generated_source()
+    except FileNotFoundError as err:
+        print(f"Error: {err}")
+        return 1
+
     generated_path = PYHEMS_DIR / "_definitions_generated.py"
+    if args.check:
+        return 0 if _check_generated_source(generated_path, generated_source) else 1
+
     with generated_path.open("w", encoding="utf-8") as f:
         f.write(generated_source)
     print(f"\nGenerated: {generated_path}")
@@ -1732,7 +1810,8 @@ def main() -> None:
     print(f"  Devices: {device_count}")
     print(f"  Entities: {entity_count}")
     print(f"  Manufacturers: {manufacturer_count}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
