@@ -72,12 +72,8 @@ DISCOVERY_DEFAULT_EPCS: list[int] = [EPC.SELF_NODE_INSTANCE_LIST]
 # adaptive timeout in PropertyPoller), so a generous value here does not
 # affect steady-state responsiveness. Some real devices have been observed
 # taking 15-20s to answer even a single-EPC request, and a too-short timeout
-# on the (retried) initial Get causes duplicate, wasted load: the device
-# ends up answering the same large request twice.
+# makes the setup Get split requests that the device would have answered.
 SETUP_REQUEST_TIMEOUT = 30.0
 
 # Timeout for acknowledged SetC requests from callers.
 SET_REQUEST_TIMEOUT = 10.0
-
-# Retry settings for the initial setup Get (see SETUP_REQUEST_TIMEOUT above).
-GET_MAX_RETRIES = 3  # Maximum retry attempts for failed properties

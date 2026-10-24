@@ -95,7 +95,7 @@ asyncio.run(main())
 - TID-correlated in-flight tracking avoids request pileups on slow devices.
 - Poll cadence is adjusted from latency EWMA and failure backoff, starting from the base interval.
 - Instantaneous-value EPCs can be scheduled on a separate fast lane (`fast_poll_epcs`).
-- When devices truncate large responses, batch size is learned (`observed_batch_capacity`) and reused.
+- Requests are split by the per-device batch limit learned during setup (see `docs/adr/`); omitted EPCs are left to the next poll.
 - Poll targets can be narrowed dynamically through `DeviceManager.subscribe_epcs(...)`.
 
 ## Definitions

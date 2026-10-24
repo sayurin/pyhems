@@ -62,16 +62,8 @@ class _DeviceScheduleState:
     # to 0 whenever any frame is received). Shared by both tiers for the
     # same reason as ``latency_ewma``.
     consecutive_failures: int = 0
-    # Upper bound on the number of EPCs requested in a single GET, learned
-    # during setup or from observed partial responses. None means "no observed
-    # limit" (request the full target EPC set in one frame).
-    observed_batch_capacity: int | None = None
-    # EPCs requested by the most recently sent (still in-flight) poll, or
-    # None if that poll was sent without explicit tracking (e.g. an
-    # immediate poll after a Set) and partial-response detection does not
-    # apply to it.
-    requested_epcs: frozenset[int] | None = None
-    # Whether the current scheduled poll can be used for liveness tracking.
+    # Whether the poll cycle in progress is a scheduled poll used for
+    # liveness tracking (immediate polls are not).
     liveness_requested: bool = False
     # EPCs still to be sent for the poll cycle currently in progress.
     remaining_epcs: tuple[int, ...] = ()
@@ -81,8 +73,13 @@ class _DeviceScheduleState:
     # Whether ``remaining_epcs`` belongs to the normal tier. Both flags can be
     # true when a merged normal/fast poll is split into chunks.
     remaining_epcs_normal: bool = False
-    # Whether remaining EPCs should contribute to adaptive capacity learning.
-    remaining_epcs_track_requested: bool = True
+
+    def end_cycle(self) -> None:
+        """Forget the poll cycle in progress."""
+        self.liveness_requested = False
+        self.remaining_epcs = ()
+        self.remaining_epcs_fast = False
+        self.remaining_epcs_normal = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +90,6 @@ class DevicePollerStats:
     fast_interval: float
     latency_ewma: float | None
     consecutive_failures: int
-    observed_batch_capacity: int | None
 
 
 class PropertyPoller:
@@ -124,19 +120,12 @@ class PropertyPoller:
     into the normal one instead of being hammered independently. See
     :meth:`_effective_fast_interval`.
 
-    ECHONET Lite does not guarantee that a multi-property GET response
-    includes every requested EPC (see spec discussion in the design doc).
-    Each scheduled poll (normal or fast tier) therefore has its requested
-    EPCs compared against the EPCs actually present in the response frame.
-    If fewer EPCs came back than were requested, the device's
-    ``observed_batch_capacity`` is shrunk immediately and never increased
-    during the runtime. Once a device's capacity is below its target EPC
-    count, subsequent polls for that tier are sent as a sequence of chunks,
-    one at a time, each only after the previous chunk's response is observed
-    (see :meth:`_continue_chunked_poll`). A timeout aborts the current cycle.
-    Immediate polls
-    (:meth:`schedule_immediate_poll`) do not participate in capacity learning,
-    but still honor static device-specific GET policies.
+    Each poll cycle is split into chunks by the device's concurrent-response
+    limit learned during setup and by device-specific GET policies. Chunks
+    are sent one at a time, each only after the previous chunk's response is
+    observed (see :meth:`_send_next_chunk`). The poller never probes or
+    learns the limit, and never requeues EPCs missing from a response: a
+    timeout ends the current cycle, which is left to the next one.
 
     Both tiers request ``device_manager.effective_poll_epcs()`` /
     ``effective_fast_poll_epcs()`` rather than the raw
@@ -261,9 +250,6 @@ class PropertyPoller:
             fast_interval=self._effective_fast_interval(device_key),
             latency_ewma=None if state is None else state.latency_ewma,
             consecutive_failures=0 if state is None else state.consecutive_failures,
-            observed_batch_capacity=(
-                None if state is None else state.observed_batch_capacity
-            ),
         )
 
     # ------------------------------------------------------------------
@@ -301,11 +287,6 @@ class PropertyPoller:
         state = self._state.get(device_key)
         if state is None:
             state = _DeviceScheduleState()
-            data = getattr(self._device_manager, "data", {})
-            node = data.get(device_key)
-            capacity = getattr(node, "observed_batch_capacity", None)
-            if isinstance(capacity, int) and capacity >= 1:
-                state.observed_batch_capacity = capacity
             self._state[device_key] = state
         return state
 
@@ -347,52 +328,43 @@ class PropertyPoller:
 
     def _scheduled_fire(self, device_key: str) -> None:
         self._scheduled.pop(device_key, None)
-        self._fire_poll(device_key, normal=True, fast=True, track_requested=False)
+        self._fire_poll(device_key, normal=True, fast=True, liveness=False)
 
     def _fire_poll(
         self,
         device_key: str,
         *,
-        epcs: Collection[int] | None = None,
         fast: bool,
         normal: bool,
-        track_requested: bool = True,
-        remaining_epcs: tuple[int, ...] | None = None,
+        liveness: bool = True,
     ) -> None:
         if device_key in self._pending:
             return
-        if epcs is None:
-            node = self._device_manager.data.get(device_key)
-            normal_epcs = (
-                self._device_manager.effective_poll_epcs(device_key)
-                if normal
-                else frozenset()
-            )
-            fast_epcs = (
-                self._device_manager.effective_fast_poll_epcs(device_key)
-                if fast and node is not None and node.fast_poll_epcs
-                else frozenset()
-            )
-            epcs = normal_epcs | fast_epcs
-            if not epcs:
-                return
-        self._pending.add(device_key)
+        node = self._device_manager.data.get(device_key)
+        normal_epcs = (
+            self._device_manager.effective_poll_epcs(device_key)
+            if normal
+            else frozenset()
+        )
+        fast_epcs = (
+            self._device_manager.effective_fast_poll_epcs(device_key)
+            if fast and node is not None and node.fast_poll_epcs
+            else frozenset()
+        )
+        epcs = normal_epcs | fast_epcs
+        if not epcs:
+            return
         self._poll_node(
-            device_key,
-            epcs=epcs,
-            fast=fast,
-            normal=normal,
-            track_requested=track_requested,
-            remaining_epcs=remaining_epcs,
+            device_key, epcs=epcs, fast=fast, normal=normal, liveness=liveness
         )
 
     def _is_awaiting(self, device_key: str) -> bool:
         """Return True if a poll response for ``device_key`` is still outstanding.
 
         If the outstanding poll has been unanswered for longer than
-        ``awaiting_timeout``, the wait is abandoned (the entry is cleared)
-        and counted as a failure, feeding the exponential backoff in
-        :meth:`_effective_interval`.
+        ``awaiting_timeout``, the wait is abandoned (the entry is cleared),
+        the rest of the poll cycle is dropped, and the timeout is counted as a
+        failure, feeding the exponential backoff in :meth:`_effective_interval`.
         """
         state = self._state.get(device_key)
         if state is None or state.awaiting_since is None:
@@ -401,12 +373,7 @@ class PropertyPoller:
             liveness_requested = state.liveness_requested
             state.awaiting_since = None
             state.awaiting_tid = None
-            state.requested_epcs = None
-            state.liveness_requested = False
-            state.remaining_epcs = ()
-            state.remaining_epcs_fast = False
-            state.remaining_epcs_normal = False
-            state.remaining_epcs_track_requested = True
+            state.end_cycle()
             state.consecutive_failures += 1
             if liveness_requested:
                 self._device_manager.record_poll_failure(device_key)
@@ -474,211 +441,103 @@ class PropertyPoller:
                 + (1 - _LATENCY_EWMA_ALPHA) * state.latency_ewma
             )
 
-    def _update_batch_capacity(
-        self,
-        device_key: str,
-        state: _DeviceScheduleState,
-        requested: frozenset[int],
-        received: Collection[int],
-    ) -> None:
-        """Shrink ``observed_batch_capacity`` from a partial-response check."""
-        if not requested:
-            return
-        responded = len(requested & frozenset(received))
-        if responded < len(requested):
-            previous = state.observed_batch_capacity
-            new_capacity = responded if previous is None else min(previous, responded)
-            state.observed_batch_capacity = max(1, new_capacity)
-            self._device_manager.update_observed_batch_capacity(
-                device_key, state.observed_batch_capacity
-            )
-            _LOGGER.debug(
-                "Partial response from %s: requested %d EPCs, got %d; "
-                "observed_batch_capacity now %d",
-                device_key,
-                len(requested),
-                responded,
-                state.observed_batch_capacity,
-            )
-
-    def _continue_chunked_poll(self, device_key: str) -> None:
-        """Plan and send the next chunk for a poll cycle still in progress."""
-        state = self._get_state(device_key)
-        if not state.remaining_epcs:
-            return
-        data = getattr(self._device_manager, "data", {})
-        node = data.get(device_key)
-        if node is None:
-            state.remaining_epcs = ()
-            return
-        capacity = (
-            state.observed_batch_capacity
-            if state.remaining_epcs_track_requested
-            else None
-        )
-        next_chunk, remaining = take_first_batch(
-            state.remaining_epcs,
-            manufacturer_code=node.manufacturer_code,
-            class_code=node.eoj.class_code,
-            observed_batch_capacity=capacity,
-        )
-        state.remaining_epcs = remaining
-        if not next_chunk:
-            return
-        self._fire_poll(
-            device_key,
-            epcs=next_chunk,
-            fast=state.remaining_epcs_fast,
-            normal=state.remaining_epcs_normal,
-            track_requested=state.remaining_epcs_track_requested,
-            remaining_epcs=remaining,
-        )
-
     def _on_frame_received(
         self,
         device_key: str,
         tid: int,
         _esv: ESV,
-        received_epcs: frozenset[int],
-        empty_epcs: frozenset[int] = frozenset(),
+        _received_epcs: frozenset[int],
     ) -> None:
-        """Clear the awaiting state and update backoff/batch state on any frame.
+        """Clear the awaiting state and send the next chunk on a matching response.
 
-        Any frame from the device is treated as evidence that it is
-        responsive, so the consecutive-failure counter is reset. If the
-        frame corresponds to an outstanding poll, the observed latency also
-        feeds the EWMA used by :meth:`_effective_interval`, and the EPCs
-        actually present in the frame are compared against the EPCs that
-        were requested to detect partial responses (see
-        :meth:`_update_batch_capacity`). If a chunked poll cycle is still in
-        progress for this device, the next chunk is sent immediately.
+        A response (0x72 or 0x52) to the outstanding poll is evidence that the
+        device is responsive, even if some EPCs are missing or empty: the
+        consecutive-failure counter is reset and the observed latency feeds the
+        EWMA used by :meth:`_effective_interval`. Missing EPCs are not
+        requested again in this cycle.
         """
-        state = self._get_state(device_key)
-        if state.awaiting_tid is None or tid != state.awaiting_tid:
+        state = self._state.get(device_key)
+        if state is None or state.awaiting_tid is None or tid != state.awaiting_tid:
             return
         sent_at = state.awaiting_since
         state.awaiting_since = None
         state.awaiting_tid = None
-        requested = state.requested_epcs
-        state.requested_epcs = None
-        liveness_requested = state.liveness_requested
-        state.liveness_requested = False
         if sent_at is not None:
             self._update_latency(state, time.monotonic() - sent_at)
         state.consecutive_failures = 0
-        if liveness_requested:
+        if state.liveness_requested:
             self._device_manager.record_poll_success(device_key)
-
-        if requested is not None:
-            received = requested & frozenset(received_epcs)
-            all_empty = (
-                len(requested) > 1
-                and state.observed_batch_capacity is None
-                and received == requested
-                and requested <= empty_epcs
-            )
-            if all_empty:
-                new_capacity = max(1, (len(requested) + 1) // 2)
-                state.observed_batch_capacity = new_capacity
-                self._device_manager.update_observed_batch_capacity(
-                    device_key, new_capacity
-                )
-                state.remaining_epcs = tuple(requested) + state.remaining_epcs
-            elif len(received) < len(requested):
-                self._update_batch_capacity(device_key, state, requested, received)
-                state.remaining_epcs = (
-                    tuple(requested - received) + state.remaining_epcs
-                )
-        self._continue_chunked_poll(device_key)
+        if state.remaining_epcs:
+            self._send_next_chunk(device_key)
+        else:
+            state.end_cycle()
 
     def _poll_node(
         self,
         device_key: str,
         *,
-        epcs: Collection[int] | None = None,
+        epcs: Collection[int],
         fast: bool,
         normal: bool,
-        track_requested: bool = True,
-        remaining_epcs: tuple[int, ...] | None = None,
+        liveness: bool = True,
     ) -> None:
-        original_epcs = epcs
-        send_epcs: Collection[int] | None = (
-            None
-            if epcs is None
-            else tuple(sorted(epcs) if isinstance(epcs, (set, frozenset)) else epcs)
-        )
-        liveness_requested = (
-            track_requested and send_epcs is not None and bool(send_epcs)
-        )
-        remaining = remaining_epcs or ()
-        if remaining_epcs is None and send_epcs is not None:
-            data = getattr(self._device_manager, "data", {})
-            node = data.get(device_key)
-            manufacturer_code = None if node is None else node.manufacturer_code
-            class_code = 0 if node is None else node.eoj.class_code
-            capacity = (
-                self._get_state(device_key).observed_batch_capacity
-                if track_requested
-                else None
-            )
-            first_batch, remaining = take_first_batch(
-                send_epcs,
-                manufacturer_code=manufacturer_code,
-                class_code=class_code,
-                observed_batch_capacity=capacity,
-            )
-            if not first_batch:
-                return
-            send_epcs = original_epcs if first_batch == send_epcs else first_batch
+        """Start a poll cycle for ``epcs`` and send its first chunk."""
+        state = self._get_state(device_key)
+        state.remaining_epcs = tuple(sorted(epcs))
+        state.remaining_epcs_fast = fast
+        state.remaining_epcs_normal = normal
+        state.liveness_requested = liveness
+        self._send_next_chunk(device_key)
 
+    def _send_next_chunk(self, device_key: str) -> None:
+        """Plan and send the next chunk of the poll cycle in progress."""
+        state = self._get_state(device_key)
+        node = self._device_manager.data.get(device_key)
+        if node is None or not state.remaining_epcs:
+            state.end_cycle()
+            return
+        capacity = self._device_manager.get_observed_batch_capacity(device_key)
+        chunk, remaining = take_first_batch(
+            state.remaining_epcs,
+            manufacturer_code=node.manufacturer_code,
+            class_code=node.eoj.class_code,
+            observed_batch_capacity=(
+                capacity if isinstance(capacity, int) and capacity >= 1 else None
+            ),
+        )
+        if not chunk:
+            state.end_cycle()
+            return
+        state.remaining_epcs = remaining
+
+        self._pending.add(device_key)
         try:
-            sent_tid = (
-                self._device_manager.poll_device(device_key)
-                if send_epcs is None
-                else self._device_manager.poll_device(device_key, send_epcs)
-            )
-            if sent_tid is not None:
-                now = time.monotonic()
-                state = self._get_state(device_key)
-                state.awaiting_since = now
-                state.awaiting_tid = sent_tid
-                state.requested_epcs = (
-                    frozenset(send_epcs) if track_requested and send_epcs else None
-                )
-                state.liveness_requested = liveness_requested
-                state.remaining_epcs = remaining
-                state.remaining_epcs_fast = fast
-                state.remaining_epcs_normal = normal
-                state.remaining_epcs_track_requested = track_requested
-                if normal:
-                    state.last_polled_at = now
-                if fast:
-                    state.last_fast_polled_at = now
-            else:
-                _LOGGER.debug(
-                    "Failed to poll node %s: no poll EPCs or address unknown",
-                    device_key,
-                )
-                if liveness_requested:
-                    self._device_manager.record_poll_failure(device_key)
-                state = self._get_state(device_key)
-                state.remaining_epcs = ()
-                state.remaining_epcs_fast = False
-                state.remaining_epcs_normal = False
-                state.remaining_epcs_track_requested = True
+            sent_tid = self._device_manager.poll_device(device_key, chunk)
         except OSError as err:
             _LOGGER.debug(
                 "Failed to request properties for node %s: %s", device_key, err
             )
-            if liveness_requested:
-                self._device_manager.record_poll_failure(device_key)
-            state = self._get_state(device_key)
-            state.remaining_epcs = ()
-            state.remaining_epcs_fast = False
-            state.remaining_epcs_normal = False
-            state.remaining_epcs_track_requested = True
+            sent_tid = None
         finally:
             self._pending.discard(device_key)
+
+        if sent_tid is None:
+            _LOGGER.debug(
+                "Failed to poll node %s: no poll EPCs or address unknown",
+                device_key,
+            )
+            if state.liveness_requested:
+                self._device_manager.record_poll_failure(device_key)
+            state.end_cycle()
+            return
+
+        now = time.monotonic()
+        state.awaiting_since = now
+        state.awaiting_tid = sent_tid
+        if state.remaining_epcs_normal:
+            state.last_polled_at = now
+        if state.remaining_epcs_fast:
+            state.last_fast_polled_at = now
 
 
 __all__ = ["DevicePollerStats", "PropertyPoller"]

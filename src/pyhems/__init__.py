@@ -64,6 +64,7 @@ from .installation_location import (
 )
 from .poller import DevicePollerStats, PropertyPoller
 from .runtime import (
+    GetAbortedError,
     HemsClient,
     HemsErrorEvent,
     HemsFrameEvent,
@@ -104,6 +105,7 @@ __all__ = [
     "EnumCodec",
     "EnumValue",
     "Frame",
+    "GetAbortedError",
     "GetBatchPolicy",
     "HemsClient",
     "HemsErrorEvent",

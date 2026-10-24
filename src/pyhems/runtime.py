@@ -16,7 +16,6 @@ from .const import (
     ECHONET_MULTICAST,
     EPC,
     ESV,
-    GET_MAX_RETRIES,
     NODE_PROFILE_CLASS,
     NODE_PROFILE_INSTANCE,
     SET_REQUEST_TIMEOUT,
@@ -42,6 +41,20 @@ def _format_frame(frame: Frame) -> str:
         f"TID=0x{frame.tid:04X} SEOJ={frame.seoj!r} DEOJ={frame.deoj!r} "
         f"ESV=0x{frame.esv:02X} EPCs=[{epcs}]"
     )
+
+
+def _format_epcs(epcs: list[int]) -> str:
+    """Format EPCs for log messages."""
+    return " ".join(f"{epc:02X}" for epc in epcs)
+
+
+class GetAbortedError(Exception):
+    """Raised when reading a device object is given up.
+
+    Raised by :meth:`HemsClient.setup_get` when a single-EPC request (including
+    the standalone manufacturer code read) is not answered, or a request could
+    not be sent. Only the affected device object is given up.
+    """
 
 
 @dataclass(slots=True)
@@ -125,7 +138,7 @@ class _GetResponse:
 class _GetCapability:
     """Observed GET response behavior for one device object."""
 
-    opc_truncation_confirmed: bool = False
+    # Concurrent-response limit; None until a valid response fixes it.
     observed_batch_capacity: int | None = None
     manufacturer_code: int | None = None
 
@@ -329,19 +342,15 @@ class HemsClient:
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
-        max_retries: int = GET_MAX_RETRIES,
     ) -> list[Property]:
-        """Send Get request to a device by node ID.
+        """Send Get requests to a device by node ID.
 
-        Sends ESV=0x62 Get request and waits for ESV=0x72 (success) or
-        ESV=0x52 (partial) response. For 0x52 responses, automatically
-        retries failed EPCs. Devices that incorrectly return an unchanged OPC
-        with an empty EDT for every requested EPC are retried with smaller
-        batches.
-
-        Per ECHONET Lite specification, 0x52 response returns properties
-        in the same order as requested, with failed properties at the end.
-        This allows us to identify which EPCs need retry.
+        The EPCs are split by the device's known concurrent-response limit
+        and by device-specific GET policies, and each batch is sent once with
+        a new TID. EPCs omitted from a partial response are requested again
+        in a later batch. Unanswered requests are not retried, and the
+        concurrent-response limit is neither probed nor learned here; see
+        :meth:`setup_get`.
 
         Args:
             node_id: Device node ID (hex string from EPC 0x83).
@@ -349,10 +358,9 @@ class HemsClient:
             epcs: List of EPCs to read.
             seoj: Source EOJ (default: controller).
             request_timeout: Timeout in seconds for each request.
-            max_retries: Maximum retry attempts for failed properties.
 
         Returns:
-            List of Property objects with values.
+            List of Property objects in the requested order.
             Properties that couldn't be read have empty edt.
 
         """
@@ -367,7 +375,6 @@ class HemsClient:
             epcs=epcs,
             seoj=seoj,
             request_timeout=request_timeout,
-            max_retries=max_retries,
             capability_key=node_id,
         )
 
@@ -378,41 +385,66 @@ class HemsClient:
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
-        max_retries: int = GET_MAX_RETRIES,
     ) -> list[Property]:
-        """Read initial device properties with an explicit manufacturer phase."""
+        """Read initial device properties while probing the response limit.
+
+        The manufacturer code (EPC 0x8A) is read on its own first if it is not
+        known yet, so device-specific GET policies can be applied. The
+        remaining EPCs are then requested in batches. A batch that times out
+        is split in half; the device's concurrent-response limit is fixed
+        from the number of EPCs a valid response actually processed.
+
+        Raises:
+            GetAbortedError: The device object could not be read, e.g. because
+                a single-EPC request timed out or the request could not be
+                sent. Other device objects are not affected.
+
+        Returns:
+            List of Property objects in the requested order.
+            Properties that couldn't be read have empty edt.
+
+        """
         address = self._device_addresses.inverse.get(node_id)
         if not address:
-            _LOGGER.warning("No address known for device %s", node_id)
-            return []
+            raise GetAbortedError(f"No address known for device {node_id}")
+        if not self._protocol:
+            raise GetAbortedError("Runtime client is not started")
 
-        return await self._get_at_address(
-            address=address,
-            deoj=deoj,
-            epcs=epcs,
-            seoj=seoj,
-            request_timeout=request_timeout,
-            max_retries=max_retries,
-            capability_key=node_id,
-            setup=True,
-        )
-
-    def get_observed_batch_capacity(self, node_id: str, deoj: EOJ) -> int | None:
-        """Return the learned safe GET batch capacity for a device object."""
-        capability = self._get_capabilities.get((node_id, deoj))
-        return None if capability is None else capability.observed_batch_capacity
-
-    def update_observed_batch_capacity(
-        self, node_id: str, deoj: EOJ, capacity: int
-    ) -> None:
-        """Record a smaller safe GET batch capacity for a device object."""
-        if capacity < 1:
-            return
         capability = self._get_capabilities.setdefault(
             (node_id, deoj), _GetCapability()
         )
-        capability.opc_truncation_confirmed = True
-        self._shrink_batch_capacity(capability, capacity)
+        received: dict[int, Property] = {}
+        if capability.manufacturer_code is None:
+            manufacturer = await self._read_manufacturer_code(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                request_timeout=request_timeout,
+                capability=capability,
+            )
+            if manufacturer is None:
+                raise GetAbortedError(
+                    f"Could not read manufacturer code (EPC 0x8A) from {node_id} "
+                    f"{deoj!r}"
+                )
+            received[EPC.MANUFACTURER_CODE] = manufacturer
+
+        await self._run_get_batches(
+            address=address,
+            deoj=deoj,
+            seoj=seoj,
+            epcs=[epc for epc in epcs if epc not in received],
+            request_timeout=request_timeout,
+            capability=capability,
+            received=received,
+            probe=True,
+        )
+        return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
+
+    def get_observed_batch_capacity(self, node_id: str, deoj: EOJ) -> int | None:
+        """Return the known concurrent GET response limit for a device object."""
+        capability = self._get_capabilities.get((node_id, deoj))
+        return None if capability is None else capability.observed_batch_capacity
 
     async def _get_at_address(
         self,
@@ -421,93 +453,70 @@ class HemsClient:
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
-        max_retries: int = GET_MAX_RETRIES,
-        setup: bool = False,
         capability_key: str | None = None,
     ) -> list[Property]:
-        """Send a Get request to an address and return its property values."""
+        """Send Get requests to an address without probing the response limit."""
         if not self._protocol or not epcs:
             return []
 
         requested_epcs = list(epcs)
-        if setup and EPC.MANUFACTURER_CODE not in requested_epcs:
-            requested_epcs.insert(0, EPC.MANUFACTURER_CODE)
-
         received: dict[int, Property] = {}
         capability = self._get_capabilities.setdefault(
             (capability_key or address, deoj), _GetCapability()
         )
-        manufacturer_ready = await self._ensure_manufacturer_code(
-            address=address,
-            deoj=deoj,
-            request_epcs=requested_epcs,
-            seoj=seoj,
-            request_timeout=request_timeout,
-            max_retries=max_retries,
-            capability=capability,
-            received=received,
-            force=setup,
-        )
-        if not manufacturer_ready:
-            return [Property(epc=epc, edt=b"") for epc in requested_epcs]
-        await self._resolve_get_batches(
-            address=address,
-            deoj=deoj,
-            seoj=seoj,
-            epcs=[epc for epc in requested_epcs if epc not in received],
-            request_timeout=request_timeout,
-            max_retries=max_retries,
-            capability=capability,
-            received=received,
-            learn_capacity=False,
-        )
-        manufacturer_property = received.get(EPC.MANUFACTURER_CODE)
-        if (
-            capability.manufacturer_code is None
-            and manufacturer_property is not None
-            and len(manufacturer_property.edt) >= 3
+        if capability.manufacturer_code is None and has_get_batch_policy_for_class(
+            deoj.class_code
         ):
-            capability.manufacturer_code = int.from_bytes(
-                manufacturer_property.edt[:3], "big"
+            manufacturer = await self._read_manufacturer_code(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                request_timeout=request_timeout,
+                capability=capability,
             )
+            if manufacturer is None:
+                return [Property(epc=epc, edt=b"") for epc in requested_epcs]
+            if EPC.MANUFACTURER_CODE in requested_epcs:
+                received[EPC.MANUFACTURER_CODE] = manufacturer
+
+        try:
+            await self._run_get_batches(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                epcs=[epc for epc in requested_epcs if epc not in received],
+                request_timeout=request_timeout,
+                capability=capability,
+                received=received,
+                probe=False,
+            )
+        except GetAbortedError as err:
+            _LOGGER.debug("Get request to %s %r stopped: %s", address, deoj, err)
 
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in requested_epcs]
 
-    async def _ensure_manufacturer_code(
+    async def _read_manufacturer_code(
         self,
         *,
         address: str,
         deoj: EOJ,
-        request_epcs: list[int],
         seoj: EOJ,
         request_timeout: float,
-        max_retries: int,
         capability: _GetCapability,
-        received: dict[int, Property],
-        force: bool = False,
-    ) -> bool:
-        """Read and cache 0x8A before applying a class-specific GET policy."""
-        if capability.manufacturer_code is not None or (
-            not force and not has_get_batch_policy_for_class(deoj.class_code)
-        ):
-            return True
+    ) -> Property | None:
+        """Read 0x8A on its own before applying a device-specific GET policy.
 
+        The request is sent once. Its response is not used to determine the
+        concurrent-response limit.
+        """
         manufacturer_epc = EPC.MANUFACTURER_CODE
-        tid = self._next_transaction_id()
-        for attempt in range(max_retries + 1):
-            response = await self._attempt_get_request(
-                address,
-                deoj,
-                seoj,
-                [manufacturer_epc],
-                request_timeout,
-                attempt,
-                tid,
-            )
-            if response is None:
-                continue
-
-            manufacturer_property = next(
+        _sent, response = await self._attempt_get_request(
+            address, deoj, seoj, [manufacturer_epc], request_timeout
+        )
+        manufacturer_property = (
+            None
+            if response is None
+            else next(
                 (
                     prop
                     for prop in response.properties
@@ -515,29 +524,23 @@ class HemsClient:
                 ),
                 None,
             )
-            if manufacturer_property is not None:
-                capability.manufacturer_code = int.from_bytes(
-                    manufacturer_property.edt[:3], "big"
-                )
-                if manufacturer_epc in request_epcs:
-                    received[manufacturer_epc] = manufacturer_property
-                _LOGGER.debug(
-                    "Identified manufacturer 0x%06X for %s %r before GET batching",
-                    capability.manufacturer_code,
-                    address,
-                    deoj,
-                )
-                return True
+        )
+        if manufacturer_property is None:
+            _LOGGER.warning("Could not identify manufacturer for %s %r", address, deoj)
+            return None
 
-        _LOGGER.warning(
-            "Could not identify manufacturer for %s %r; "
-            "manufacturer-specific GET batching is disabled",
+        capability.manufacturer_code = int.from_bytes(
+            manufacturer_property.edt[:3], "big"
+        )
+        _LOGGER.debug(
+            "Identified manufacturer 0x%06X for %s %r before GET batching",
+            capability.manufacturer_code,
             address,
             deoj,
         )
-        return False
+        return manufacturer_property
 
-    async def _resolve_get_batches(
+    async def _run_get_batches(
         self,
         *,
         address: str,
@@ -545,159 +548,146 @@ class HemsClient:
         seoj: EOJ,
         epcs: list[int],
         request_timeout: float,
-        max_retries: int,
         capability: _GetCapability,
         received: dict[int, Property],
-        learn_capacity: bool,
-    ) -> bool:
-        """Resolve a GET batch while applying policy and learned capacity."""
-        if not epcs:
-            return True
+        probe: bool,
+    ) -> None:
+        """Request ``epcs`` in batches, storing values in ``received``.
 
-        first_batch, deferred_epcs = take_first_batch(
-            epcs,
-            manufacturer_code=capability.manufacturer_code,
-            class_code=deoj.class_code,
-            observed_batch_capacity=capability.observed_batch_capacity,
-        )
-        if deferred_epcs:
-            completed = await self._resolve_get_batches(
-                address=address,
-                deoj=deoj,
-                seoj=seoj,
-                epcs=list(first_batch),
-                request_timeout=request_timeout,
-                max_retries=max_retries,
-                capability=capability,
-                received=received,
-                learn_capacity=learn_capacity,
+        Every batch is planned by ``take_first_batch`` from the known
+        concurrent-response limit and the device-specific GET policy, and is
+        sent once with a new TID. EPCs omitted from a partial response are
+        queued again.
+
+        With ``probe`` (setup), an unanswered batch, or a batch whose EPCs all
+        came back empty while the limit is unknown, is split in half and the
+        limit is fixed from the number of EPCs a valid response processed.
+        A single-EPC batch that is not answered raises
+        :class:`GetAbortedError`.
+
+        Without ``probe``, the limit is neither probed nor learned, and the
+        first unanswered batch raises :class:`GetAbortedError`.
+        """
+        queue = list(dict.fromkeys(epcs))
+        # Batch size used while probing; local to this call and never stored.
+        probe_size: int | None = None
+        while queue:
+            limit = capability.observed_batch_capacity
+            size = (
+                limit
+                if probe_size is None
+                else probe_size
+                if limit is None
+                else min(limit, probe_size)
             )
-            if not completed:
-                return False
-            return await self._resolve_get_batches(
-                address=address,
-                deoj=deoj,
-                seoj=seoj,
-                epcs=list(deferred_epcs),
-                request_timeout=request_timeout,
-                max_retries=max_retries,
-                capability=capability,
-                received=received,
-                learn_capacity=False,
+            batch_tuple, rest = take_first_batch(
+                queue,
+                manufacturer_code=capability.manufacturer_code,
+                class_code=deoj.class_code,
+                observed_batch_capacity=size,
             )
-
-        epcs = list(first_batch)
-
-        tid = self._next_transaction_id()
-        remaining_epcs = epcs
-        received_response = False
-        for attempt in range(max_retries + 1):
-            if not remaining_epcs:
-                return True
-
-            response = await self._attempt_get_request(
-                address,
-                deoj,
-                seoj,
-                remaining_epcs,
-                request_timeout,
-                attempt,
-                tid,
+            batch = list(batch_tuple)
+            n = len(batch)
+            sent, response = await self._attempt_get_request(
+                address, deoj, seoj, batch, request_timeout
             )
-            if response is None:
-                continue
-            received_response = True
+            if not sent:
+                raise GetAbortedError(
+                    f"Get request to {address} {deoj!r} could not be sent"
+                )
 
-            response_epcs = {prop.epc for prop in response.properties}
-            requested_epcs = set(remaining_epcs)
-            all_empty_full_response = (
-                len(response.properties) == len(remaining_epcs)
-                and response_epcs == requested_epcs
-                and all(not prop.edt for prop in response.properties)
-            )
-            if (
-                all_empty_full_response
-                and capability.observed_batch_capacity is None
-                and len(remaining_epcs) > 1
-            ):
-                midpoint = max(1, (len(remaining_epcs) + 1) // 2)
-                capability.opc_truncation_confirmed = True
-                self._shrink_batch_capacity(capability, midpoint)
+            matched: dict[int, Property] = {}
+            if response is not None:
+                requested = set(batch)
+                for prop in response.properties:
+                    if prop.epc in requested:
+                        matched.setdefault(prop.epc, prop)
+                if unexpected := [
+                    prop.epc
+                    for prop in response.properties
+                    if prop.epc not in requested
+                ]:
+                    _LOGGER.debug(
+                        "Ignoring unrequested EPCs in Get response from %s %r: [%s]",
+                        address,
+                        deoj,
+                        " ".join(f"{epc:02X}" for epc in unexpected),
+                    )
+
+            if not matched:
+                if not probe or n == 1:
+                    raise GetAbortedError(
+                        f"Get request to {address} {deoj!r} for EPCs "
+                        f"[{_format_epcs(batch)}] was not answered"
+                    )
+                probe_size = (n + 1) // 2
                 _LOGGER.debug(
-                    "Ambiguous empty GET response from %s %r for %d EPCs; "
+                    "Get request to %s %r for %d EPCs was not answered; "
                     "retrying in batches of %d",
                     address,
                     deoj,
-                    len(remaining_epcs),
-                    midpoint,
+                    n,
+                    probe_size,
                 )
-                return await self._resolve_get_batches(
-                    address=address,
-                    deoj=deoj,
-                    seoj=seoj,
-                    epcs=remaining_epcs,
-                    request_timeout=request_timeout,
-                    max_retries=max_retries,
-                    capability=capability,
-                    received=received,
-                    learn_capacity=False,
-                )
+                queue = batch + list(rest)
+                continue
 
-            response_opc = len(response.properties)
-            if response_opc < len(remaining_epcs):
-                capability.opc_truncation_confirmed = True
-                self._shrink_batch_capacity(capability, response_opc)
-            elif (
-                learn_capacity
-                and capability.observed_batch_capacity is None
-                and any(prop.edt for prop in response.properties)
-            ):
-                capability.observed_batch_capacity = len(remaining_epcs)
+            m = len(matched)
+            if m < n:
+                # The device processed only m EPCs of this request.
+                if probe:
+                    self._fix_batch_capacity(capability, m, address, deoj)
+                    probe_size = None
+                received.update(
+                    (epc, prop) for epc, prop in matched.items() if prop.edt
+                )
+                omitted = [epc for epc in batch if epc not in matched]
                 _LOGGER.debug(
-                    "Observed GET batch capacity %d for %s %r",
-                    len(remaining_epcs),
+                    "Partial Get response from %s %r: %d of %d EPCs, "
+                    "requesting [%s] again",
                     address,
                     deoj,
+                    m,
+                    n,
+                    _format_epcs(omitted),
                 )
+                queue = omitted + list(rest)
+                continue
 
-            for prop in response.properties:
-                if prop.edt:
-                    received[prop.epc] = prop
-
-            remaining_epcs = [epc for epc in remaining_epcs if epc not in response_epcs]
-            capacity = capability.observed_batch_capacity
-            if capacity is not None and len(remaining_epcs) > capacity:
-                completed = await self._resolve_get_batches(
-                    address=address,
-                    deoj=deoj,
-                    seoj=seoj,
-                    epcs=remaining_epcs,
-                    request_timeout=request_timeout,
-                    max_retries=max_retries,
-                    capability=capability,
-                    received=received,
-                    learn_capacity=False,
+            all_empty = not any(prop.edt for prop in matched.values())
+            if probe and all_empty and limit is None and n > 1:
+                # ADR-0001: some devices answer every EPC with PDC=0 when the
+                # request exceeds their concurrent-response limit.
+                probe_size = (n + 1) // 2
+                _LOGGER.debug(
+                    "Every EPC in the Get response from %s %r for %d EPCs was "
+                    "empty; retrying in batches of %d",
+                    address,
+                    deoj,
+                    n,
+                    probe_size,
                 )
-                return completed
+                queue = batch + list(rest)
+                continue
 
-        if remaining_epcs:
-            _LOGGER.debug(
-                "Partial response from %s %r, missing EPCs: %s",
-                address,
-                deoj,
-                [f"0x{epc:02X}" for epc in remaining_epcs],
-            )
-        return received_response
+            if probe and (probe_size is not None or (limit is None and n > 1)):
+                self._fix_batch_capacity(capability, n, address, deoj)
+                probe_size = None
+            received.update((epc, prop) for epc, prop in matched.items() if prop.edt)
+            queue = list(rest)
 
     @staticmethod
-    def _shrink_batch_capacity(capability: _GetCapability, response_opc: int) -> None:
-        """Keep the smallest positive capacity observed for a device object."""
-        capacity = max(1, response_opc)
-        if (
-            capability.observed_batch_capacity is None
-            or capacity < capability.observed_batch_capacity
-        ):
-            capability.observed_batch_capacity = capacity
+    def _fix_batch_capacity(
+        capability: _GetCapability, capacity: int, address: str, deoj: EOJ
+    ) -> None:
+        """Record a concurrent-response limit, keeping the smallest value."""
+        previous = capability.observed_batch_capacity
+        if previous is not None and previous <= capacity:
+            return
+        capability.observed_batch_capacity = capacity
+        _LOGGER.debug(
+            "Concurrent Get response limit for %s %r is %d", address, deoj, capacity
+        )
 
     def _schedule_address_discovery(self, address: str) -> None:
         """Start direct node discovery for an unknown address once."""
@@ -1231,10 +1221,14 @@ class HemsClient:
         seoj: EOJ,
         epcs: list[int],
         request_timeout: float,
-        attempt: int,
-        tid: int,
-    ) -> _GetResponse | None:
-        """Attempt a single Get request and return its response."""
+    ) -> tuple[bool, _GetResponse | None]:
+        """Send one Get request with a new TID and wait for its response.
+
+        Returns:
+            Whether the request was sent, and the response or None if the
+            request was not sent or timed out.
+        """
+        tid = self._next_transaction_id()
         future: asyncio.Future[_GetResponse] = asyncio.Future()
         self._pending_gets[tid] = (address, deoj, epcs, future)
 
@@ -1246,18 +1240,9 @@ class HemsClient:
             properties=[Property(epc=epc) for epc in epcs],
         )
 
-        if attempt > 0:
-            _LOGGER.debug(
-                "Retrying Get request (attempt %d) to %s %r for EPCs: [%s]",
-                attempt + 1,
-                address,
-                deoj,
-                " ".join(f"{epc:02X}" for epc in epcs),
-            )
-
         if not self._send_to_address(frame, address):
             self._pending_gets.pop(tid, None)
-            return None
+            return False, None
 
         try:
             response_props = await asyncio.wait_for(
@@ -1266,17 +1251,17 @@ class HemsClient:
         except TimeoutError:
             if not future.done():
                 _LOGGER.debug(
-                    "Get request to %s %r timed out (attempt %d)",
+                    "Get request to %s %r for EPCs [%s] timed out",
                     address,
                     deoj,
-                    attempt + 1,
+                    _format_epcs(epcs),
                 )
-                return None
+                return True, None
             response_props = future.result()
         finally:
             self._pending_gets.pop(tid, None)
 
-        return response_props
+        return True, response_props
 
     def _send_to_address(self, frame: Frame, address: str) -> bool:
         """Send a frame to a specific address.

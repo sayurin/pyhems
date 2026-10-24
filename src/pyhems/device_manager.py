@@ -24,6 +24,7 @@ from .installation_location import (
     decode_installation_location,
 )
 from .runtime import (
+    GetAbortedError,
     HemsClient,
     HemsFrameEvent,
     HemsInstanceListEvent,
@@ -34,16 +35,18 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-# Fired with (device_key, tid, esv, epcs_in_frame, empty_epcs) for every recognized
+# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
 # response frame. epcs_in_frame is the set of EPCs actually present in that
-# frame, which callers (e.g. PropertyPoller) can compare against the EPCs
-# they requested to detect partial responses.
-FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int], frozenset[int]], None]
+# frame.
+FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
 RuntimeActivityCallback = Callable[[float], None]
 
 
-def _parse_property_map(edt: bytes) -> frozenset[int]:
+def _parse_property_map(edt: bytes) -> frozenset[int] | None:
     """Parse an ECHONET Lite property map EDT (0x9D/0x9E/0x9F).
+
+    Returns None if the EDT is empty or malformed. A valid map listing no
+    EPCs (e.g. ``EDT=00``) returns an empty set.
 
     Property maps have two formats:
     - List format (count <= 15): [count, epc1, epc2, ...]
@@ -55,7 +58,7 @@ def _parse_property_map(edt: bytes) -> frozenset[int]:
     - Bit index (0-7) = EPC high nibble offset (bit0=0x8x, bit1=0x9x, ..., bit7=0xFx)
     """
     if not edt:
-        return frozenset()
+        return None
 
     count = edt[0]
 
@@ -67,7 +70,7 @@ def _parse_property_map(edt: bytes) -> frozenset[int]:
                 count,
                 len(edt) - 1,
             )
-            return frozenset()
+            return None
         return frozenset(edt[1 : count + 1])
 
     # Bitmap format: 16 bytes representing EPCs 0x80-0xFF
@@ -75,7 +78,7 @@ def _parse_property_map(edt: bytes) -> frozenset[int]:
         _LOGGER.debug(
             "Property map bitmap too short: expected 17 bytes, got %d", len(edt)
         )
-        return frozenset()
+        return None
 
     epcs: set[int] = set()
     for byte_idx in range(16):
@@ -112,8 +115,11 @@ def _decode_ascii_property(edt: bytes) -> str | None:
 
 def _extract_property_maps(
     properties: Mapping[int, bytes],
-) -> tuple[frozenset[int], frozenset[int], frozenset[int]]:
-    """Extract and parse Get/Set/Inf property maps from property values."""
+) -> tuple[frozenset[int] | None, frozenset[int] | None, frozenset[int] | None]:
+    """Extract and parse Get/Set/Inf property maps from property values.
+
+    Each map is None if it is missing or malformed.
+    """
     get_epcs = _parse_property_map(properties.get(EPC.GET_PROPERTY_MAP, b""))
     set_epcs = _parse_property_map(properties.get(EPC.SET_PROPERTY_MAP, b""))
     inf_epcs = _parse_property_map(properties.get(EPC.INF_PROPERTY_MAP, b""))
@@ -234,8 +240,6 @@ class NodeState:
     # response before the request timed out). Kept polled like any other
     # non-confirmed EPC; tracked separately for diagnostics visibility.
     failed_inf_epcs: frozenset[int] = field(default_factory=frozenset)
-    # Safe upper bound for EPCs requested in one GET, learned during setup.
-    observed_batch_capacity: int | None = None
     # Whether the most recent scheduled poll received a response. None means
     # no pollable EPCs exist or no poll has completed yet.
     polling_available: bool | None = None
@@ -500,15 +504,13 @@ class DeviceManager:
         response frame from a known device, even if no property value
         actually changed (including Set responses). It is primarily used by
         :class:`~pyhems.poller.PropertyPoller` to know when an outstanding
-        poll request has been answered, so it can stop waiting and allow the
-        next poll to be sent, and to detect partial responses (fewer EPCs in
-        the frame than were requested).
+        poll request has been answered, so it can stop waiting and send the
+        next batch.
 
         Args:
-            callback: Called with (device_key, tid, esv, epcs_in_frame, empty_epcs) when a
+            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
                 response frame is processed. ``epcs_in_frame`` is the set of
                 EPCs actually present in that frame (empty for Set responses).
-                ``empty_epcs`` is the subset whose EDT is empty.
 
         Returns:
             Unsubscribe function.
@@ -647,18 +649,12 @@ class DeviceManager:
         if node is not None:
             node.polling_available = False
 
-    def update_observed_batch_capacity(self, device_key: str, capacity: int) -> None:
-        """Record a smaller safe GET batch capacity for a device."""
-        if capacity < 1:
-            return
+    def get_observed_batch_capacity(self, device_key: str) -> int | None:
+        """Return the concurrent GET response limit learned during setup."""
         node = self.data.get(device_key)
-        if not node or (
-            node.observed_batch_capacity is not None
-            and node.observed_batch_capacity <= capacity
-        ):
-            return
-        node.observed_batch_capacity = capacity
-        self._client.update_observed_batch_capacity(node.node_id, node.eoj, capacity)
+        if node is None:
+            return None
+        return self._client.get_observed_batch_capacity(node.node_id, node.eoj)
 
     def _effective_epcs(
         self,
@@ -741,9 +737,8 @@ class DeviceManager:
         self.last_frame_received_at = event.received_at
 
         received_epcs = frozenset(prop.epc for prop in frame.properties)
-        empty_epcs = frozenset(prop.epc for prop in frame.properties if not prop.edt)
         for frame_cb in self._on_frame_received:
-            frame_cb(device_key, frame.tid, frame.esv, received_epcs, empty_epcs)
+            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -815,6 +810,11 @@ class DeviceManager:
     async def setup_device(self, node_id: str, eoj: EOJ) -> bool:
         """Set up a device by requesting its properties.
 
+        Setup is complete only when a valid manufacturer code (0x8A) and valid
+        property maps (0x9D/0x9E/0x9F) are read. Otherwise the device is not
+        registered, so it is set up again when it next appears in an
+        instance list.
+
         Args:
             node_id: Device node ID.
             eoj: ECHONET object instance.
@@ -824,109 +824,126 @@ class DeviceManager:
         """
         device_key = _device_key(node_id, eoj)
         try:
-            base_epcs = [
-                EPC.INF_PROPERTY_MAP,
-                EPC.SET_PROPERTY_MAP,
-                EPC.GET_PROPERTY_MAP,
-                EPC.MANUFACTURER_CODE,
-                EPC.PRODUCT_CODE,
-                EPC.SERIAL_NUMBER,
-            ]
-
-            initial_epcs = self._monitored_epcs.get(eoj.class_code, frozenset())
-            monitored_epcs = initial_epcs - set(base_epcs)
-            all_epcs = base_epcs + list(monitored_epcs)
-
-            _LOGGER.debug(
-                "Requesting property maps for node %s %r: base=[%s], monitored=[%s]",
-                node_id,
-                eoj,
-                " ".join(f"{epc:02X}" for epc in base_epcs),
-                " ".join(f"{epc:02X}" for epc in sorted(monitored_epcs)),
-            )
-
-            response_props = await self._client.setup_get(node_id, eoj, all_epcs)
-            properties: dict[int, bytes] = {
-                prop.epc: prop.edt for prop in response_props if prop.edt
-            }
-            observed_batch_capacity = self._client.get_observed_batch_capacity(
-                node_id, eoj
-            )
-            if (
-                not isinstance(observed_batch_capacity, int)
-                or observed_batch_capacity < 1
-            ):
-                observed_batch_capacity = None
-
-            timestamp = time.monotonic()
-            get_epcs, set_epcs, inf_epcs = _extract_property_maps(properties)
-            manufacturer_code, product_code, serial_number = _extract_node_profile_info(
-                properties
-            )
-
-            if manufacturer_code is None:
-                _LOGGER.warning(
-                    "Device %s has no manufacturer code (EPC 0x8A), skipping",
-                    device_key,
-                )
-                self._pending_setups.discard(device_key)
-                return False
-
-            fast_candidate_epcs = initial_epcs & self._fast_epcs.get(
-                eoj.class_code, frozenset()
-            )
-            attempted_inf_epcs = frozenset(initial_epcs & inf_epcs)
-            poll_epcs, fast_poll_epcs = _compute_poll_epcs(
-                monitored_epcs=initial_epcs,
-                get_epcs=get_epcs,
-                fast_candidate_epcs=fast_candidate_epcs,
-                confirmed_inf_epcs=frozenset(),
-            )
-
-            node = NodeState(
-                eoj=eoj,
-                properties=properties,
-                node_id=node_id,
-                get_epcs=get_epcs,
-                set_epcs=set_epcs,
-                inf_epcs=inf_epcs,
-                poll_epcs=poll_epcs,
-                fast_poll_epcs=fast_poll_epcs,
-                monitored_epcs=initial_epcs,
-                fast_candidate_epcs=fast_candidate_epcs,
-                attempted_inf_epcs=attempted_inf_epcs,
-                manufacturer_code=manufacturer_code,
-                product_code=product_code,
-                serial_number=serial_number,
-                observed_batch_capacity=observed_batch_capacity,
-                polling_available=None,
-            )
-
-            self.last_frame_received_at = timestamp
-            self.data[device_key] = node
-
-            await self._recover_uninitialized_collection_ranges(node)
-            await self._send_initial_notification(device_key, node)
-
-            self._pending_setups.discard(device_key)
-            _LOGGER.info(
-                "Created new node %s with %d properties, get=[%s] set=[%s] inf=[%s]",
+            return await self._setup_device(node_id, eoj, device_key)
+        except GetAbortedError as err:
+            _LOGGER.warning(
+                "Setup of %s was not completed and will be retried on the next "
+                "discovery: %s",
                 device_key,
-                len(properties),
-                bytes(sorted(get_epcs)).hex(),
-                bytes(sorted(set_epcs)).hex(),
-                bytes(sorted(inf_epcs)).hex(),
+                err,
             )
-
-            for cb in self._on_device_added:
-                cb(device_key)
-
-            return True
-
+            return False
         except Exception:
-            self._pending_setups.discard(device_key)
             _LOGGER.exception("Failed to request property maps for %r", eoj)
             return False
+        finally:
+            self._pending_setups.discard(device_key)
+
+    async def _setup_device(self, node_id: str, eoj: EOJ, device_key: str) -> bool:
+        base_epcs = [
+            EPC.INF_PROPERTY_MAP,
+            EPC.SET_PROPERTY_MAP,
+            EPC.GET_PROPERTY_MAP,
+            EPC.MANUFACTURER_CODE,
+            EPC.PRODUCT_CODE,
+            EPC.SERIAL_NUMBER,
+        ]
+
+        initial_epcs = self._monitored_epcs.get(eoj.class_code, frozenset())
+        monitored_epcs = initial_epcs - set(base_epcs)
+        all_epcs = base_epcs + list(monitored_epcs)
+
+        _LOGGER.debug(
+            "Requesting property maps for node %s %r: base=[%s], monitored=[%s]",
+            node_id,
+            eoj,
+            " ".join(f"{epc:02X}" for epc in base_epcs),
+            " ".join(f"{epc:02X}" for epc in sorted(monitored_epcs)),
+        )
+
+        response_props = await self._client.setup_get(node_id, eoj, all_epcs)
+        properties: dict[int, bytes] = {
+            prop.epc: prop.edt for prop in response_props if prop.edt
+        }
+
+        timestamp = time.monotonic()
+        get_epcs, set_epcs, inf_epcs = _extract_property_maps(properties)
+        manufacturer_code, product_code, serial_number = _extract_node_profile_info(
+            properties
+        )
+
+        if (
+            manufacturer_code is None
+            or get_epcs is None
+            or set_epcs is None
+            or inf_epcs is None
+        ):
+            invalid_epcs = [
+                epc
+                for epc, value in (
+                    (EPC.INF_PROPERTY_MAP, inf_epcs),
+                    (EPC.SET_PROPERTY_MAP, set_epcs),
+                    (EPC.GET_PROPERTY_MAP, get_epcs),
+                    (EPC.MANUFACTURER_CODE, manufacturer_code),
+                )
+                if value is None
+            ]
+            _LOGGER.warning(
+                "Setup of %s was not completed and will be retried on the next "
+                "discovery: missing or invalid EPCs [%s]",
+                device_key,
+                " ".join(f"{epc:02X}" for epc in invalid_epcs),
+            )
+            return False
+
+        fast_candidate_epcs = initial_epcs & self._fast_epcs.get(
+            eoj.class_code, frozenset()
+        )
+        attempted_inf_epcs = frozenset(initial_epcs & inf_epcs)
+        poll_epcs, fast_poll_epcs = _compute_poll_epcs(
+            monitored_epcs=initial_epcs,
+            get_epcs=get_epcs,
+            fast_candidate_epcs=fast_candidate_epcs,
+            confirmed_inf_epcs=frozenset(),
+        )
+
+        node = NodeState(
+            eoj=eoj,
+            properties=properties,
+            node_id=node_id,
+            get_epcs=get_epcs,
+            set_epcs=set_epcs,
+            inf_epcs=inf_epcs,
+            poll_epcs=poll_epcs,
+            fast_poll_epcs=fast_poll_epcs,
+            monitored_epcs=initial_epcs,
+            fast_candidate_epcs=fast_candidate_epcs,
+            attempted_inf_epcs=attempted_inf_epcs,
+            manufacturer_code=manufacturer_code,
+            product_code=product_code,
+            serial_number=serial_number,
+            polling_available=None,
+        )
+
+        self.last_frame_received_at = timestamp
+        self.data[device_key] = node
+
+        await self._recover_uninitialized_collection_ranges(node)
+        await self._send_initial_notification(device_key, node)
+
+        _LOGGER.info(
+            "Created new node %s with %d properties, get=[%s] set=[%s] inf=[%s]",
+            device_key,
+            len(properties),
+            bytes(sorted(get_epcs)).hex(),
+            bytes(sorted(set_epcs)).hex(),
+            bytes(sorted(inf_epcs)).hex(),
+        )
+
+        for cb in self._on_device_added:
+            cb(device_key)
+
+        return True
 
     async def _send_initial_notification(
         self, device_key: str, node: NodeState

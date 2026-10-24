@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyhems import EOJ, ESV, Property, SetRequestResult
+from pyhems import EOJ, ESV, GetAbortedError, Property, SetRequestResult
 from pyhems.device_manager import (
     DeviceManager,
     NodeState,
@@ -48,10 +48,11 @@ def test_decode_ascii_property(edt: bytes, expected: str | None) -> None:
 @pytest.mark.parametrize(
     ("edt", "expected"),
     [
-        (b"", frozenset()),
+        (b"", None),
+        (bytes.fromhex("00"), frozenset()),
         (bytes.fromhex("03808182"), frozenset({0x80, 0x81, 0x82})),
-        (bytes.fromhex("03ff"), frozenset()),
-        (bytes.fromhex("10"), frozenset()),
+        (bytes.fromhex("03ff"), None),
+        (bytes.fromhex("10"), None),
         (
             bytes.fromhex("10FF00000000000000000000000000000000"),
             frozenset({0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0}),
@@ -64,8 +65,8 @@ def test_decode_ascii_property(edt: bytes, expected: str | None) -> None:
             bytes.fromhex("1003000000000000000000000000000000"),
             frozenset({0x80, 0x90}),
         ),
-        (bytes.fromhex("05E0"), frozenset()),
-        (bytes.fromhex("10FF"), frozenset()),
+        (bytes.fromhex("05E0"), None),
+        (bytes.fromhex("10FF"), None),
         (
             bytes.fromhex("160B010109000000010101030303030303"),
             frozenset(
@@ -97,7 +98,7 @@ def test_decode_ascii_property(edt: bytes, expected: str | None) -> None:
         ),
     ],
 )
-def test_parse_property_map(edt: bytes, expected: frozenset[int]) -> None:
+def test_parse_property_map(edt: bytes, expected: frozenset[int] | None) -> None:
     """Ensure property maps parse to expected EPC sets."""
     assert _parse_property_map(edt) == expected
 
@@ -794,9 +795,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
-        )
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         # Same value as already stored: on_device_updated would not fire,
         # but on_frame_received should still fire (a response was observed).
@@ -815,9 +814,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_epcs: list[frozenset[int]] = []
-        dm.on_frame_received(
-            lambda _key, _tid, _esv, epcs, _empty: received_epcs.append(epcs)
-        )
+        dm.on_frame_received(lambda _key, _tid, _esv, epcs: received_epcs.append(epcs))
 
         event = _make_frame_event(
             node.node_id,
@@ -838,9 +835,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         received_keys: list[str] = []
-        dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
-        )
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -855,9 +850,7 @@ class TestProcessFrameEvent:
         dm = DeviceManager(client, {})
 
         received_keys: list[str] = []
-        dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
-        )
+        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
 
         event = _make_frame_event(
             "fe00000000000000000000000000000001",
@@ -878,7 +871,7 @@ class TestProcessFrameEvent:
 
         received_keys: list[str] = []
         unsub = dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs, _empty: received_keys.append(key)
+            lambda key, _tid, _esv, _epcs: received_keys.append(key)
         )
         unsub()
 
@@ -992,7 +985,8 @@ class TestProcessInstanceListEvent:
         assert node.manufacturer_code == 0x000001
         assert node.product_code == "PRODUCT"
         assert node.serial_number == "SERIAL"
-        assert node.observed_batch_capacity == 2
+        assert dm.get_observed_batch_capacity(result[0]) == 2
+        client.get_observed_batch_capacity.assert_called_with(node_id, eoj)
         assert node.get_epcs == get_epcs
         assert node.set_epcs == set_epcs
         assert node.inf_epcs == inf_epcs
@@ -1358,6 +1352,129 @@ class TestProcessInstanceListEvent:
         assert node.manufacturer_code == 0x000001
         assert node.product_code is None
         assert node.serial_number is None
+
+    @pytest.mark.asyncio
+    async def test_setup_accepts_valid_empty_property_map(self) -> None:
+        """A property map listing zero EPCs (EDT 0x00) is valid."""
+        client = _make_client()
+        node_id = "fe00000000000000000000000000000001"
+        client.get.return_value = [
+            Property(epc=0x9D, edt=b"\x00"),
+            Property(epc=0x9E, edt=b"\x00"),
+            Property(epc=0x9F, edt=_make_property_map_edt(frozenset({0x80}))),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+        ]
+        dm = DeviceManager(client, {})
+
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id=node_id,
+                properties={},
+            )
+        )
+
+        assert len(result) == 1
+        node = dm.data[result[0]]
+        assert node.inf_epcs == frozenset()
+        assert node.set_epcs == frozenset()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("missing", "properties"),
+        [
+            (
+                "[8A]",
+                [
+                    Property(epc=0x9D, edt=b"\x00"),
+                    Property(epc=0x9E, edt=b"\x00"),
+                    Property(epc=0x9F, edt=b"\x00"),
+                    Property(epc=0x8A, edt=b""),
+                ],
+            ),
+            (
+                "[9F]",
+                [
+                    Property(epc=0x9D, edt=b"\x00"),
+                    Property(epc=0x9E, edt=b"\x00"),
+                    Property(epc=0x9F, edt=b""),
+                    Property(epc=0x8A, edt=b"\x00\x00\x01"),
+                ],
+            ),
+            (
+                "[9D]",
+                [
+                    Property(epc=0x9E, edt=b"\x00"),
+                    Property(epc=0x9F, edt=b"\x00"),
+                    Property(epc=0x8A, edt=b"\x00\x00\x01"),
+                ],
+            ),
+        ],
+    )
+    async def test_setup_requires_manufacturer_and_property_maps(
+        self,
+        missing: str,
+        properties: list[Property],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Devices without 0x8A or valid property maps are not registered."""
+        client = _make_client()
+        node_id = "fe00000000000000000000000000000001"
+        client.get.return_value = properties
+        dm = DeviceManager(client, {})
+        event = HemsInstanceListEvent(
+            received_at=1.0,
+            instances=[EOJ(0x013001)],
+            node_id=node_id,
+            properties={},
+        )
+
+        assert await dm.process_instance_list_event(event) == []
+        assert dm.data == {}
+        assert dm._pending_setups == set()
+        assert missing in caplog.text
+
+        # The next instance list sets the device up again.
+        client.get.reset_mock()
+        await dm.process_instance_list_event(event)
+        client.setup_get.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_aborted_setup_does_not_stop_other_devices(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """GetAbortedError gives up only the affected device."""
+        client = _make_client()
+        node_id = "fe00000000000000000000000000000001"
+        good = [
+            Property(epc=0x9D, edt=b"\x00"),
+            Property(epc=0x9E, edt=b"\x00"),
+            Property(epc=0x9F, edt=b"\x00"),
+            Property(epc=0x8A, edt=b"\x00\x00\x01"),
+        ]
+
+        async def setup_get(_node_id: str, eoj: EOJ, *_args: object) -> list[Property]:
+            if eoj == EOJ(0x029001):
+                raise GetAbortedError("no response")
+            return good
+
+        client.setup_get = AsyncMock(side_effect=setup_get)
+        dm = DeviceManager(client, {})
+
+        result = await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x029001), EOJ(0x029002)],
+                node_id=node_id,
+                properties={},
+            )
+        )
+
+        assert result == [f"{node_id}-029002"]
+        assert dm._pending_setups == set()
+        assert "no response" in caplog.text
+        assert "Traceback" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
