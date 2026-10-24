@@ -20,7 +20,6 @@ def _make_node(
     *,
     poll_epcs: frozenset[int] = frozenset({0xE0}),
     fast_poll_epcs: frozenset[int] = frozenset(),
-    observed_batch_capacity: int | None = None,
     eoj: EOJ = _TEST_EOJ,
     manufacturer_code: int = 0x000001,
 ) -> NodeState:
@@ -37,7 +36,6 @@ def _make_node(
         fast_poll_epcs=fast_poll_epcs,
         product_code=None,
         serial_number=None,
-        observed_batch_capacity=observed_batch_capacity,
     )
 
 
@@ -79,12 +77,6 @@ def _consecutive_failures(poller: PropertyPoller, device_key: str) -> int:
     """Return the device's consecutive_failures state (0 if untracked)."""
     state = poller._state.get(device_key)
     return 0 if state is None else state.consecutive_failures
-
-
-def _batch_capacity(poller: PropertyPoller, device_key: str) -> int | None:
-    """Return the device's observed_batch_capacity state (None if untracked)."""
-    state = poller._state.get(device_key)
-    return None if state is None else state.observed_batch_capacity
 
 
 class TestPropertyPollerLifecycle:
@@ -182,7 +174,7 @@ class TestSchedulePolls:
         poller._schedule_polls()
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
     @pytest.mark.asyncio
     async def test_schedule_polls_skips_devices_without_poll_epcs(self) -> None:
@@ -305,10 +297,11 @@ class TestAwaitingResponse:
     async def test_poll_node_marks_device_awaiting_on_success(self) -> None:
         """A successfully sent poll marks the device as awaiting a response."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert _awaiting_since(poller, "k1") is not None
 
@@ -316,10 +309,11 @@ class TestAwaitingResponse:
     async def test_poll_node_does_not_mark_awaiting_on_failure(self) -> None:
         """A failed send does not mark the device as awaiting a response."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(return_value=None)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert _awaiting_since(poller, "k1") is None
 
@@ -351,7 +345,7 @@ class TestAwaitingResponse:
 
         assert "k1" not in poller._pending
         assert _awaiting_since(poller, "k1") is not None
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
     @pytest.mark.asyncio
     async def test_frame_received_clears_awaiting(self) -> None:
@@ -438,6 +432,7 @@ class TestAdaptiveInterval:
     async def test_poll_timeout_marks_device_unavailable(self) -> None:
         """An unanswered scheduled poll marks the device unavailable."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         poller = PropertyPoller(dm, poll_interval=60, awaiting_timeout=0.01)
         poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
         _set_state(poller, "k1", awaiting_since=time.monotonic() - 1.0)
@@ -472,6 +467,7 @@ class TestAdaptiveInterval:
         """A response to a scheduled poll marks the device available."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
@@ -536,16 +532,17 @@ class TestAdaptiveInterval:
         poller._schedule_polls()
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
     @pytest.mark.asyncio
     async def test_poll_node_records_last_polled_at_on_success(self) -> None:
         """A successful poll records the last-polled timestamp."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert _last_polled_at(poller, "k1") is not None
 
@@ -587,7 +584,7 @@ class TestFastPollTier:
         poller._schedule_polls()
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE7}))
+        dm.poll_device.assert_called_once_with("k1", (0xE7,))
         assert _last_fast_polled_at(poller, "k1") is not None
         assert poller._fast_poll_interval == 10.0
 
@@ -647,7 +644,7 @@ class TestFastPollTier:
         poller._schedule_polls()
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE7}))
+        dm.poll_device.assert_called_once_with("k1", (0xE7,))
         assert _last_fast_polled_at(poller, "k1") is not None
 
     @pytest.mark.asyncio
@@ -713,7 +710,7 @@ class TestFastPollTier:
         poller._schedule_polls()
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0, 0xE7}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0, 0xE7))
         assert _last_polled_at(poller, "k1") is not None
         assert _last_fast_polled_at(poller, "k1") is not None
 
@@ -766,7 +763,7 @@ class TestFastPollTier:
         poller.schedule_immediate_poll("k1", delay=0)
         await asyncio.sleep(0.01)
 
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0, 0xE7}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0, 0xE7))
         assert _last_polled_at(poller, "k1") is not None
         assert _last_fast_polled_at(poller, "k1") is not None
 
@@ -787,7 +784,7 @@ class TestScheduleImmediatePoll:
         await asyncio.sleep(0.01)
 
         assert "k1" not in poller._pending
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
     @pytest.mark.asyncio
     async def test_immediate_poll_with_delay_schedules(self) -> None:
@@ -806,7 +803,7 @@ class TestScheduleImmediatePoll:
 
         # Wait for the delay to expire
         await asyncio.sleep(0.1)
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
         # cleanup
         poller.stop()
 
@@ -851,7 +848,7 @@ class TestScheduleImmediatePoll:
 
         assert old_handle.cancelled()
         await asyncio.sleep(0.01)
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
 
 class TestPollNode:
@@ -861,11 +858,12 @@ class TestPollNode:
     async def test_poll_node_clears_pending_on_success(self) -> None:
         """Pending flag is cleared when polling succeeds."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
         poller._pending.add("k1")
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert "k1" not in poller._pending
 
@@ -873,11 +871,12 @@ class TestPollNode:
     async def test_poll_node_clears_pending_on_failure(self) -> None:
         """Pending flag is cleared when polling returns failure."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(return_value=None)
         poller = PropertyPoller(dm, poll_interval=60)
         poller._pending.add("k1")
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert "k1" not in poller._pending
 
@@ -885,176 +884,101 @@ class TestPollNode:
     async def test_poll_node_clears_pending_on_os_error(self) -> None:
         """Pending flag is cleared when polling raises OSError."""
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.poll_device = MagicMock(side_effect=OSError("network error"))
         poller = PropertyPoller(dm, poll_interval=60)
         poller._pending.add("k1")
 
-        poller._poll_node("k1", fast=False, normal=True)
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
 
         assert "k1" not in poller._pending
 
 
 class TestBatchCapacity:
-    """Tests for partial-response detection and adaptive batch sizing (Step 5)."""
+    """Tests for chunking by the limit learned during setup (ADR-0005)."""
 
     @pytest.mark.asyncio
-    async def test_partial_response_shrinks_capacity(self) -> None:
-        """A response missing requested EPCs shrinks observed_batch_capacity."""
+    async def test_partial_response_is_not_requeued(self) -> None:
+        """EPCs missing from a response are left to the next cycle."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
+        epcs = frozenset({0xE0, 0xE1, 0xE2})
+        dm.data = {"k1": _make_node("k1", poll_epcs=epcs)}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=None)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node(
-            "k1",
-            epcs=frozenset({0xE0, 0xE1, 0xE2}),
-            fast=False,
-            normal=True,
-        )
+        poller._poll_node("k1", epcs=epcs, fast=False, normal=True)
         callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        callback("k1", sent_tid, 0x72, frozenset({0xE0, 0xE1}))  # 0xE2 missing
+        callback("k1", 1, 0x72, frozenset({0xE0, 0xE1}))
 
-        assert _batch_capacity(poller, "k1") == 2
+        dm.poll_device.assert_called_once_with("k1", (0xE0, 0xE1, 0xE2))
+        dm.record_poll_success.assert_called_once_with("k1")
+        assert _awaiting_since(poller, "k1") is None
+        assert poller._state["k1"].remaining_epcs == ()
 
     @pytest.mark.asyncio
-    async def test_all_empty_response_halves_capacity_with_ceiling(self) -> None:
-        """A full empty response changes capacity 7 to 4 and replans lazily."""
+    async def test_all_empty_response_is_not_split(self) -> None:
+        """A response in which every EPC is empty is not split by the poller."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
         epcs = frozenset(range(0xE0, 0xE7))
         dm.data = {"k1": _make_node("k1", poll_epcs=epcs)}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=None)
         poller = PropertyPoller(dm, poll_interval=60)
-
-        poller._poll_node(
-            "k1",
-            epcs=epcs,
-            fast=False,
-            normal=True,
-        )
-        callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        first_batch = dm.poll_device.call_args.args[1]
-        callback(
-            "k1",
-            sent_tid,
-            0x72,
-            frozenset(first_batch),
-            frozenset(first_batch),
-        )
-
-        assert _batch_capacity(poller, "k1") == 4
-        assert dm.poll_device.call_count == 2
-        assert len(dm.poll_device.call_args.args[1]) == 4
-        assert len(poller._state["k1"].remaining_epcs) == 3
-
-    @pytest.mark.asyncio
-    async def test_single_empty_epc_does_not_change_capacity(self) -> None:
-        """A single unsupported EPC is completed without capacity learning."""
-        unsub = MagicMock()
-        dm = MagicMock(spec=DeviceManager)
-        dm.on_frame_received = MagicMock(return_value=unsub)
-        dm.poll_device = MagicMock(return_value=1)
-        poller = PropertyPoller(dm, poll_interval=60)
-
-        poller._poll_node(
-            "k1",
-            epcs=(0xE0,),
-            fast=False,
-            normal=True,
-        )
-        callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        callback("k1", sent_tid, 0x72, frozenset({0xE0}), frozenset({0xE0}))
-
-        assert _batch_capacity(poller, "k1") is None
-        assert dm.poll_device.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_all_empty_does_not_rehalve_known_capacity(self) -> None:
-        """A known capacity treats a full-empty response as unsupported EPCs."""
-        unsub = MagicMock()
-        dm = MagicMock(spec=DeviceManager)
-        epcs = frozenset({0xE0, 0xE1})
-        dm.data = {"k1": _make_node("k1", poll_epcs=epcs)}
-        dm.on_frame_received = MagicMock(return_value=unsub)
-        dm.poll_device = MagicMock(return_value=1)
-        poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=2)
 
         poller._poll_node("k1", epcs=epcs, fast=False, normal=True)
         callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        callback("k1", sent_tid, 0x72, epcs, epcs)
+        callback("k1", 1, 0x72, epcs)
 
-        assert _batch_capacity(poller, "k1") == 2
         assert dm.poll_device.call_count == 1
-        dm.update_observed_batch_capacity.assert_not_called()
+        assert poller._state["k1"].remaining_epcs == ()
 
     @pytest.mark.asyncio
-    async def test_full_response_does_not_change_capacity(self) -> None:
-        """A full response does not change the learned capacity."""
+    async def test_get_sna_response_counts_as_liveness(self) -> None:
+        """A matched 0x52 response is evidence that the device responds."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=None)
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        _set_state(poller, "k1", consecutive_failures=3)
 
-        poller._poll_node(
-            "k1",
-            epcs=frozenset({0xE0, 0xE1}),
-            fast=False,
-            normal=True,
-        )
+        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
         callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        callback("k1", sent_tid, 0x72, frozenset({0xE0, 0xE1}))
+        callback("k1", 1, 0x52, frozenset({0xE0}))
 
-        assert _batch_capacity(poller, "k1") == 1
+        dm.record_poll_success.assert_called_once_with("k1")
+        dm.record_poll_failure.assert_not_called()
+        assert _consecutive_failures(poller, "k1") == 0
 
     @pytest.mark.asyncio
-    async def test_capacity_never_shrinks_below_one(self) -> None:
-        """Capacity has a floor of 1 even if a response comes back empty."""
+    async def test_immediate_poll_is_chunked_without_liveness(self) -> None:
+        """Immediate polls use the known limit but are not used for liveness."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
+        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
 
-        poller._poll_node(
-            "k1",
-            epcs=frozenset({0xE0, 0xE1}),
-            fast=False,
-            normal=True,
-        )
+        poller.schedule_immediate_poll("k1", delay=0)
+        await asyncio.sleep(0.01)
+
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
         callback = dm.on_frame_received.call_args.args[0]
-        sent_tid = poller._state["k1"].awaiting_tid
-        assert sent_tid is not None
-        callback("k1", sent_tid, 0x72, frozenset())
+        callback("k1", 1, 0x72, frozenset({0xE0}))
 
-        assert _batch_capacity(poller, "k1") == 1
-
-    @pytest.mark.asyncio
-    async def test_partial_response_without_requested_epcs_is_noop(self) -> None:
-        """A frame with no associated requested_epcs does not touch capacity."""
-        unsub = MagicMock()
-        dm = MagicMock(spec=DeviceManager)
-        dm.on_frame_received = MagicMock(return_value=unsub)
-        poller = PropertyPoller(dm, poll_interval=60)
-
-        callback = dm.on_frame_received.call_args.args[0]
-        callback("k1", 999, 0x72, frozenset({0xE0}))
-
-        assert _batch_capacity(poller, "k1") is None
+        assert dm.poll_device.call_count == 2
+        assert dm.poll_device.call_args.args[1] == (0xE1,)
+        dm.record_poll_success.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_schedule_polls_chunks_when_over_capacity(self) -> None:
@@ -1064,7 +988,7 @@ class TestBatchCapacity:
         dm.poll_device = MagicMock(return_value=True)
         dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
 
         poller._schedule_polls()
 
@@ -1078,13 +1002,8 @@ class TestBatchCapacity:
     async def test_schedule_polls_uses_setup_capacity(self) -> None:
         """A capacity learned during setup is used by the first poll."""
         dm = MagicMock(spec=DeviceManager)
-        dm.data = {
-            "k1": _make_node(
-                "k1",
-                poll_epcs=frozenset({0xE0, 0xE1}),
-                observed_batch_capacity=1,
-            )
-        }
+        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
         dm.poll_device = MagicMock(return_value=True)
         dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         poller = PropertyPoller(dm, poll_interval=60)
@@ -1104,7 +1023,7 @@ class TestBatchCapacity:
         dm.poll_device = MagicMock(return_value=1)
         dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
 
         poller._schedule_polls()
         assert dm.poll_device.call_count == 1
@@ -1131,7 +1050,7 @@ class TestBatchCapacity:
         dm.poll_device = MagicMock(return_value=1)
         dm.effective_poll_epcs = MagicMock(return_value=epcs)
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
 
         poller._schedule_polls()
         callback = dm.on_frame_received.call_args.args[0]
@@ -1165,7 +1084,7 @@ class TestBatchCapacity:
         )
         dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset({0xB7}))
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=6)
+        dm.get_observed_batch_capacity = MagicMock(return_value=6)
 
         poller._schedule_polls()
         first_batch = dm.poll_device.call_args.args[1]
@@ -1192,8 +1111,6 @@ class TestBatchCapacity:
             0xC1,
             0xC2,
         }
-        assert _batch_capacity(poller, "k1") == 6
-        dm.update_observed_batch_capacity.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_timeout_aborts_chunk_cycle(self) -> None:
@@ -1203,7 +1120,7 @@ class TestBatchCapacity:
         dm.poll_device = MagicMock(return_value=1)
         dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1, 0xE2}))
         poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
 
         poller._schedule_polls()
         state = poller._state["k1"]
@@ -1232,7 +1149,7 @@ class TestBatchCapacity:
         dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
         dm.effective_fast_poll_epcs = MagicMock(return_value=frozenset({0xE7}))
         poller = PropertyPoller(dm, poll_interval=60, fast_poll_interval=10)
-        _set_state(poller, "k1", observed_batch_capacity=1)
+        dm.get_observed_batch_capacity = MagicMock(return_value=1)
 
         poller._schedule_polls()
 
@@ -1250,25 +1167,11 @@ class TestBatchCapacity:
         assert _last_fast_polled_at(poller, "k1") is not None
 
     @pytest.mark.asyncio
-    async def test_immediate_poll_is_never_chunked(self) -> None:
-        """schedule_immediate_poll bypasses batch-capacity chunking entirely."""
-        dm = MagicMock(spec=DeviceManager)
-        dm.data = {"k1": _make_node("k1", poll_epcs=frozenset({0xE0, 0xE1}))}
-        dm.poll_device = MagicMock(return_value=1)
-        dm.effective_poll_epcs = MagicMock(return_value=frozenset({0xE0, 0xE1}))
-        poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "k1", observed_batch_capacity=1)
-
-        poller.schedule_immediate_poll("k1", delay=0)
-        await asyncio.sleep(0.01)
-
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0, 0xE1}))
-
-    @pytest.mark.asyncio
     async def test_unrelated_frame_does_not_clear_awaiting(self) -> None:
         """A response with the wrong TID does not satisfy the outstanding poll."""
         unsub = MagicMock()
         dm = MagicMock(spec=DeviceManager)
+        dm.data = {"k1": _make_node("k1")}
         dm.on_frame_received = MagicMock(return_value=unsub)
         dm.poll_device = MagicMock(return_value=1)
         poller = PropertyPoller(dm, poll_interval=60)
@@ -1279,18 +1182,6 @@ class TestBatchCapacity:
 
         assert poller._state["k1"].awaiting_tid == 1
         assert _awaiting_since(poller, "k1") is not None
-
-    @pytest.mark.asyncio
-    async def test_cleanup_removes_batch_capacity_for_removed_devices(self) -> None:
-        """Batch-capacity state is removed for devices no longer present."""
-        dm = MagicMock(spec=DeviceManager)
-        dm.data = {}
-        poller = PropertyPoller(dm, poll_interval=60)
-        _set_state(poller, "gone", observed_batch_capacity=2)
-
-        poller._cleanup_stale()
-
-        assert "gone" not in poller._state
 
 
 class TestSubscriptionFiltering:
@@ -1323,7 +1214,7 @@ class TestSubscriptionFiltering:
 
         poller._schedule_polls()
 
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE0}))
+        dm.poll_device.assert_called_once_with("k1", (0xE0,))
 
     @pytest.mark.asyncio
     async def test_schedule_polls_skips_device_with_no_effective_epcs(self) -> None:
@@ -1356,7 +1247,7 @@ class TestSubscriptionFiltering:
 
         poller._schedule_polls()
 
-        dm.poll_device.assert_called_once_with("k1", frozenset({0xE7}))
+        dm.poll_device.assert_called_once_with("k1", (0xE7,))
 
     @pytest.mark.asyncio
     async def test_combined_scheduler_skips_device_with_no_effective_epcs(
