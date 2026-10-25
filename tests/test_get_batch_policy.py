@@ -55,3 +55,55 @@ def test_take_first_batch_returns_lazy_remainder() -> None:
 
     assert first == (0xC0, 0xC1, 0xC2, 0xB3, 0xB8, 0xBA)
     assert remaining == (0xB7,)
+
+
+@pytest.mark.parametrize(
+    ("class_code", "max_batch_size"),
+    [
+        (0x0290, 14),
+        (0x02A3, 9),
+    ],
+)
+def test_koizumi_policy_caps_batch_size(class_code: int, max_batch_size: int) -> None:
+    epcs = list(range(0x80, 0x80 + 27))
+
+    first, remaining = take_first_batch(
+        epcs,
+        manufacturer_code=0x0000E8,
+        class_code=class_code,
+    )
+
+    assert first == tuple(epcs[:max_batch_size])
+    assert remaining == tuple(epcs[max_batch_size:])
+
+
+def test_smaller_observed_capacity_wins_over_policy_cap() -> None:
+    epcs = list(range(0x80, 0x80 + 27))
+
+    assert take_first_batch(
+        epcs,
+        manufacturer_code=0x0000E8,
+        class_code=0x0290,
+        observed_batch_capacity=5,
+    ) == (tuple(epcs[:5]), tuple(epcs[5:]))
+
+
+def test_policy_cap_wins_over_larger_observed_capacity() -> None:
+    epcs = list(range(0x80, 0x80 + 27))
+
+    assert take_first_batch(
+        epcs,
+        manufacturer_code=0x0000E8,
+        class_code=0x0290,
+        observed_batch_capacity=20,
+    ) == (tuple(epcs[:14]), tuple(epcs[14:]))
+
+
+def test_policy_cap_does_not_apply_to_other_manufacturers() -> None:
+    epcs = list(range(0x80, 0x80 + 27))
+
+    assert take_first_batch(
+        epcs,
+        manufacturer_code=0x00000B,
+        class_code=0x0290,
+    ) == (tuple(epcs), ())

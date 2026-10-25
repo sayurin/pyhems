@@ -988,6 +988,71 @@ class TestAsyncGet:
         assert capability.observed_batch_capacity is None
 
     @pytest.mark.asyncio
+    async def test_async_get_applies_manufacturer_batch_size_cap(
+        self, client_with_protocol: HemsClient
+    ) -> None:
+        """A manufacturer cap splits the first setup GET without a timeout."""
+        client = client_with_protocol
+        node_id = "fe00000000000000000000000000000001"
+        address = "192.168.1.10"
+        deoj = EOJ(0x029001)
+        requested_epcs = list(range(0x80, 0x80 + 28))
+        client._device_addresses.forceput(address, node_id)
+
+        get_task = asyncio.create_task(
+            client.setup_get(node_id, deoj, requested_epcs, request_timeout=1.0)
+        )
+        await asyncio.sleep(0.01)
+
+        assert client._protocol is not None
+        send: Any = client._protocol.send
+        tid = next(iter(client._pending_gets))
+        sent_epcs = [
+            prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+        ]
+        assert sent_epcs == [0x8A]
+        self._simulate_receive(
+            client,
+            Frame(
+                tid=tid,
+                seoj=deoj,
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=0x8A, edt=b"\x00\x00\xe8")],
+            ),
+            address,
+        )
+
+        sent_batches: list[list[int]] = []
+        for _ in range(2):
+            await asyncio.sleep(0.01)
+            tid = next(iter(client._pending_gets))
+            batch = [
+                prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
+            ]
+            sent_batches.append(batch)
+            self._simulate_receive(
+                client,
+                Frame(
+                    tid=tid,
+                    seoj=deoj,
+                    deoj=CONTROLLER_INSTANCE,
+                    esv=ESV.GET_SNA,
+                    properties=[Property(epc=epc, edt=bytes([epc])) for epc in batch],
+                ),
+                address,
+            )
+
+        result = await get_task
+        remaining_epcs = [epc for epc in requested_epcs if epc != 0x8A]
+        assert [len(batch) for batch in sent_batches] == [14, 13]
+        assert sent_batches == [remaining_epcs[:14], remaining_epcs[14:]]
+        assert [prop.epc for prop in result] == requested_epcs
+        capability = client._get_capabilities[(node_id, deoj)]
+        assert capability.manufacturer_code == 0x0000E8
+        assert capability.observed_batch_capacity == 14
+
+    @pytest.mark.asyncio
     async def test_async_get_partial_missing_epc_retry(
         self, client_with_protocol: HemsClient
     ) -> None:
