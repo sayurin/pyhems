@@ -13,7 +13,7 @@ from pyhems.runtime import HemsClient, _GetCapability, _GetResponse
 
 _NODE_ID = "fe00000000000000000000000000000001"
 _ADDRESS = "192.168.1.10"
-_EOJ = EOJ(0x029001)
+_EOJ = EOJ(0x013001)
 _MANUFACTURER = Property(epc=0x8A, edt=b"\x00\x00\x01")
 
 # Returns None for no response, or the properties of a 0x72 response.

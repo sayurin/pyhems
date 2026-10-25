@@ -15,3 +15,4 @@ pyhems の設計判断を記録します。書式は Nygard 形式（ステー�
 | [0004](0004-halve-get-on-timeout.md) | GET がタイムアウトしたらリクエストを半減して同時応答数を探る | 承認 |
 | [0005](0005-get-responsibility-setup-and-polling.md) | 同時応答数の探索は setup で行い、ポーリングは既知の値で分割する | 承認 |
 | [0006](0006-retry-incomplete-setup-on-discovery.md) | 不完全な setup を次の探索でやり直す | 承認 |
+| [0007](0007-cap-koizumi-get-batch-size.md) | コイズミの 0x0290 と 0x02A3 では 1 回の GET の EPC 数を制限する | 承認 |

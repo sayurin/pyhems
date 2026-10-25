@@ -11,12 +11,15 @@ class GetBatchPolicy:
     """Constraints that apply to EPCs in one GET request."""
 
     incompatible_pairs: tuple[frozenset[int], ...] = ()
+    max_batch_size: int | None = None
 
 
 GET_BATCH_POLICIES: dict[tuple[int, int], GetBatchPolicy] = {
     (0x00000B, 0x0287): GetBatchPolicy(
         incompatible_pairs=(frozenset({0xB3, 0xB7}),),
     ),
+    (0x0000E8, 0x0290): GetBatchPolicy(max_batch_size=14),
+    (0x0000E8, 0x02A3): GetBatchPolicy(max_batch_size=9),
 }
 
 _POLICY_CLASSES = frozenset(class_code for _, class_code in GET_BATCH_POLICIES)
@@ -68,13 +71,18 @@ def take_first_batch(
         raise ValueError("observed_batch_capacity must be positive")
 
     policy = get_get_batch_policy(manufacturer_code, class_code)
+    capacity = observed_batch_capacity
+    if policy is not None and policy.max_batch_size is not None:
+        capacity = (
+            policy.max_batch_size
+            if capacity is None
+            else min(capacity, policy.max_batch_size)
+        )
     batch: list[int] = []
     remaining: list[int] = []
     for epc in epcs:
-        if (
-            observed_batch_capacity is not None
-            and len(batch) >= observed_batch_capacity
-        ) or not _can_add_to_batch(batch, epc, policy):
+        full = capacity is not None and len(batch) >= capacity
+        if full or not _can_add_to_batch(batch, epc, policy):
             remaining.append(epc)
         else:
             batch.append(epc)
