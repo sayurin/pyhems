@@ -88,9 +88,12 @@ _NON_BOOLEAN_TWO_VALUE_ENUM_KEYS = frozenset(
         frozenset({"cooling", "heating"}),
         frozenset({"cooling", "nonCooling"}),
         frozenset({"devicePoint", "powerReceivingPoint"}),
+        frozenset({"down", "up"}),
         frozenset({"loadFollowing", "maximumRating"}),
         frozenset({"builtIn", "separate"}),
         frozenset({"freezing", "refrigeration"}),
+        frozenset({"normal", "night"}),
+        frozenset({"remoteController", "wifi"}),
     }
 )
 
