@@ -484,6 +484,28 @@ devices:
         description_ja: >-
           宅内で消費されている瞬時電力。
         role: instantaneous
+      - epc: 0xF6
+        manufacturer_code: 0x00006C
+        byte_offset: 0
+        format: uint32
+        unit: "kWh"
+        minimum: 0
+        maximum: 4294967293
+        multipleOf: 0.001
+        get: optional
+        name_en: "Cumulative Electric Energy Bought"
+        name_ja: "積算買電電力量"
+      - epc: 0xF6
+        manufacturer_code: 0x00006C
+        byte_offset: 4
+        format: uint32
+        unit: "kWh"
+        minimum: 0
+        maximum: 4294967293
+        multipleOf: 0.001
+        get: optional
+        name_en: "Cumulative Electric Energy Sold"
+        name_ja: "積算売電電力量"
 
     # Controller (コントローラ) - Sharp manufacturer-specific properties
   0x05FF:
