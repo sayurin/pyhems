@@ -74,7 +74,7 @@ from .runtime import (
     RuntimeEvent,
     SetRequestResult,
 )
-from .transport import EchonetLiteProtocol, create_multicast_socket
+from .transport import EchonetLiteProtocol, check_interface, create_multicast_socket
 
 __all__ = [
     "CONTROLLER_CLASS",
@@ -133,6 +133,7 @@ __all__ = [
     "RuntimeEvent",
     "ScalarDefinition",
     "SetRequestResult",
+    "check_interface",
     "create_multicast_socket",
     "decode_collection",
     "decode_collection_page",

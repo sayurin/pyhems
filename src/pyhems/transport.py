@@ -74,37 +74,52 @@ async def create_multicast_socket(
     """
     loop = asyncio.get_running_loop()
 
-    # Create socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    # Allow multiple sockets to use the same port
-    if hasattr(socket, "SO_REUSEPORT"):
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        # Allow multiple sockets to use the same port
+        if hasattr(socket, "SO_REUSEPORT"):
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
-    # Bind to all interfaces on ECHONET port
-    sock.bind(("", ECHONET_PORT))
+        # Bind to all interfaces on ECHONET port
+        sock.bind(("", ECHONET_PORT))
 
-    # Join multicast group on specified interface
-    mreq = struct.pack(
-        "4s4s",
-        socket.inet_aton(ECHONET_MULTICAST),
-        socket.inet_aton(interface),
-    )
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        # Join multicast group on specified interface
+        mreq = struct.pack(
+            "4s4s",
+            socket.inet_aton(ECHONET_MULTICAST),
+            socket.inet_aton(interface),
+        )
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
-    # Set outgoing interface for multicast
-    sock.setsockopt(
-        socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface)
-    )
+        # Set outgoing interface for multicast
+        sock.setsockopt(
+            socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface)
+        )
 
-    # Set multicast TTL
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        # Set multicast TTL
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
 
-    # Set non-blocking
-    sock.setblocking(False)
+        sock.setblocking(False)
 
-    _transport, protocol = await loop.create_datagram_endpoint(
-        lambda: EchonetLiteProtocol(callback, error_callback), sock=sock
-    )
+        _transport, protocol = await loop.create_datagram_endpoint(
+            lambda: EchonetLiteProtocol(callback, error_callback), sock=sock
+        )
+    except BaseException:
+        sock.close()
+        raise
     return protocol
+
+
+async def check_interface(interface: str) -> None:
+    """Check that the ECHONET Lite multicast socket can be opened on an interface.
+
+    The socket is opened the same way as by :class:`~pyhems.HemsClient` and
+    closed again immediately.
+
+    Raises:
+        OSError: The socket could not be opened on the interface.
+    """
+    protocol = await create_multicast_socket(interface, lambda _data, _addr: None)
+    protocol.close()
