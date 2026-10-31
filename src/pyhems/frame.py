@@ -9,6 +9,10 @@ from .const import ESV
 from .eoj import EOJ
 
 
+class FrameDecodeError(ValueError):
+    """Raised when received data is not a valid ECHONET Lite frame."""
+
+
 @dataclass(slots=True)
 class Property:
     """ECHONET Lite property in a frame."""
@@ -77,28 +81,33 @@ class Frame:
     def decode(cls, data: bytes) -> Self:
         """Decode an ECHONET Lite frame from bytes."""
         if len(data) < 12:
-            raise ValueError("Frame too short")
+            raise FrameDecodeError("Frame too short")
 
         ehd1, ehd2 = data[0], data[1]
         if ehd1 != cls.EHD1 or ehd2 != cls.EHD2:
-            raise ValueError(f"Invalid ECHONET Lite header: {ehd1:#x} {ehd2:#x}")
+            raise FrameDecodeError(f"Invalid ECHONET Lite header: {ehd1:#x} {ehd2:#x}")
 
         tid = int.from_bytes(data[2:4], "big")
         seoj = EOJ.from_bytes(data[4:7])
         deoj = EOJ.from_bytes(data[7:10])
-        esv = ESV(data[10])
+        try:
+            esv = ESV(data[10])
+        except ValueError as err:
+            raise FrameDecodeError(f"Unknown ESV: {data[10]:#x}") from err
         opc = data[11]
 
         properties: list[Property] = []
         offset = 12
         for _ in range(opc):
-            if offset >= len(data):
-                raise ValueError("Incomplete property data")
+            if offset + 2 > len(data):
+                raise FrameDecodeError("Incomplete property header")
             epc = data[offset]
             pdc = data[offset + 1]
-            edt = data[offset + 2 : offset + 2 + pdc]
-            properties.append(Property(epc=epc, edt=edt))
-            offset += 2 + pdc
+            end = offset + 2 + pdc
+            if end > len(data):
+                raise FrameDecodeError("Incomplete property data")
+            properties.append(Property(epc=epc, edt=data[offset + 2 : end]))
+            offset = end
 
         return cls(seoj=seoj, deoj=deoj, esv=esv, tid=tid, properties=properties)
 

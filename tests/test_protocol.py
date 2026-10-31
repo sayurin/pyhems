@@ -2,7 +2,7 @@
 
 import pytest
 
-from pyhems import EOJ, EPC, ESV, Frame, Property
+from pyhems import EOJ, EPC, ESV, Frame, FrameDecodeError, Property
 from pyhems.discovery import _extract_discovery_info
 
 
@@ -126,6 +126,40 @@ class TestFrame:
         data = bytes([0x00, 0x00] + [0] * 10)
         with pytest.raises(ValueError, match="Invalid ECHONET Lite header"):
             Frame.decode(data)
+
+    @pytest.mark.parametrize(
+        ("data", "match"),
+        [
+            pytest.param(
+                bytes.fromhex("1081000101300105ff0172") + b"\x01\x80",
+                "Incomplete property header",
+                id="missing_pdc",
+            ),
+            pytest.param(
+                bytes.fromhex("1081000101300105ff0172") + b"\x01\x80\x02\x30",
+                "Incomplete property data",
+                id="truncated_edt",
+            ),
+            pytest.param(
+                bytes.fromhex("1081000101300105ff0172") + b"\x02\x80\x01\x30",
+                "Incomplete property header",
+                id="missing_property",
+            ),
+            pytest.param(
+                bytes.fromhex("1081000101300105ff01ff00"),
+                "Unknown ESV",
+                id="unknown_esv",
+            ),
+        ],
+    )
+    def test_decode_rejects_malformed_frame(self, data: bytes, match: str) -> None:
+        """Test malformed frames raise FrameDecodeError instead of other errors."""
+        with pytest.raises(FrameDecodeError, match=match):
+            Frame.decode(data)
+
+    def test_frame_decode_error_is_value_error(self) -> None:
+        """Test FrameDecodeError stays compatible with ValueError handlers."""
+        assert issubclass(FrameDecodeError, ValueError)
 
 
 class TestExtractDiscoveryInfo:

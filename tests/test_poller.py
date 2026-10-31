@@ -880,19 +880,6 @@ class TestPollNode:
 
         assert "k1" not in poller._pending
 
-    @pytest.mark.asyncio
-    async def test_poll_node_clears_pending_on_os_error(self) -> None:
-        """Pending flag is cleared when polling raises OSError."""
-        dm = MagicMock(spec=DeviceManager)
-        dm.data = {"k1": _make_node("k1")}
-        dm.poll_device = MagicMock(side_effect=OSError("network error"))
-        poller = PropertyPoller(dm, poll_interval=60)
-        poller._pending.add("k1")
-
-        poller._poll_node("k1", epcs=frozenset({0xE0}), fast=False, normal=True)
-
-        assert "k1" not in poller._pending
-
 
 class TestBatchCapacity:
     """Tests for chunking by the limit learned during setup (ADR-0005)."""

@@ -17,9 +17,11 @@ class EchonetLiteProtocol(asyncio.DatagramProtocol):
     def __init__(
         self,
         callback: Callable[[bytes, tuple[str, int]], None],
+        error_callback: Callable[[Exception], None] | None = None,
     ) -> None:
         """Initialize the transport."""
         self._callback = callback
+        self._error_callback = error_callback
         self._transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -38,6 +40,8 @@ class EchonetLiteProtocol(asyncio.DatagramProtocol):
         """Handle connection lost."""
         if exc:
             _LOGGER.warning("UDP transport connection lost: %s", exc)
+            if self._error_callback is not None:
+                self._error_callback(exc)
 
     def send(self, data: bytes, address: str) -> None:
         """Send data to the specified address."""
@@ -54,12 +58,15 @@ class EchonetLiteProtocol(asyncio.DatagramProtocol):
 async def create_multicast_socket(
     interface: str,
     callback: Callable[[bytes, tuple[str, int]], None],
+    *,
+    error_callback: Callable[[Exception], None] | None = None,
 ) -> EchonetLiteProtocol:
     """Create a UDP socket bound to the ECHONET Lite multicast group.
 
     Args:
         interface: Local interface IP address to bind to.
-        callback: Optional callback for received data.
+        callback: Callback for received data.
+        error_callback: Optional callback for an unexpected connection loss.
 
     Returns:
         EchonetLiteProtocol instance for sending and receiving.
@@ -98,6 +105,6 @@ async def create_multicast_socket(
     sock.setblocking(False)
 
     _transport, protocol = await loop.create_datagram_endpoint(
-        lambda: EchonetLiteProtocol(callback), sock=sock
+        lambda: EchonetLiteProtocol(callback, error_callback), sock=sock
     )
     return protocol

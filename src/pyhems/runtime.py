@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from bidict import bidict
 
@@ -23,7 +24,7 @@ from .const import (
 )
 from .discovery import _extract_discovery_info
 from .eoj import EOJ
-from .frame import Frame, Property
+from .frame import Frame, FrameDecodeError, Property
 from .get_batch_policy import (
     has_get_batch_policy_for_class,
     take_first_batch,
@@ -32,6 +33,8 @@ from .transport import EchonetLiteProtocol, create_multicast_socket
 
 _LOGGER = logging.getLogger(__name__)
 _INITIAL_DISCOVERY_DELAY = 30.0
+_MAX_PENDING_FRAMES_PER_ADDRESS = 16
+_MAX_PENDING_ADDRESSES = 32
 
 
 def _format_frame(frame: Frame) -> str:
@@ -55,6 +58,10 @@ class GetAbortedError(Exception):
     the standalone manufacturer code read) is not answered, or a request could
     not be sent. Only the affected device object is given up.
     """
+
+
+class ClientStoppedError(Exception):
+    """Raised when a pending request is interrupted by :meth:`HemsClient.stop`."""
 
 
 @dataclass(slots=True)
@@ -182,22 +189,26 @@ class HemsClient:
         # frames.
         self._address_discovery_tasks: dict[str, asyncio.Task[None]] = {}
         self._poll_task: asyncio.Task[None] | None = None
-        # Pending Get requests: tid -> (address, deoj, requested_epcs, future)
+        # Pending Get requests: tid -> (address, deoj, seoj, future)
         self._pending_gets: dict[
-            int, tuple[str, EOJ, list[int], asyncio.Future[_GetResponse]]
+            int, tuple[str, EOJ, EOJ, asyncio.Future[_GetResponse]]
         ] = {}
         # Observed GET response behavior, scoped to a node and destination EOJ.
         # This is intentionally runtime-only and is relearned after restart.
         self._get_capabilities: dict[tuple[str, EOJ], _GetCapability] = {}
         # Pending INF_REQ (0x63) requests awaiting a 0x73/0x53 response:
-        # tid -> (address, requested_epcs, future)
-        self._pending_infs: dict[
-            int, tuple[str, frozenset[int], asyncio.Future[Frame]]
-        ] = {}
+        # tid -> (address, deoj, seoj, future)
+        self._pending_infs: dict[int, tuple[str, EOJ, EOJ, asyncio.Future[Frame]]] = {}
         # Pending SetC requests: tid -> (address, deoj, seoj, requested_epcs, future)
         self._pending_sets: dict[
             int, tuple[str, EOJ, EOJ, frozenset[int], asyncio.Future[Frame]]
         ] = {}
+        self._decode_error_count = 0
+
+    @property
+    def decode_error_count(self) -> int:
+        """Return the number of received datagrams that could not be decoded."""
+        return self._decode_error_count
 
     def subscribe(self, callback: EventCallback) -> Callable[[], None]:
         """Subscribe to runtime events.
@@ -223,7 +234,7 @@ class HemsClient:
             return
 
         self._protocol = await create_multicast_socket(
-            self._interface, self._on_receive
+            self._interface, self._on_receive, error_callback=self._on_transport_error
         )
         _LOGGER.debug("HEMS runtime client started on %s", self._interface)
         if not self.probe_initial_nodes():
@@ -252,26 +263,19 @@ class HemsClient:
                 await self._poll_task
             self._poll_task = None
 
-        # Cancel pending Get requests
-        for _tid, (_addr, _deoj, _epcs, future) in list(self._pending_gets.items()):
-            if not future.done():
-                future.cancel()
+        # Fail pending requests instead of cancelling them: cancellation would
+        # propagate into, and terminate, the callers' tasks.
+        pending_futures: list[asyncio.Future[Any]] = [
+            *(future for *_, future in self._pending_gets.values()),
+            *(future for *_, future in self._pending_infs.values()),
+            *(future for *_, future in self._pending_sets.values()),
+        ]
         self._pending_gets.clear()
-
-        # Cancel pending INF_REQ (0x63) requests
-        for _tid, (_addr, _inf_epcs, inf_future) in list(self._pending_infs.items()):
-            if not inf_future.done():
-                inf_future.cancel()
         self._pending_infs.clear()
-
-        # Cancel pending SetC requests
-        for (
-            _tid,
-            (_addr, _deoj, _seoj, _set_epcs, set_future),
-        ) in list(self._pending_sets.items()):
-            if not set_future.done():
-                set_future.cancel()
         self._pending_sets.clear()
+        for future in pending_futures:
+            if not future.done():
+                future.set_exception(ClientStoppedError("Runtime client stopped"))
 
         self._protocol.close()
         self._protocol = None
@@ -464,22 +468,22 @@ class HemsClient:
         capability = self._get_capabilities.setdefault(
             (capability_key or address, deoj), _GetCapability()
         )
-        if capability.manufacturer_code is None and has_get_batch_policy_for_class(
-            deoj.class_code
-        ):
-            manufacturer = await self._read_manufacturer_code(
-                address=address,
-                deoj=deoj,
-                seoj=seoj,
-                request_timeout=request_timeout,
-                capability=capability,
-            )
-            if manufacturer is None:
-                return [Property(epc=epc, edt=b"") for epc in requested_epcs]
-            if EPC.MANUFACTURER_CODE in requested_epcs:
-                received[EPC.MANUFACTURER_CODE] = manufacturer
-
         try:
+            if capability.manufacturer_code is None and has_get_batch_policy_for_class(
+                deoj.class_code
+            ):
+                manufacturer = await self._read_manufacturer_code(
+                    address=address,
+                    deoj=deoj,
+                    seoj=seoj,
+                    request_timeout=request_timeout,
+                    capability=capability,
+                )
+                if manufacturer is None:
+                    return [Property(epc=epc, edt=b"") for epc in requested_epcs]
+                if EPC.MANUFACTURER_CODE in requested_epcs:
+                    received[EPC.MANUFACTURER_CODE] = manufacturer
+
             await self._run_get_batches(
                 address=address,
                 deoj=deoj,
@@ -490,7 +494,7 @@ class HemsClient:
                 received=received,
                 probe=False,
             )
-        except GetAbortedError as err:
+        except (GetAbortedError, ClientStoppedError) as err:
             _LOGGER.debug("Get request to %s %r stopped: %s", address, deoj, err)
 
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in requested_epcs]
@@ -770,8 +774,8 @@ class HemsClient:
             )
 
         tid = self._next_transaction_id()
-        future: asyncio.Future[Frame] = asyncio.Future()
-        self._pending_infs[tid] = (address, requested, future)
+        future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
+        self._pending_infs[tid] = (address, deoj, seoj, future)
 
         frame = Frame(
             tid=tid,
@@ -794,7 +798,7 @@ class HemsClient:
                 asyncio.shield(future), request_timeout
             )
         except TimeoutError:
-            if not future.done():
+            if not future.done() or future.exception() is not None:
                 _LOGGER.debug(
                     "Notification request (0x63) to %s %r timed out for EPCs: [%s]",
                     address,
@@ -807,6 +811,12 @@ class HemsClient:
                     unanswered_epcs=requested,
                 )
             response_frame = future.result()
+        except ClientStoppedError:
+            return NotificationRequestResult(
+                successful_epcs=frozenset(),
+                failed_epcs=frozenset(),
+                unanswered_epcs=requested,
+            )
         finally:
             self._pending_infs.pop(tid, None)
 
@@ -929,7 +939,7 @@ class HemsClient:
                 asyncio.shield(future), request_timeout
             )
         except TimeoutError:
-            if not future.done():
+            if not future.done() or future.exception() is not None:
                 _LOGGER.debug(
                     "SetC request to %s %r timed out for EPCs: [%s]",
                     address,
@@ -944,6 +954,14 @@ class HemsClient:
                     unanswered_epcs=requested_epcs,
                 )
             response_frame = future.result()
+        except ClientStoppedError:
+            return SetRequestResult(
+                sent=True,
+                response_esv=None,
+                accepted_epcs=frozenset(),
+                rejected_epcs=frozenset(),
+                unanswered_epcs=requested_epcs,
+            )
         finally:
             self._pending_sets.pop(tid, None)
 
@@ -976,168 +994,165 @@ class HemsClient:
             - frozenset(rejected_epcs),
         )
 
+    def _on_transport_error(self, error: Exception) -> None:
+        """Report an unexpected loss of the UDP transport."""
+        self._dispatch(HemsErrorEvent(received_at=time.monotonic(), error=error))
+
     def _on_receive(self, data: bytes, addr: tuple[str, int]) -> None:
         """Handle received UDP data."""
         try:
             frame = Frame.decode(data)
-            address = addr[0]
-            _LOGGER.debug(
-                "Received ECHONET Lite frame from %s:%d: %s",
-                addr[0],
-                addr[1],
+        except FrameDecodeError as err:
+            self._decode_error_count += 1
+            _LOGGER.debug("Discarding undecodable datagram from %s: %s", addr, err)
+            return
+        try:
+            self._process_frame(frame, addr)
+        except Exception:
+            _LOGGER.exception(
+                "Error processing ECHONET Lite frame from %s: %s",
+                addr,
                 _format_frame(frame),
             )
 
-            # Discard request ESVs - loopback or other node requests
-            if frame.esv in {
-                ESV.SETI,
-                ESV.SETC,
-                ESV.GET,
-                ESV.INF_REQ,
-                ESV.SETGET,
-            }:
-                _LOGGER.debug("Discarding request frame: %s", _format_frame(frame))
-                return
+    def _process_frame(self, frame: Frame, addr: tuple[str, int]) -> None:
+        """Route a decoded frame to pending requests and subscribers."""
+        address = addr[0]
+        _LOGGER.debug(
+            "Received ECHONET Lite frame from %s:%d: %s",
+            addr[0],
+            addr[1],
+            _format_frame(frame),
+        )
 
-            # Check if this is a response to a pending get request
-            if (
-                frame.esv in (ESV.GET_RES, ESV.GET_SNA)
-                and frame.tid in self._pending_gets
-            ):
-                pending_get = self._pending_gets.pop(frame.tid)
-                req_address, _req_deoj, _req_epcs, future = pending_get
-                if address == req_address and not future.done():
-                    _LOGGER.debug(
-                        "Matched pending Get response from %s: %s",
-                        address,
-                        _format_frame(frame),
-                    )
+        # Discard request ESVs - loopback or other node requests
+        if frame.esv in {
+            ESV.SETI,
+            ESV.SETC,
+            ESV.GET,
+            ESV.INF_REQ,
+            ESV.SETGET,
+        }:
+            _LOGGER.debug("Discarding request frame: %s", _format_frame(frame))
+            return
+
+        # Responses also continue to be dispatched as events below.
+        if frame.esv in (ESV.GET_RES, ESV.GET_SNA) and (
+            pending_get := self._pending_gets.get(frame.tid)
+        ):
+            req_address, req_deoj, req_seoj, future = pending_get
+            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
+                del self._pending_gets[frame.tid]
+                if not future.done():
                     future.set_result(
                         _GetResponse(
                             esv=frame.esv,
                             properties=tuple(frame.properties),
                         )
                     )
-                elif address != req_address:
-                    _LOGGER.debug(
-                        "Ignoring pending Get response from unexpected address %s "
-                        "(expected %s): %s",
-                        address,
-                        req_address,
-                        _format_frame(frame),
-                    )
-                # Continue processing to also dispatch the event
 
-            # Check if this is a response to a pending SetC request
-            if frame.esv in (ESV.SET_RES, ESV.SETC_SNA) and (
-                pending_set := self._pending_sets.get(frame.tid)
-            ):
-                req_address, req_deoj, req_seoj, _set_epcs, set_future = pending_set
-                if (
-                    address == req_address
-                    and frame.seoj == req_deoj
-                    and frame.deoj == req_seoj
-                ):
-                    self._pending_sets.pop(frame.tid, None)
-                    if not set_future.done():
-                        _LOGGER.debug(
-                            "Matched pending SetC response from %s: %s",
-                            address,
-                            _format_frame(frame),
-                        )
-                        set_future.set_result(frame)
-                else:
-                    _LOGGER.debug(
-                        "Ignoring pending SetC response from %s: %s",
-                        address,
-                        _format_frame(frame),
-                    )
-                # Continue processing to also dispatch the event
+        if frame.esv in (ESV.SET_RES, ESV.SETC_SNA) and (
+            pending_set := self._pending_sets.get(frame.tid)
+        ):
+            req_address, req_deoj, req_seoj, _set_epcs, set_future = pending_set
+            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
+                del self._pending_sets[frame.tid]
+                if not set_future.done():
+                    set_future.set_result(frame)
 
-            # Check if this is a response to a pending INF_REQ (0x63) request
-            if frame.esv in (ESV.INF, ESV.INF_SNA) and frame.tid in self._pending_infs:
-                pending_inf = self._pending_infs.pop(frame.tid)
-                req_address, _req_inf_epcs, inf_future = pending_inf
-                if address == req_address and not inf_future.done():
-                    _LOGGER.debug(
-                        "Matched pending notification-request response from %s: %s",
-                        address,
-                        _format_frame(frame),
-                    )
+        # 0x73 also carries a real notification other subscribers need to see.
+        if frame.esv in (ESV.INF, ESV.INF_SNA) and (
+            pending_inf := self._pending_infs.get(frame.tid)
+        ):
+            req_address, req_deoj, req_seoj, inf_future = pending_inf
+            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
+                del self._pending_infs[frame.tid]
+                if not inf_future.done():
                     inf_future.set_result(frame)
-                elif address != req_address:
-                    _LOGGER.debug(
-                        "Ignoring pending notification-request response from "
-                        "unexpected address %s (expected %s): %s",
-                        address,
-                        req_address,
-                        _format_frame(frame),
-                    )
-                # Continue processing to also dispatch the event (0x73 also
-                # carries a real notification other subscribers need to see)
 
-            # An INF from an unknown address is normally a multicast state
-            # update. Discover that source directly before applying any
-            # device-object notification it carried.
-            if (
-                frame.esv == ESV.INF
-                and address not in self._device_addresses
-                and frame.seoj.class_code != NODE_PROFILE_CLASS
-            ):
-                pending_frames = self._pending_frames.setdefault(address, [])
-                pending_frames.append((frame, frame.seoj, time.monotonic()))
-                self._schedule_address_discovery(address)
-                return
+        # An INF from an unknown address is normally a multicast state
+        # update. Discover that source directly before applying any
+        # device-object notification it carried.
+        if (
+            frame.esv == ESV.INF
+            and address not in self._device_addresses
+            and frame.seoj.class_code != NODE_PROFILE_CLASS
+        ):
+            self._queue_unknown_frame(frame, address)
+            return
 
-            # Handle node profile responses (identification and instance list)
-            if frame.seoj.class_code == NODE_PROFILE_CLASS:
-                self._handle_node_profile(frame, address)
-                return
+        # Handle node profile responses (identification and instance list)
+        if frame.seoj.class_code == NODE_PROFILE_CLASS:
+            self._handle_node_profile(frame, address)
+            return
 
-            # Send INFC_RES confirmation for INFC (0x74) frames
-            if frame.esv == ESV.INFC:
-                _LOGGER.debug(
-                    "Received INFC (0x74) from %s (EOJ: %r), sending INFC_RES",
-                    address,
-                    frame.seoj,
-                )
-                infc_res = Frame(
-                    tid=frame.tid,
-                    seoj=frame.deoj,
-                    deoj=frame.seoj,
-                    esv=ESV.INFC_RES,
-                    properties=frame.properties,
-                )
-                self._send_to_address(infc_res, address)
-
-            # For non-node-profile frames, lookup node_id by address
-            node_id = self._device_addresses.get(address)
-            if not node_id:
-                _LOGGER.debug(
-                    "Received frame from unknown device at %s (EOJ: %r), "
-                    "queuing and probing",
-                    address,
-                    frame.seoj,
-                )
-                # Queue the frame for later processing
-                pending_frames = self._pending_frames.setdefault(address, [])
-                pending_frames.append((frame, frame.seoj, time.monotonic()))
-                # Trigger node probe to discover the device
-                self.probe_nodes()
-                return
-
-            # Dispatch frame event
-            self._dispatch(
-                HemsFrameEvent(
-                    received_at=time.monotonic(),
-                    frame=frame,
-                    node_id=node_id,
-                    eoj=frame.seoj,
-                )
+        if frame.esv == ESV.INFC:
+            _LOGGER.debug(
+                "Received INFC (0x74) from %s (EOJ: %r), sending INFC_RES",
+                address,
+                frame.seoj,
             )
-        except Exception as ex:
-            _LOGGER.debug("Failed to decode frame from %s: %s", addr, ex)
-            self._dispatch(HemsErrorEvent(received_at=time.monotonic(), error=ex))
+            infc_res = Frame(
+                tid=frame.tid,
+                seoj=frame.deoj,
+                deoj=frame.seoj,
+                esv=ESV.INFC_RES,
+                properties=[Property(epc=prop.epc) for prop in frame.properties],
+            )
+            self._send_to_address(infc_res, address)
+
+        node_id = self._device_addresses.get(address)
+        if not node_id:
+            self._queue_unknown_frame(frame, address)
+            return
+
+        self._dispatch(
+            HemsFrameEvent(
+                received_at=time.monotonic(),
+                frame=frame,
+                node_id=node_id,
+                eoj=frame.seoj,
+            )
+        )
+
+    @staticmethod
+    def _matches_request(
+        frame: Frame, address: str, req_address: str, req_deoj: EOJ, req_seoj: EOJ
+    ) -> bool:
+        """Return whether a response frame answers a pending request."""
+        if address == req_address and frame.seoj == req_deoj and frame.deoj == req_seoj:
+            _LOGGER.debug(
+                "Matched pending request from %s: %s", address, _format_frame(frame)
+            )
+            return True
+        _LOGGER.debug(
+            "Ignoring response with a pending TID from %s (expected %s %r): %s",
+            address,
+            req_address,
+            req_deoj,
+            _format_frame(frame),
+        )
+        return False
+
+    def _queue_unknown_frame(self, frame: Frame, address: str) -> None:
+        """Queue a frame from an unknown address and discover that address."""
+        pending_frames = self._pending_frames.get(address)
+        if pending_frames is None:
+            if len(self._pending_frames) >= _MAX_PENDING_ADDRESSES:
+                _LOGGER.debug(
+                    "Dropping frame from unknown device at %s: too many unknown "
+                    "addresses",
+                    address,
+                )
+                return
+            pending_frames = self._pending_frames[address] = []
+        elif len(pending_frames) >= _MAX_PENDING_FRAMES_PER_ADDRESS:
+            del pending_frames[0]
+        _LOGGER.debug(
+            "Queuing frame from unknown device at %s (EOJ: %r)", address, frame.seoj
+        )
+        pending_frames.append((frame, frame.seoj, time.monotonic()))
+        self._schedule_address_discovery(address)
 
     def _handle_node_profile(self, frame: Frame, address: str) -> None:
         """Handle node profile responses."""
@@ -1229,8 +1244,10 @@ class HemsClient:
             request was not sent or timed out.
         """
         tid = self._next_transaction_id()
-        future: asyncio.Future[_GetResponse] = asyncio.Future()
-        self._pending_gets[tid] = (address, deoj, epcs, future)
+        future: asyncio.Future[_GetResponse] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._pending_gets[tid] = (address, deoj, seoj, future)
 
         frame = Frame(
             tid=tid,

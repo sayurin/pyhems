@@ -19,6 +19,9 @@ from pyhems import (
     SetRequestResult,
 )
 from pyhems.runtime import (
+    _MAX_PENDING_ADDRESSES,
+    _MAX_PENDING_FRAMES_PER_ADDRESS,
+    ClientStoppedError,
     HemsClient,
     HemsErrorEvent,
     HemsFrameEvent,
@@ -26,6 +29,7 @@ from pyhems.runtime import (
     RuntimeEvent,
     _GetCapability,
 )
+from pyhems.transport import EchonetLiteProtocol
 
 
 class TestRuntimeEvents:
@@ -1445,3 +1449,330 @@ class TestRequestNotifications:
         assert result.successful_epcs == frozenset()
         assert result.failed_epcs == frozenset()
         assert result.unanswered_epcs == frozenset()
+
+
+_NODE_ID = "fe00000000000000000000000000000001"
+_ADDRESS = "192.168.1.10"
+
+
+def _client_with_known_node() -> HemsClient:
+    client = HemsClient()
+    client._protocol = MagicMock()
+    client._device_addresses.forceput(_ADDRESS, _NODE_ID)
+    return client
+
+
+def _sent_frames(client: HemsClient) -> list[tuple[Frame, str]]:
+    send = cast(MagicMock, client._protocol).send
+    return [(Frame.decode(c.args[0]), c.args[1]) for c in send.call_args_list]
+
+
+class TestReceiveErrorHandling:
+    """Tests for error classification of received datagrams."""
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            pytest.param(b"not an echonet lite frame", id="garbage"),
+            pytest.param(
+                bytes.fromhex("1081000101300105ff0172") + b"\x01\x80\x02\x30",
+                id="truncated_edt",
+            ),
+            pytest.param(
+                bytes.fromhex("1081000101300105ff0172") + b"\x01\x80",
+                id="missing_pdc",
+            ),
+            pytest.param(bytes.fromhex("1081000101300105ff01ff00"), id="unknown_esv"),
+        ],
+    )
+    def test_malformed_datagram_is_dropped(self, data: bytes) -> None:
+        """A malformed datagram is counted and dropped without an error event."""
+        client = HemsClient()
+        events: list[RuntimeEvent] = []
+        client.subscribe(events.append)
+
+        client._on_receive(data, (_ADDRESS, 3610))
+
+        assert events == []
+        assert client.decode_error_count == 1
+
+    def test_frame_processing_error_does_not_dispatch_error_event(self) -> None:
+        """An unexpected error while handling a valid frame does not restart."""
+        client = HemsClient()
+        events: list[RuntimeEvent] = []
+        client.subscribe(events.append)
+        frame = Frame(
+            tid=1,
+            seoj=NODE_PROFILE_INSTANCE,
+            deoj=CONTROLLER_INSTANCE,
+            esv=ESV.GET_RES,
+            properties=[Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=b"\x00")],
+        )
+
+        with patch.object(
+            client, "_handle_node_profile", side_effect=RuntimeError("bug")
+        ):
+            client._on_receive(frame.encode(), (_ADDRESS, 3610))
+
+        assert events == []
+        assert client.decode_error_count == 0
+
+    def test_protocol_reports_lost_connection(self) -> None:
+        """The protocol reports an unexpected connection loss only."""
+        errors: list[Exception] = []
+        protocol = EchonetLiteProtocol(MagicMock(), error_callback=errors.append)
+        error = OSError("socket closed")
+
+        protocol.connection_lost(None)
+        protocol.connection_lost(error)
+
+        assert errors == [error]
+
+    @pytest.mark.asyncio
+    async def test_lost_connection_dispatches_error_event(self) -> None:
+        """A lost transport connection is dispatched as an error event."""
+        with patch(
+            "pyhems.runtime.create_multicast_socket", new_callable=AsyncMock
+        ) as mock_create:
+            mock_create.return_value = MagicMock()
+            client = HemsClient()
+            events: list[RuntimeEvent] = []
+            client.subscribe(events.append)
+            with patch.object(client, "probe_initial_nodes", return_value=True):
+                await client.start()
+
+            error = OSError("socket closed")
+            mock_create.call_args.kwargs["error_callback"](error)
+            await client.stop()
+
+        assert len(events) == 1
+        assert isinstance(events[0], HemsErrorEvent)
+        assert events[0].error is error
+
+
+class TestStopInterruptsRequests:
+    """Tests for pending requests interrupted by stop()."""
+
+    @pytest.mark.asyncio
+    async def test_setup_get_raises_client_stopped_error(self) -> None:
+        """A setup read interrupted by stop raises ClientStoppedError."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(client.setup_get(_NODE_ID, EOJ(0x013001), [0x80]))
+        await asyncio.sleep(0)
+
+        await client.stop()
+
+        with pytest.raises(ClientStoppedError):
+            await request
+
+    @pytest.mark.asyncio
+    async def test_get_returns_empty_values(self) -> None:
+        """A get interrupted by stop returns empty values instead of raising."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(client.get(_NODE_ID, EOJ(0x013001), [0x80]))
+        await asyncio.sleep(0)
+
+        await client.stop()
+
+        assert await request == [Property(epc=0x80, edt=b"")]
+
+    @pytest.mark.asyncio
+    async def test_request_notifications_returns_unanswered(self) -> None:
+        """An INF_REQ interrupted by stop reports every EPC as unanswered."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.request_notifications(_NODE_ID, EOJ(0x013001), [0x80, 0xB0])
+        )
+        await asyncio.sleep(0)
+
+        await client.stop()
+
+        result = await request
+        assert result.successful_epcs == frozenset()
+        assert result.failed_epcs == frozenset()
+        assert result.unanswered_epcs == frozenset({0x80, 0xB0})
+
+    @pytest.mark.asyncio
+    async def test_set_properties_returns_unanswered(self) -> None:
+        """A SetC interrupted by stop reports every EPC as unanswered."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.set_properties(
+                _NODE_ID, EOJ(0x013001), [Property(epc=0x80, edt=b"\x30")]
+            )
+        )
+        await asyncio.sleep(0)
+
+        await client.stop()
+
+        assert await request == SetRequestResult(
+            sent=True,
+            response_esv=None,
+            accepted_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset({0x80}),
+        )
+
+
+class TestPendingResponseMatching:
+    """Tests for matching responses to pending requests."""
+
+    @pytest.mark.parametrize(
+        ("address", "seoj"),
+        [
+            pytest.param("10.0.0.99", EOJ(0x013001), id="other_address"),
+            pytest.param(_ADDRESS, EOJ(0x013002), id="other_seoj"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_unmatched_get_response_keeps_pending_request(
+        self, address: str, seoj: EOJ
+    ) -> None:
+        """A same-TID GET response from another object does not consume the request."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
+        )
+        await asyncio.sleep(0)
+        tid = next(iter(client._pending_gets))
+
+        for source_address, source_eoj, edt in (
+            (address, seoj, b"\x31"),
+            (_ADDRESS, EOJ(0x013001), b"\x30"),
+        ):
+            client._on_receive(
+                Frame(
+                    tid=tid,
+                    seoj=source_eoj,
+                    deoj=CONTROLLER_INSTANCE,
+                    esv=ESV.GET_RES,
+                    properties=[Property(epc=0x80, edt=edt)],
+                ).encode(),
+                (source_address, 3610),
+            )
+
+        assert await request == [Property(epc=0x80, edt=b"\x30")]
+
+    @pytest.mark.parametrize(
+        ("address", "seoj"),
+        [
+            pytest.param("10.0.0.99", EOJ(0x013001), id="other_address"),
+            pytest.param(_ADDRESS, EOJ(0x013002), id="other_seoj"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_unmatched_inf_response_keeps_pending_request(
+        self, address: str, seoj: EOJ
+    ) -> None:
+        """A same-TID INF from another object does not consume the INF_REQ."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.request_notifications(
+                _NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0
+            )
+        )
+        await asyncio.sleep(0)
+        tid = next(iter(client._pending_infs))
+
+        for source_address, source_eoj, epc in (
+            (address, seoj, 0xB0),
+            (_ADDRESS, EOJ(0x013001), 0x80),
+        ):
+            client._on_receive(
+                Frame(
+                    tid=tid,
+                    seoj=source_eoj,
+                    deoj=CONTROLLER_INSTANCE,
+                    esv=ESV.INF,
+                    properties=[Property(epc=epc, edt=b"\x30")],
+                ).encode(),
+                (source_address, 3610),
+            )
+
+        result = await request
+        assert result.successful_epcs == frozenset({0x80})
+
+
+class TestUnknownAddressFrames:
+    """Tests for frames received from addresses without a known node."""
+
+    @staticmethod
+    def _device_frame(esv: ESV = ESV.GET_RES) -> Frame:
+        return Frame(
+            tid=1,
+            seoj=EOJ(0x013001),
+            deoj=CONTROLLER_INSTANCE,
+            esv=esv,
+            properties=[Property(epc=0x80, edt=b"\x30")],
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_inf_frame_uses_direct_discovery(self) -> None:
+        """A non-INF frame triggers one unicast discovery instead of multicast."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.120"
+
+        for _ in range(3):
+            client._on_receive(self._device_frame().encode(), (address, 3610))
+        await asyncio.sleep(0)
+
+        sent = _sent_frames(client)
+        assert [destination for _, destination in sent] == [address]
+        assert sent[0][0].deoj == NODE_PROFILE_INSTANCE
+        assert list(client._address_discovery_tasks) == [address]
+        await client.stop()
+
+    @pytest.mark.asyncio
+    async def test_pending_frames_per_address_are_capped(self) -> None:
+        """Frames queued for one unknown address are capped."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.121"
+
+        for _ in range(_MAX_PENDING_FRAMES_PER_ADDRESS + 5):
+            client._on_receive(self._device_frame(ESV.INF).encode(), (address, 3610))
+
+        assert len(client._pending_frames[address]) == _MAX_PENDING_FRAMES_PER_ADDRESS
+        await client.stop()
+
+    @pytest.mark.asyncio
+    async def test_pending_addresses_are_capped(self) -> None:
+        """The number of unknown addresses with queued frames is capped."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+
+        for index in range(_MAX_PENDING_ADDRESSES + 5):
+            client._on_receive(
+                self._device_frame(ESV.INF).encode(), (f"10.1.0.{index}", 3610)
+            )
+
+        assert len(client._pending_frames) == _MAX_PENDING_ADDRESSES
+        await client.stop()
+
+
+class TestInfcResponse:
+    """Tests for the INFC_Res (0x7A) confirmation frame."""
+
+    def test_infc_response_has_no_edt(self) -> None:
+        """INFC_Res echoes the EPCs with PDC=0."""
+        client = _client_with_known_node()
+
+        client._on_receive(
+            Frame(
+                tid=42,
+                seoj=EOJ(0x013001),
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.INFC,
+                properties=[
+                    Property(epc=0x80, edt=b"\x30"),
+                    Property(epc=0xB0, edt=b"\x42"),
+                ],
+            ).encode(),
+            (_ADDRESS, 3610),
+        )
+
+        ((response, destination),) = _sent_frames(client)
+        assert destination == _ADDRESS
+        assert response.esv == ESV.INFC_RES
+        assert response.properties == [Property(epc=0x80), Property(epc=0xB0)]

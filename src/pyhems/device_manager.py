@@ -24,6 +24,7 @@ from .installation_location import (
     decode_installation_location,
 )
 from .runtime import (
+    ClientStoppedError,
     GetAbortedError,
     HemsClient,
     HemsFrameEvent,
@@ -542,7 +543,7 @@ class DeviceManager:
                         len(event.instances),
                     )
                     await self.process_instance_list_event(event)
-            except OSError, LookupError, TypeError, ValueError:
+            except Exception:
                 _LOGGER.exception(
                     "Failed to process ECHONET Lite runtime event: %r", event
                 )
@@ -833,6 +834,9 @@ class DeviceManager:
                 err,
             )
             return False
+        except ClientStoppedError:
+            _LOGGER.debug("Setup of %s was interrupted by the client stop", device_key)
+            return False
         except Exception:
             _LOGGER.exception("Failed to request property maps for %r", eoj)
             return False
@@ -966,18 +970,9 @@ class DeviceManager:
             " ".join(f"{epc:02X}" for epc in sorted(epcs)),
         )
 
-        try:
-            result = await self._client.request_notifications(
-                node.node_id, node.eoj, sorted(epcs)
-            )
-        except OSError as err:
-            _LOGGER.debug(
-                "Failed to send initial notifications for node %s: %s",
-                device_key,
-                err,
-            )
-            node.failed_inf_epcs = epcs
-            return
+        result = await self._client.request_notifications(
+            node.node_id, node.eoj, sorted(epcs)
+        )
 
         node.confirmed_inf_epcs = result.successful_epcs
         node.failed_inf_epcs = result.failed_epcs | result.unanswered_epcs
@@ -1032,13 +1027,7 @@ class DeviceManager:
             device_key,
             " ".join(f"{epc:02X}" for epc in ordered_epcs),
         )
-        try:
-            sent = self._client.send(node.node_id, frame)
-        except OSError as err:
-            _LOGGER.debug(
-                "Failed to request properties for node %s: %s", device_key, err
-            )
-            return None
+        sent = self._client.send(node.node_id, frame)
         return frame.tid if sent else None
 
 
