@@ -931,8 +931,7 @@ class TestCollectionRegistryLookups:
 class TestDecodeCollectionPageFor0287:
     """End-to-end :func:`decode_collection_page` tests for class 0x0287.
 
-    Covers the branch-circuit metering array properties from
-    docs/ha-0287-epc-be-implementation-report-v2.md.
+    Covers the branch-circuit metering array properties.
     """
 
     @staticmethod

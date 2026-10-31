@@ -427,7 +427,7 @@ def test_full_enum_patch_preserves_yaml_order(
 
 # ============================================================================
 # Structured value definitions & collection bindings (class 0x0287 branch
-# circuit metering arrays — see docs/ha-0287-epc-be-implementation-report-v2.md)
+# circuit metering arrays)
 # ============================================================================
 
 
@@ -533,8 +533,7 @@ def test_all_structured_values_are_byte_size_consistent() -> None:
     Regression guard: OneOfDefinition options must agree on byte size, and
     Scalar leaves must have a positive declared size.
 
-    Scoped to class 0x0287 (this feature's actual scope; see
-    docs/ha-0287-epc-be-implementation-report-v2.md) rather than every MRA
+    Scoped to class 0x0287 (this feature's actual scope) rather than every MRA
     class: a handful of unrelated properties elsewhere (e.g. 0x027C EPC
     0xD1, 0x02A7 EPC 0xD7) use an MRA ``oneOf`` between a full nested
     schedule object and an opaque sentinel of a different total byte

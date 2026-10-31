@@ -1,5 +1,8 @@
 """ECHONET Lite EPC 0x81 (Installation location) decoding.
 
+Only the 1-byte format is supported (ADR-0010). The 17-byte position
+information format is neither decoded nor encoded.
+
 Per the ECHONET Lite specification (Appendix Table 2-2), the 1-byte
 "Installation location" property is encoded as:
 
