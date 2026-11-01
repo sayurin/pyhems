@@ -269,7 +269,8 @@ def test_custom_define_overrides_common_epc_for_its_class() -> None:
     entity = entities[0]
     assert entity.id == "class_0f02_epc_8f_000006"
     assert entity.manufacturer_code == 0x000006
-    assert get_codec_for_epc(0x0F02, 0x8F).decode(b"\x42") is False
+    # The common 0x8F decodes 0x42 as False.
+    assert get_codec_for_epc(0x0F02, 0x8F).decode(b"\x42") is True
 
 
 def test_custom_patch_preserves_unspecified_mra_values() -> None:
@@ -562,3 +563,48 @@ def test_all_structured_values_are_byte_size_consistent() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_mitsubishi_vav_keep_operation_true_is_keep_mode() -> None:
+    """EPC 0x8F of the Mitsubishi VAV maps true to keep mode (0x42)."""
+    codec = get_codec_for_epc(0x0F02, 0x8F)
+
+    assert isinstance(codec, BinaryCodec)
+    assert (codec.on_edt, codec.off_edt) == (0x42, 0x41)
+
+
+# Custom boolean definitions whose "true" EDT is not 0x41, keyed by
+# (class_code, epc, manufacturer_code, byte_offset). "true" must be the state
+# in which the function named by the property is active, so every entry here
+# has to be reviewed against the device behavior.
+_REVIEWED_CUSTOM_TRUE_EDTS = {
+    (0x0135, 0xF1, 0x000005, 1): 0x00,
+    # Opposite of the common 0x8F; confirmed on the device in
+    # sayurin/pyhems#39.
+    (0x0F02, 0x8F, 0x000006, 0): 0x42,
+}
+
+
+def test_custom_boolean_true_edts_are_reviewed() -> None:
+    """Custom booleans mapping true to an EDT other than 0x41 are reviewed."""
+    custom = _generate_definitions._load_custom_definitions(
+        _generate_definitions.CUSTOM_DEFINITIONS_FILE
+    )
+    true_edts = {}
+    for class_code, device in custom["devices"].items():
+        for prop in device.get("properties", ()):
+            edts = {
+                value["key"]: value["edt"]
+                for value in prop.get("enum_values", ())
+                if "key" in value and "edt" in value
+            }
+            if set(edts) == {"true", "false"} and edts["true"] != 0x41:
+                key = (
+                    class_code,
+                    prop["epc"],
+                    prop.get("manufacturer_code"),
+                    prop.get("byte_offset", 0),
+                )
+                true_edts[key] = edts["true"]
+
+    assert true_edts == _REVIEWED_CUSTOM_TRUE_EDTS
