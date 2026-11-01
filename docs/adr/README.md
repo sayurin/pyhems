@@ -13,9 +13,11 @@ pyhems の設計判断を記録します。書式は Nygard 形式（ステー�
 | [0002](0002-avoid-fault-status-get.md) | 応答が著しく遅くなるため EPC 0x88 の自動取得を避ける | 承認 |
 | [0003](0003-separate-large-distribution-board-properties.md) | パナソニックの 0x0287 では EPC 0xB3 と 0xB7 を別の GET に分ける | 承認 |
 | [0004](0004-halve-get-on-timeout.md) | GET がタイムアウトしたらリクエストを半減して同時応答数を探る | 承認 |
-| [0005](0005-get-responsibility-setup-and-polling.md) | 同時応答数の探索は setup で行い、ポーリングは既知の値で分割する | 承認 |
+| [0005](0005-get-responsibility-setup-and-polling.md) | 同時応答数の探索は setup で行い、ポーリングは既知の値で分割する | 置換（ADR-0011） |
 | [0006](0006-retry-incomplete-setup-on-discovery.md) | 不完全な setup を次の探索でやり直す | 承認 |
 | [0007](0007-cap-koizumi-get-batch-size.md) | コイズミの 0x0290 と 0x02A3 では 1 回の GET の EPC 数を制限する | 承認 |
 | [0008](0008-initialize-unset-collection-ranges.md) | 範囲が未設定の計測値リストを、1 回だけ SetC で初期化する | 承認 |
 | [0009](0009-assume-persistent-status-notifications.md) | INF と INFC は継続して受信できると仮定する | 承認 |
 | [0010](0010-simplified-installation-location.md) | 設置場所（EPC 0x81）は 1 バイト形式だけの簡易実装とする | 承認 |
+| [0011](0011-serialize-requests-per-node.md) | 要求をノードごとの直列キューで送り、setup をイベント処理から切り離す | 承認 |
+| [0012](0012-keep-mra-identifiers.md) | MRA に由来する識別子は MRA の表記のまま保持する | 承認 |

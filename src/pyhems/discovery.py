@@ -38,4 +38,5 @@ def _extract_discovery_info(frame: Frame) -> tuple[str | None, list[EOJ]]:
                     eoj = EOJ.from_bytes(prop.edt[offset : offset + 3])
                     instances.append(eoj)
 
-    return node_id, instances
+    # 0xD5 and 0xD6 may both list the same instances.
+    return node_id, list(dict.fromkeys(instances))

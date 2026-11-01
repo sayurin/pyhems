@@ -44,11 +44,8 @@ class Frame:
     EHD1 = 0x10  # ECHONET Lite
     EHD2 = 0x81  # Format 1
 
-    # Class-level TID generator
-    _tid_counter = 0
-
-    def is_response_frame(self) -> bool:
-        """Check if frame is a response (success or failure).
+    def is_response_or_notification(self) -> bool:
+        """Check if frame is a response (success or failure) or a notification.
 
         Success responses: SetGet_Res, Set_Res, Get_Res, INF, INFC,
         and INFC_Res
@@ -68,14 +65,6 @@ class Frame:
             ESV.INF_SNA,
             ESV.SETGET_SNA,
         }
-
-    @classmethod
-    def next_tid(cls) -> int:
-        """Generate next transaction ID."""
-        cls._tid_counter = cls._tid_counter + 1
-        if cls._tid_counter > 0xFFFF:
-            cls._tid_counter = 1
-        return cls._tid_counter
 
     @classmethod
     def decode(cls, data: bytes) -> Self:

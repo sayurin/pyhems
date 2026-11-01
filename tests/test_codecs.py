@@ -23,18 +23,18 @@ from pyhems import (
     ObjectField,
     OneOfDefinition,
     ScalarDefinition,
-    decode_collection,
     decode_collection_page,
     decode_property_value,
     get_codec,
     get_codec_for_epc,
     get_collection_binding,
     get_structured_value,
-    value_definition_byte_size,
 )
-from pyhems.codecs import CollectionPage
-from pyhems.device_manager import NodeState
-from pyhems.eoj import EOJ
+from pyhems.codecs import (
+    CollectionPage,
+    _decode_collection,
+    _value_definition_byte_size,
+)
 
 
 def _make_entity(
@@ -53,35 +53,14 @@ def _make_entity(
         epc=epc,
         name_en="test",
         name_ja="test",
-        get="required",
-        set="optional",
+        readable=True,
+        writable=True,
         format=mra_format,
         enum_values=enum_values,
         minimum=minimum,
         maximum=maximum,
         multiple_of=multiple_of,
         byte_offset=byte_offset,
-    )
-
-
-def _make_node(
-    *,
-    class_code: int,
-    properties: dict[int, bytes],
-) -> NodeState:
-    """Build a minimal :class:`NodeState` for coefficient-resolution tests."""
-    return NodeState(
-        eoj=EOJ((class_code << 8) | 1),
-        properties=properties,
-        node_id="node1",
-        manufacturer_code=0x000001,
-        get_epcs=frozenset(),
-        set_epcs=frozenset(),
-        inf_epcs=frozenset(),
-        poll_epcs=frozenset(),
-        fast_poll_epcs=frozenset(),
-        product_code=None,
-        serial_number=None,
     )
 
 
@@ -243,37 +222,40 @@ class TestNumericCodec:
         )
         assert codec.decode(b"\xff") is None
 
-    def test_decode_with_coefficient_resolves_via_node(self) -> None:
-        """``coefficient_epcs`` multiplies by the current value of a sibling EPC.
+    def test_decode_with_coefficient_resolves_via_context(self) -> None:
+        """``coefficients`` multiply by the current value of a sibling EPC.
 
         Uses class 0x0287 (Power distribution board metering) EPC 0xC0
         (cumulative energy, coefficient EPC 0xC2) from the real registry.
         """
-        node = _make_node(
-            class_code=0x0287,
-            properties={0xC0: b"\x00\x00\x00\x0a", 0xC2: b"\x02"},  # unit = 0.01
-        )
+        context = {0xC0: b"\x00\x00\x00\x0a", 0xC2: b"\x02"}  # unit = 0.01
         codec = get_codec_for_epc(0x0287, 0xC0)
         assert isinstance(codec, NumericCodec)
-        assert codec.coefficient_epcs == (0xC2,)
-        assert codec.decode(node.properties[0xC0], node) == pytest.approx(0.1)
+        assert [epc for epc, _ in codec.coefficients] == [0xC2]
+        assert codec.decode(context[0xC0], context) == pytest.approx(0.1)
 
-    def test_decode_with_coefficient_without_node_returns_none(self) -> None:
-        """A coefficient-bearing codec refuses to guess without ``node``."""
+    def test_decode_with_coefficient_without_context_returns_none(self) -> None:
+        """A coefficient-bearing codec refuses to guess without ``context``."""
         codec = get_codec_for_epc(0x0287, 0xC0)
         assert codec.decode(b"\x00\x00\x00\x0a") is None
 
     def test_decode_with_coefficient_missing_sibling_returns_none(self) -> None:
         """``None`` is returned when the coefficient EPC is not yet known."""
-        node = _make_node(class_code=0x0287, properties={0xC0: b"\x00\x00\x00\x0a"})
+        context = {0xC0: b"\x00\x00\x00\x0a"}
         codec = get_codec_for_epc(0x0287, 0xC0)
         assert isinstance(codec, NumericCodec)
-        assert codec.decode(node.properties[0xC0], node) is None
+        assert codec.decode(context[0xC0], context) is None
 
-    def test_encode_with_coefficient_epcs_rejected(self) -> None:
+    def test_decode_with_undecodable_coefficient_returns_none(self) -> None:
+        """An unknown coefficient EDT yields ``None`` instead of a guess."""
+        context = {0xC2: b"\x7f"}
+        codec = get_codec_for_epc(0x0287, 0xC0)
+        assert codec.decode(b"\x00\x00\x00\x0a", context) is None
+
+    def test_encode_with_coefficients_rejected(self) -> None:
         """Encoding a coefficient-bearing property is not supported.
 
-        Resolving the coefficient requires node state, which ``encode()``
+        Resolving the coefficient requires device state, which ``encode()``
         does not receive.
         """
         codec = NumericCodec(
@@ -282,10 +264,35 @@ class TestNumericCodec:
             minimum=None,
             maximum=None,
             byte_offset=0,
-            coefficient_epcs=(0xC2,),
+            coefficients=((0xC2, NumericValueCodec(by_edt={0x00: 1.0})),),
         )
-        with pytest.raises(ValueError, match="coefficient_epcs"):
+        with pytest.raises(ValueError, match="coefficients"):
             codec.encode(10)
+
+    def test_encode_rejects_value_outside_minimum_maximum(self) -> None:
+        """Encoding validates the scaled value against ``minimum``/``maximum``."""
+        codec = NumericCodec(
+            mra_format="uint8",
+            scale=0.5,
+            minimum=10,
+            maximum=100,
+            byte_offset=0,
+        )
+        assert codec.encode(5) == b"\x0a"
+        assert codec.encode(50) == b"\x64"
+        with pytest.raises(ValueError, match="out of range"):
+            codec.encode(4.5)
+        with pytest.raises(ValueError, match="out of range"):
+            codec.encode(50.5)
+
+    def test_get_codec_requires_class_code_for_coefficients(self) -> None:
+        """Coefficient EPCs cannot be resolved without the device class."""
+        entity_def = next(e for e in REGISTRY.entities[0x0287] if e.epc == 0xC0)
+        with pytest.raises(ValueError, match="class_code is required"):
+            get_codec(entity_def)
+        codec = get_codec(entity_def, class_code=0x0287)
+        assert isinstance(codec, NumericCodec)
+        assert [epc for epc, _ in codec.coefficients] == [0xC2]
 
 
 class TestNumericValueCodec:
@@ -298,8 +305,8 @@ class TestNumericValueCodec:
             epc=0xC2,
             name_en="Unit for cumulative amounts of electric energy",
             name_ja="積算電力量単位",
-            get="required",
-            set="notApplicable",
+            readable=True,
+            writable=False,
             numeric_values=(
                 NumericValueEntry(edt=0x00, value=1.0),
                 NumericValueEntry(edt=0x01, value=0.1),
@@ -350,8 +357,8 @@ class TestNumericValueCodec:
             epc=0x99,
             name_en="x",
             name_ja="x",
-            get="required",
-            set="notApplicable",
+            readable=True,
+            writable=False,
             format="uint8",
             numeric_values=(NumericValueEntry(edt=0x00, value=1.0),),
         )
@@ -397,8 +404,8 @@ def test_get_codec_raises_when_no_format_and_no_enum() -> None:
         epc=0x99,
         name_en="x",
         name_ja="x",
-        get="required",
-        set="optional",
+        readable=True,
+        writable=True,
         format=None,
         enum_values=(),
     )
@@ -524,7 +531,7 @@ def test_get_codec_succeeds_for_all_entity_definitions() -> None:
             if not entity_def.enum_values and entity_def.format is None:
                 continue
             try:
-                codec = get_codec(entity_def)
+                codec = get_codec(entity_def, class_code=class_code)
             except ValueError as exc:  # pragma: no cover
                 errors.append(
                     f"class 0x{class_code:04X} EPC 0x{entity_def.epc:02X}: {exc}"
@@ -622,8 +629,8 @@ class TestDecodePropertyValueScalar:
         )
         assert decode_property_value(value_def, b"\x01") == 0.1
 
-    def test_resolves_coefficient_via_node(self) -> None:
-        """``coefficient_epcs`` resolves via the passed-through ``node``."""
+    def test_resolves_coefficient_via_context(self) -> None:
+        """``coefficient_epcs`` resolves via ``context`` and ``class_code``."""
         value_def = ScalarDefinition(
             size=4,
             format="uint32",
@@ -631,10 +638,12 @@ class TestDecodePropertyValueScalar:
             maximum=99999999,
             coefficient_epcs=(0xC2,),
         )
-        node = _make_node(class_code=0x0287, properties={0xC2: b"\x02"})  # 0.01
+        context = {0xC2: b"\x02"}  # 0.01
         assert decode_property_value(
-            value_def, struct.pack(">I", 10), node
+            value_def, struct.pack(">I", 10), context, class_code=0x0287
         ) == pytest.approx(0.1)
+        # Without the device class the coefficient cannot be resolved.
+        assert decode_property_value(value_def, struct.pack(">I", 10), context) is None
 
 
 class TestDecodePropertyValueOneOf:
@@ -827,11 +836,11 @@ class TestDecodePropertyValueArray:
 
 
 class TestValueDefinitionByteSize:
-    """Tests for :func:`value_definition_byte_size`."""
+    """Tests for :func:`_value_definition_byte_size`."""
 
     def test_scalar_size(self) -> None:
         """A scalar's byte size is its declared ``size``."""
-        assert value_definition_byte_size(ScalarDefinition(size=4)) == 4
+        assert _value_definition_byte_size(ScalarDefinition(size=4)) == 4
 
     def test_object_size_is_sum_of_fields(self) -> None:
         """An object's byte size is the sum of its fields' sizes."""
@@ -845,14 +854,14 @@ class TestValueDefinitionByteSize:
                 ),
             )
         )
-        assert value_definition_byte_size(value_def) == 5
+        assert _value_definition_byte_size(value_def) == 5
 
     def test_one_of_requires_matching_sizes(self) -> None:
         """A oneOf's byte size is well-defined when all options agree."""
         value_def = OneOfDefinition(
             options=(ScalarDefinition(size=1), ScalarDefinition(size=1))
         )
-        assert value_definition_byte_size(value_def) == 1
+        assert _value_definition_byte_size(value_def) == 1
 
     def test_one_of_mismatched_sizes_raises(self) -> None:
         """A oneOf with disagreeing option sizes raises :class:`ValueError`."""
@@ -860,17 +869,17 @@ class TestValueDefinitionByteSize:
             options=(ScalarDefinition(size=1), ScalarDefinition(size=4))
         )
         with pytest.raises(ValueError, match="same byte size"):
-            value_definition_byte_size(value_def)
+            _value_definition_byte_size(value_def)
 
     def test_array_has_no_fixed_size(self) -> None:
         """An array's byte size is undefined (variable-length)."""
         value_def = ArrayDefinition(item=ScalarDefinition(size=1), item_size=1)
         with pytest.raises(ValueError, match="no fixed byte size"):
-            value_definition_byte_size(value_def)
+            _value_definition_byte_size(value_def)
 
 
 class TestDecodeCollection:
-    """Tests for :func:`decode_collection` page normalization."""
+    """Tests for :func:`_decode_collection` page normalization."""
 
     _BINDING = CollectionBinding(
         result_epc=0xBE,
@@ -882,7 +891,7 @@ class TestDecodeCollection:
 
     def test_normalizes_valid_page(self) -> None:
         """A consistent header/items pair normalizes to a :class:`CollectionPage`."""
-        page = decode_collection(
+        page = _decode_collection(
             self._BINDING, {"start": 1, "count": 2, "items": (10, 20)}
         )
         assert page == CollectionPage(start=1, count=2, items=(10, 20))
@@ -890,7 +899,7 @@ class TestDecodeCollection:
     def test_rejects_count_mismatch(self) -> None:
         """A declared count that disagrees with the actual item count is rejected."""
         assert (
-            decode_collection(
+            _decode_collection(
                 self._BINDING, {"start": 1, "count": 3, "items": (10, 20)}
             )
             is None
@@ -898,12 +907,12 @@ class TestDecodeCollection:
 
     def test_rejects_missing_header(self) -> None:
         """A missing start/count header is rejected."""
-        assert decode_collection(self._BINDING, {"items": (10, 20)}) is None
+        assert _decode_collection(self._BINDING, {"items": (10, 20)}) is None
 
     def test_rejects_non_tuple_items(self) -> None:
         """A missing or malformed items list is rejected."""
         assert (
-            decode_collection(self._BINDING, {"start": 1, "count": 0, "items": None})
+            _decode_collection(self._BINDING, {"start": 1, "count": 0, "items": None})
             is None
         )
 
@@ -953,27 +962,27 @@ class TestDecodeCollectionPageFor0287:
         assert page == CollectionPage(start=3, count=1, items=(-50,))
 
     def test_simplex_cumulative_energy_resolves_coefficient(self) -> None:
-        """Simplex energy list (0xB3) applies the 0xC2 coefficient via ``node``."""
-        node = _make_node(class_code=0x0287, properties={0xC2: b"\x02"})  # x0.01
+        """Simplex energy list (0xB3) applies the 0xC2 coefficient via ``context``."""
+        context = {0xC2: b"\x02"}  # x0.01
         edt = self._header(1, 1) + struct.pack(">I", 500)
-        page = decode_collection_page(0x0287, 0xB3, edt, node)
+        page = decode_collection_page(0x0287, 0xB3, edt, context)
         assert page == CollectionPage(start=1, count=1, items=(pytest.approx(5.0),))
 
-    def test_simplex_cumulative_energy_without_node_is_none_item(self) -> None:
-        """Without ``node``, a coefficient-bearing item decodes to ``None``."""
+    def test_simplex_cumulative_energy_without_context_is_none_item(self) -> None:
+        """Without ``context``, a coefficient-bearing item decodes to ``None``."""
         edt = self._header(1, 1) + struct.pack(">I", 500)
         page = decode_collection_page(0x0287, 0xB3, edt)
         assert page == CollectionPage(start=1, count=1, items=(None,))
 
     def test_duplex_cumulative_energy_forward_and_reverse(self) -> None:
         """Duplex energy list (0xBA) decodes forward/reverse fields independently."""
-        node = _make_node(class_code=0x0287, properties={0xC2: b"\x00"})  # x1
+        context = {0xC2: b"\x00"}  # x1
         edt = (
             self._header(1, 1)
             + struct.pack(">I", 12)
             + struct.pack(">I", 0xFFFFFFFE)  # reverse: no data
         )
-        page = decode_collection_page(0x0287, 0xBA, edt, node)
+        page = decode_collection_page(0x0287, 0xBA, edt, context)
         assert page is not None
         assert page.start == 1
         assert page.count == 1
@@ -1000,3 +1009,49 @@ class TestDecodeCollectionPageFor0287:
     def test_unknown_epc_returns_none(self) -> None:
         """An EPC with no curated binding/value tree returns ``None``."""
         assert decode_collection_page(0x0287, 0xFF, b"\x00") is None
+
+
+class TestGetCodecForEpcSelection:
+    """Tests for the manufacturer and byte offset selection of get_codec_for_epc."""
+
+    def test_selects_field_by_byte_offset(self) -> None:
+        """Each packed field of one EPC has its own codec."""
+        first = get_codec_for_epc(0x0130, 0xB8)
+        second = get_codec_for_epc(0x0130, 0xB8, byte_offset=2)
+        assert isinstance(first, NumericCodec)
+        assert isinstance(second, NumericCodec)
+        assert first.byte_offset == 0
+        assert second.byte_offset == 2
+
+    def test_manufacturer_specific_definition(self) -> None:
+        """Vendor definitions are returned only for their manufacturer."""
+        codec = get_codec_for_epc(
+            0x0135, 0xF1, manufacturer_code=0x000005, byte_offset=3
+        )
+        assert isinstance(codec, NumericCodec)
+        assert codec.mra_format == "int8"
+        assert codec.byte_offset == 3
+        with pytest.raises(LookupError):
+            get_codec_for_epc(0x0135, 0xF1, byte_offset=3)
+        with pytest.raises(LookupError):
+            get_codec_for_epc(0x0135, 0xF1, manufacturer_code=0x000006, byte_offset=3)
+
+    def test_falls_back_to_generic_definition(self) -> None:
+        """A manufacturer without its own definition uses the generic one."""
+        assert get_codec_for_epc(
+            0x0130, 0x80, manufacturer_code=0x000005
+        ) == get_codec_for_epc(0x0130, 0x80)
+
+
+@pytest.mark.parametrize(
+    ("codec", "value"),
+    [
+        (BinaryCodec(on_edt=0x30, off_edt=0x31, byte_offset=1), True),
+        (EnumCodec(by_key={"a": 1}, by_edt={1: "a"}, byte_offset=1), "a"),
+        (NumericValueCodec(by_edt={0x00: 1.0}, byte_offset=1), 1.0),
+    ],
+)
+def test_encode_with_byte_offset_rejected(codec: object, value: object) -> None:
+    """Every codec refuses to encode a field that does not start the EDT."""
+    with pytest.raises(ValueError, match="byte_offset"):
+        codec.encode(value)  # type: ignore[attr-defined]

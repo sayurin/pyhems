@@ -8,7 +8,6 @@ import pytest
 
 from pyhems import (
     CONTROLLER_INSTANCE,
-    DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
     EOJ,
     EPC,
@@ -22,6 +21,7 @@ from pyhems.runtime import (
     _MAX_PENDING_ADDRESSES,
     _MAX_PENDING_FRAMES_PER_ADDRESS,
     ClientStoppedError,
+    GetAbortedError,
     HemsClient,
     HemsErrorEvent,
     HemsFrameEvent,
@@ -65,12 +65,10 @@ class TestRuntimeEvents:
             received_at=2.0,
             instances=[EOJ(0x010101), EOJ(0x013001)],
             node_id="def456",
-            properties={0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"},
         )
         assert event.received_at == 2.0
         assert event.instances == [EOJ(0x010101), EOJ(0x013001)]
         assert event.node_id == "def456"
-        assert event.properties == {0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"}
 
     def test_error_event_fields(self) -> None:
         """Test HemsErrorEvent field values."""
@@ -85,13 +83,13 @@ class TestHemsClient:
 
     def test_client_init(self) -> None:
         """Test client initialization."""
-        client = HemsClient(interface="192.168.1.1", poll_interval=30.0)
+        client = HemsClient(interface="192.168.1.1", discovery_interval=30.0)
         assert client._interface == "192.168.1.1"
-        assert client._poll_interval == 30.0
+        assert client._discovery_interval == 30.0
 
-    def test_client_default_poll_interval_is_one_hour(self) -> None:
+    def test_client_default_discovery_interval_is_one_hour(self) -> None:
         """Test recurring discovery defaults to one hour."""
-        assert HemsClient()._poll_interval == 60.0 * 60.0
+        assert HemsClient()._discovery_interval == 60.0 * 60.0
 
     def test_subscribe_unsubscribe(self) -> None:
         """Test subscribing and unsubscribing callbacks."""
@@ -149,7 +147,7 @@ class TestHemsClient:
         )
         await asyncio.sleep(0)
 
-        tid = next(iter(client._pending_sets))
+        tid = next(iter(client._pending))
         mock_protocol.send.assert_called_once()
         payload, address = mock_protocol.send.call_args.args
         assert address == "192.168.1.100"
@@ -216,7 +214,7 @@ class TestHemsClient:
         )
         await asyncio.sleep(0)
 
-        tid = next(iter(client._pending_sets))
+        tid = next(iter(client._pending))
         client._on_receive(
             Frame(
                 tid=tid,
@@ -255,7 +253,7 @@ class TestHemsClient:
         assert result.sent is True
         assert result.response_esv is None
         assert result.unanswered_epcs == frozenset({0x80})
-        assert not client._pending_sets
+        assert not client._pending
 
 
 class TestNodeProbe:
@@ -267,23 +265,15 @@ class TestNodeProbe:
         frame_data = frame.encode()
         client._on_receive(frame_data, (address, 3610))
 
-    def test_next_tid(self) -> None:
-        """Test transaction ID generation."""
-        original_tid = Frame._tid_counter
+    def test_next_transaction_id(self) -> None:
+        """Test transaction IDs are per client, skip 0 and wrap around."""
+        client = HemsClient()
+        assert client._next_transaction_id() == 1
+        assert client._next_transaction_id() == 2
+        assert HemsClient()._next_transaction_id() == 1
 
-        try:
-            Frame._tid_counter = 0
-            tid1 = Frame.next_tid()
-            tid2 = Frame.next_tid()
-            assert tid1 == 1
-            assert tid2 == 2
-
-            # Test wrap around - ensure zero is not returned (we skip 0)
-            Frame._tid_counter = 0xFFFF
-            tid3 = Frame.next_tid()
-            assert tid3 != 0
-        finally:
-            Frame._tid_counter = original_tid
+        client._tid_counter = 0xFFFF
+        assert client._next_transaction_id() == 1
 
     def test_probe_nodes_not_running(self) -> None:
         """Test probe fails when not running."""
@@ -322,38 +312,6 @@ class TestNodeProbe:
         assert EPC.SELF_NODE_INSTANCE_LIST in epcs
         assert epcs == [EPC.SELF_NODE_INSTANCE_LIST]
 
-    def test_probe_initial_nodes_with_extra_epcs(self) -> None:
-        """Test initial probe sends extra EPCs when specified in constructor."""
-        extra_epcs: list[int] = [
-            EPC.MANUFACTURER_CODE,
-            EPC.PRODUCT_CODE,
-            EPC.SERIAL_NUMBER,
-        ]
-        client = HemsClient(extra_epcs=extra_epcs)
-
-        # Mock protocol
-        mock_protocol = MagicMock()
-        client._protocol = mock_protocol
-
-        result = client.probe_initial_nodes()
-        assert result is True
-
-        # Verify send was called
-        mock_protocol.send.assert_called_once()
-        call_args = mock_protocol.send.call_args
-        data, _address = call_args[0]
-
-        # Decode the frame to verify
-        frame = Frame.decode(data)
-        assert len(frame.properties) == len(DISCOVERY_INITIAL_EPCS) + len(extra_epcs)
-
-        epcs = [p.epc for p in frame.properties]
-        assert EPC.IDENTIFICATION_NUMBER in epcs
-        assert EPC.SELF_NODE_INSTANCE_LIST in epcs
-        assert EPC.MANUFACTURER_CODE in epcs
-        assert EPC.PRODUCT_CODE in epcs
-        assert EPC.SERIAL_NUMBER in epcs
-
     @pytest.mark.asyncio
     async def test_start_starts_periodic_discovery_after_initial_delay(self) -> None:
         """Test that start performs initial and recurring discovery."""
@@ -365,7 +323,7 @@ class TestNodeProbe:
             mock_protocol = MagicMock()
             mock_create.return_value = mock_protocol
 
-            client = HemsClient(poll_interval=60.0)
+            client = HemsClient(discovery_interval=60.0)
             with (
                 patch.object(
                     client, "probe_initial_nodes", return_value=True
@@ -379,14 +337,14 @@ class TestNodeProbe:
                 await client.start()
 
             assert client._protocol is not None
-            assert client._poll_task is not None
+            assert client._discovery_task is not None
             initial_probe.assert_called_once_with()
             periodic_start.assert_called_once_with()
 
             # Clean up
             await client.stop()
             assert client._protocol is None
-            assert client._poll_task is None
+            assert client._discovery_task is None
             # Ensure protocol is closed (protocol manages transport internally)
             mock_protocol.close.assert_called_once()
 
@@ -416,7 +374,7 @@ class TestNodeProbe:
             ):
                 await client.start()
 
-            assert client._poll_task is None
+            assert client._discovery_task is None
             assert client._protocol is None
             periodic_start.assert_not_called()
             mock_protocol.close.assert_called_once()
@@ -444,16 +402,16 @@ class TestNodeProbe:
 
             initial_probe.assert_has_calls([call(), call()])
             assert client._protocol is working_protocol
-            assert client._poll_task is not None
+            assert client._discovery_task is not None
 
             await client.stop()
             failed_protocol.close.assert_called_once()
             working_protocol.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_poll_loop_probes_before_waiting_for_next_interval(self) -> None:
+    async def test_discovery_loop_probes_before_waiting_for_next_interval(self) -> None:
         """Test that the first periodic probe is sent immediately."""
-        client = HemsClient(poll_interval=60.0)
+        client = HemsClient(discovery_interval=60.0)
         client._protocol = MagicMock()
 
         with (
@@ -465,7 +423,7 @@ class TestNodeProbe:
             patch.object(client, "probe_nodes") as mock_probe,
             patch("pyhems.runtime._INITIAL_DISCOVERY_DELAY", 30.0),
         ):
-            await client._poll_loop()
+            await client._discovery_loop()
 
         mock_probe.assert_called_once_with()
         assert mock_sleep.await_args_list == [call(30.0), call(60.0)]
@@ -617,7 +575,7 @@ class TestNodeProbe:
         self._simulate_receive(
             client,
             Frame(
-                tid=next(iter(client._pending_gets)),
+                tid=next(iter(client._pending)),
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
                 esv=ESV.GET_RES,
@@ -665,7 +623,7 @@ class TestNodeProbe:
         self._simulate_receive(
             client,
             Frame(
-                tid=next(iter(client._pending_gets)),
+                tid=next(iter(client._pending)),
                 seoj=NODE_PROFILE_INSTANCE,
                 deoj=CONTROLLER_INSTANCE,
                 esv=ESV.GET_RES,
@@ -722,7 +680,7 @@ class TestNodeProbe:
         )
 
         with patch.object(
-            client, "_get_at_address", new_callable=AsyncMock, return_value=[]
+            client, "_get_at_address", new_callable=AsyncMock, return_value=None
         ):
             self._simulate_receive(client, notification, address)
             await asyncio.sleep(0)
@@ -892,7 +850,7 @@ class TestAsyncGet:
         await asyncio.sleep(0.01)
 
         # Simulate receiving response
-        tid = next(iter(client._pending_gets.keys()))
+        tid = next(iter(client._pending))
         response_frame = Frame(
             tid=tid,
             seoj=EOJ(0x013001),
@@ -931,7 +889,7 @@ class TestAsyncGet:
 
         assert client._protocol is not None
         send: Any = client._protocol.send
-        tid = next(iter(client._pending_gets))
+        tid = next(iter(client._pending))
         sent_epcs = [
             prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
         ]
@@ -949,7 +907,7 @@ class TestAsyncGet:
         )
 
         await asyncio.sleep(0.01)
-        tid = next(iter(client._pending_gets))
+        tid = next(iter(client._pending))
         first_batch = [
             prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
         ]
@@ -967,7 +925,7 @@ class TestAsyncGet:
         )
 
         await asyncio.sleep(0.01)
-        tid = next(iter(client._pending_gets))
+        tid = next(iter(client._pending))
         second_batch = [
             prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
         ]
@@ -1010,7 +968,7 @@ class TestAsyncGet:
 
         assert client._protocol is not None
         send: Any = client._protocol.send
-        tid = next(iter(client._pending_gets))
+        tid = next(iter(client._pending))
         sent_epcs = [
             prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
         ]
@@ -1030,7 +988,7 @@ class TestAsyncGet:
         sent_batches: list[list[int]] = []
         for _ in range(2):
             await asyncio.sleep(0.01)
-            tid = next(iter(client._pending_gets))
+            tid = next(iter(client._pending))
             batch = [
                 prop.epc for prop in Frame.decode(send.call_args.args[0]).properties
             ]
@@ -1078,8 +1036,8 @@ class TestAsyncGet:
         # First response: partial (0x52), only 0x80 present
         # 0xB0 and 0xBB are completely missing from the response
         await asyncio.sleep(0.01)
-        if client._pending_gets:
-            tid1 = next(iter(client._pending_gets.keys()))
+        if client._pending:
+            tid1 = next(iter(client._pending))
             response1 = Frame(
                 tid=tid1,
                 seoj=EOJ(0x013001),
@@ -1093,8 +1051,8 @@ class TestAsyncGet:
 
         # Second response: retry succeeds for remaining
         await asyncio.sleep(0.01)
-        if client._pending_gets:
-            tid2 = next(iter(client._pending_gets.keys()))
+        if client._pending:
+            tid2 = next(iter(client._pending))
             response2 = Frame(
                 tid=tid2,
                 seoj=EOJ(0x013001),
@@ -1138,8 +1096,8 @@ class TestAsyncGet:
 
         # Response: 0x80 success, 0xB0 SNA (empty)
         await asyncio.sleep(0.01)
-        if client._pending_gets:
-            tid1 = next(iter(client._pending_gets.keys()))
+        if client._pending:
+            tid1 = next(iter(client._pending))
             response1 = Frame(
                 tid=tid1,
                 seoj=EOJ(0x013001),
@@ -1174,7 +1132,7 @@ class TestAsyncGet:
         # The request is not retried, and failed EPCs are returned empty.
         assert client._protocol is not None
         assert cast(MagicMock, client._protocol.send).call_count == 1
-        assert client._pending_gets == {}
+        assert client._pending == {}
         assert len(result) == 2
         assert result[0].epc == 0x80
         assert result[0].edt == b""
@@ -1192,13 +1150,24 @@ class TestAsyncGet:
 
     @pytest.mark.asyncio
     async def test_async_get_no_protocol(self) -> None:
-        """Test get without protocol returns empty."""
+        """Test get without protocol returns an empty value per EPC."""
         client = HemsClient()
         node_id = "fe00000000000000000000000000000001"
         client._device_addresses.forceput("192.168.1.10", node_id)
         # client._protocol is None
-        result = await client.get(node_id, EOJ(0x013001), [0x80])
-        assert result == []
+        result = await client.get(node_id, EOJ(0x013001), [0x80, 0xB0])
+        assert result == [Property(epc=0x80, edt=b""), Property(epc=0xB0, edt=b"")]
+
+    @pytest.mark.asyncio
+    async def test_async_get_unknown_node(self) -> None:
+        """Test get for an unknown node returns an empty value per EPC."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+
+        result = await client.get("unknown", EOJ(0x013001), [0x80])
+
+        assert result == [Property(epc=0x80, edt=b"")]
+        client._protocol.send.assert_not_called()
 
 
 class TestInfcHandling:
@@ -1302,7 +1271,7 @@ class TestRequestNotifications:
         )
         await asyncio.sleep(0.01)
 
-        tid = next(iter(client._pending_infs.keys()))
+        tid = next(iter(client._pending))
         response = Frame(
             tid=tid,
             seoj=EOJ(0x013001),
@@ -1313,8 +1282,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset({0x80, 0xB0})
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset({0x80, 0xB0})
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset()
 
     @pytest.mark.asyncio
@@ -1333,7 +1302,7 @@ class TestRequestNotifications:
         )
         await asyncio.sleep(0.01)
 
-        tid = next(iter(client._pending_infs.keys()))
+        tid = next(iter(client._pending))
         response = Frame(
             tid=tid,
             seoj=EOJ(0x013001),
@@ -1344,8 +1313,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset({0x80})
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset({0x80})
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
@@ -1364,7 +1333,7 @@ class TestRequestNotifications:
         )
         await asyncio.sleep(0.01)
 
-        tid = next(iter(client._pending_infs.keys()))
+        tid = next(iter(client._pending))
         response = Frame(
             tid=tid,
             seoj=EOJ(0x013001),
@@ -1375,8 +1344,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset({0x80, 0xB0})
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset({0x80, 0xB0})
         assert result.unanswered_epcs == frozenset()
 
     @pytest.mark.asyncio
@@ -1392,8 +1361,8 @@ class TestRequestNotifications:
             node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=0.1
         )
 
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1412,7 +1381,7 @@ class TestRequestNotifications:
         )
         await asyncio.sleep(0.01)
 
-        tid = next(iter(client._pending_infs.keys()))
+        tid = next(iter(client._pending))
         response = Frame(
             tid=tid,
             seoj=EOJ(0x013001),
@@ -1432,8 +1401,8 @@ class TestRequestNotifications:
         result = await client.request_notifications(
             "unknown-node", EOJ(0x013001), [0x80, 0xB0]
         )
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1446,8 +1415,8 @@ class TestRequestNotifications:
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         result = await client.request_notifications(node_id, EOJ(0x013001), [])
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset()
 
 
@@ -1588,8 +1557,8 @@ class TestStopInterruptsRequests:
         await client.stop()
 
         result = await request
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1634,7 +1603,7 @@ class TestPendingResponseMatching:
             client.get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
         )
         await asyncio.sleep(0)
-        tid = next(iter(client._pending_gets))
+        tid = next(iter(client._pending))
 
         for source_address, source_eoj, edt in (
             (address, seoj, b"\x31"),
@@ -1672,7 +1641,7 @@ class TestPendingResponseMatching:
             )
         )
         await asyncio.sleep(0)
-        tid = next(iter(client._pending_infs))
+        tid = next(iter(client._pending))
 
         for source_address, source_eoj, epc in (
             (address, seoj, 0xB0),
@@ -1690,7 +1659,7 @@ class TestPendingResponseMatching:
             )
 
         result = await request
-        assert result.successful_epcs == frozenset({0x80})
+        assert result.notified_epcs == frozenset({0x80})
 
 
 class TestUnknownAddressFrames:
@@ -1776,3 +1745,279 @@ class TestInfcResponse:
         assert destination == _ADDRESS
         assert response.esv == ESV.INFC_RES
         assert response.properties == [Property(epc=0x80), Property(epc=0xB0)]
+
+
+async def _settle() -> None:
+    """Let woken tasks run until they wait again."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+def _get_response_frame(tid: int, edt: bytes = b"\x30") -> bytes:
+    return Frame(
+        tid=tid,
+        seoj=EOJ(0x013001),
+        deoj=CONTROLLER_INSTANCE,
+        esv=ESV.GET_RES,
+        properties=[Property(epc=0x80, edt=edt)],
+    ).encode()
+
+
+class TestNodeRequestQueue:
+    """Tests for serializing requests per node (ADR-0011)."""
+
+    @pytest.mark.asyncio
+    async def test_one_outstanding_request_per_node(self) -> None:
+        """A second request to the same node waits for the first response."""
+        client = _client_with_known_node()
+        first = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
+        )
+        second = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0xB0], request_timeout=1.0)
+        )
+        await asyncio.sleep(0)
+
+        assert len(_sent_frames(client)) == 1
+        (tid,) = client._pending
+        client._on_receive(_get_response_frame(tid), (_ADDRESS, 3610))
+        await _settle()
+
+        sent = _sent_frames(client)
+        assert [frame.properties[0].epc for frame, _ in sent] == [0x80, 0xB0]
+        (tid,) = client._pending
+        client._on_receive(_get_response_frame(tid), (_ADDRESS, 3610))
+        assert await first is not None
+        assert await second is not None
+
+    @pytest.mark.asyncio
+    async def test_set_is_sent_before_queued_polls(self) -> None:
+        """A queued SetC is sent before a poll that was queued earlier."""
+        client = _client_with_known_node()
+        tasks = [
+            asyncio.create_task(
+                client.request_get(_NODE_ID, EOJ(0x013001), [epc], request_timeout=1.0)
+            )
+            for epc in (0x80, 0xB0)
+        ]
+        await asyncio.sleep(0)
+        set_task = asyncio.create_task(
+            client.set_properties(
+                _NODE_ID, EOJ(0x013001), [Property(epc=0x80, edt=b"\x31")]
+            )
+        )
+        await asyncio.sleep(0)
+
+        (tid,) = client._pending
+        client._on_receive(_get_response_frame(tid), (_ADDRESS, 3610))
+        await _settle()
+
+        assert [frame.esv for frame, _ in _sent_frames(client)] == [
+            ESV.GET,
+            ESV.SETC,
+        ]
+        await client.stop()
+        await asyncio.gather(*tasks, set_task)
+
+    @pytest.mark.asyncio
+    async def test_different_nodes_are_requested_in_parallel(self) -> None:
+        """Requests to different nodes do not wait for each other."""
+        client = _client_with_known_node()
+        other_node = "fe00000000000000000000000000000002"
+        client._device_addresses.forceput("192.168.1.11", other_node)
+
+        tasks = [
+            asyncio.create_task(
+                client.request_get(node_id, EOJ(0x013001), [0x80], request_timeout=1.0)
+            )
+            for node_id in (_NODE_ID, other_node)
+        ]
+        await asyncio.sleep(0)
+
+        assert sorted(address for _, address in _sent_frames(client)) == [
+            _ADDRESS,
+            "192.168.1.11",
+        ]
+        await client.stop()
+        assert await asyncio.gather(*tasks) == [None, None]
+
+    @pytest.mark.asyncio
+    async def test_queued_set_reports_unanswered_on_stop(self) -> None:
+        """A SetC still waiting in the queue is unanswered when the client stops."""
+        client = _client_with_known_node()
+        poll = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
+        )
+        await asyncio.sleep(0)
+        set_task = asyncio.create_task(
+            client.set_properties(
+                _NODE_ID, EOJ(0x013001), [Property(epc=0x80, edt=b"\x31")]
+            )
+        )
+        await asyncio.sleep(0)
+
+        await client.stop()
+
+        assert await poll is None
+        assert (await set_task).unanswered_epcs == frozenset({0x80})
+        assert client._node_queues == {}
+
+    @pytest.mark.asyncio
+    async def test_cancelled_request_releases_queue(self) -> None:
+        """Cancelling a request that holds the queue lets the next one run."""
+        client = _client_with_known_node()
+        first = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
+        )
+        second = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0xB0], request_timeout=1.0)
+        )
+        await asyncio.sleep(0)
+
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        await _settle()
+
+        assert [frame.properties[0].epc for frame, _ in _sent_frames(client)] == [
+            0x80,
+            0xB0,
+        ]
+        await client.stop()
+        assert await second is None
+
+    @pytest.mark.asyncio
+    async def test_request_timeout_excludes_queue_wait(self) -> None:
+        """The response timeout starts when the queued request is sent."""
+        client = _client_with_known_node()
+        first = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=0.05)
+        )
+        second = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0xB0], request_timeout=0.05)
+        )
+        assert await first is None
+        await asyncio.sleep(0.01)
+        (tid,) = client._pending
+        client._on_receive(_get_response_frame(tid), (_ADDRESS, 3610))
+
+        assert await second is not None
+
+
+class TestRequestGet:
+    """Tests for single, unsplit GET requests."""
+
+    @pytest.mark.asyncio
+    async def test_returns_response_with_latency(self) -> None:
+        """The response carries the frame properties and the latency."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.request_get(_NODE_ID, EOJ(0x013001), [0x80], request_timeout=1.0)
+        )
+        await asyncio.sleep(0)
+        (tid,) = client._pending
+        client._on_receive(_get_response_frame(tid, b"\x31"), (_ADDRESS, 3610))
+
+        response = await request
+
+        assert response is not None
+        assert response.esv == ESV.GET_RES
+        assert response.properties == (Property(epc=0x80, edt=b"\x31"),)
+        assert response.latency >= 0.0
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_none(self) -> None:
+        """An unanswered request returns None."""
+        client = _client_with_known_node()
+
+        assert (
+            await client.request_get(
+                _NODE_ID, EOJ(0x013001), [0x80], request_timeout=0.01
+            )
+            is None
+        )
+        assert client._pending == {}
+
+    @pytest.mark.asyncio
+    async def test_unknown_node_returns_none(self) -> None:
+        """A request to an unknown node is not sent."""
+        client = _client_with_known_node()
+
+        assert await client.request_get("unknown", EOJ(0x013001), [0x80]) is None
+        cast(MagicMock, client._protocol).send.assert_not_called()
+
+
+class TestReadManufacturerCode:
+    """Tests for reading and remembering the manufacturer code."""
+
+    @pytest.mark.asyncio
+    async def test_reads_once_and_remembers(self) -> None:
+        """The code is read on its own once and then reused."""
+        client = _client_with_known_node()
+        request = asyncio.create_task(
+            client.read_manufacturer_code(_NODE_ID, EOJ(0x013001))
+        )
+        await asyncio.sleep(0)
+        ((frame, _),) = _sent_frames(client)
+        assert [prop.epc for prop in frame.properties] == [EPC.MANUFACTURER_CODE]
+        client._on_receive(
+            Frame(
+                tid=frame.tid,
+                seoj=EOJ(0x013001),
+                deoj=CONTROLLER_INSTANCE,
+                esv=ESV.GET_RES,
+                properties=[Property(epc=EPC.MANUFACTURER_CODE, edt=b"\x00\x00\x06")],
+            ).encode(),
+            (_ADDRESS, 3610),
+        )
+
+        assert await request == 0x000006
+        assert await client.read_manufacturer_code(_NODE_ID, EOJ(0x013001)) == 6
+        assert len(_sent_frames(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_unanswered_read_raises(self) -> None:
+        """An unanswered read gives up the device object."""
+        client = _client_with_known_node()
+
+        with (
+            patch("pyhems.runtime.SETUP_REQUEST_TIMEOUT", 0.01),
+            pytest.raises(GetAbortedError),
+        ):
+            await client.read_manufacturer_code(
+                _NODE_ID, EOJ(0x013001), request_timeout=0.01
+            )
+
+    @pytest.mark.asyncio
+    async def test_unknown_node_raises(self) -> None:
+        """A device without a known address cannot be read."""
+        client = _client_with_known_node()
+
+        with pytest.raises(GetAbortedError):
+            await client.read_manufacturer_code("unknown", EOJ(0x013001))
+
+
+class TestDirectDiscoveryCapability:
+    """Tests that direct discovery does not leave learned state behind."""
+
+    @pytest.mark.asyncio
+    async def test_discovery_does_not_store_capability_by_address(self) -> None:
+        """Discovering an unknown address keeps no capability keyed by address."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        address = "192.168.1.130"
+
+        with patch("pyhems.runtime.SETUP_REQUEST_TIMEOUT", 0.01):
+            client._on_receive(
+                Frame(
+                    tid=1,
+                    seoj=EOJ(0x013001),
+                    deoj=CONTROLLER_INSTANCE,
+                    esv=ESV.INF,
+                    properties=[Property(epc=0x80, edt=b"\x30")],
+                ).encode(),
+                (address, 3610),
+            )
+            await asyncio.gather(*client._address_discovery_tasks.values())
+
+        assert client._get_capabilities == {}

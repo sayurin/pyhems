@@ -143,7 +143,7 @@ from pyhems import EOJ, Frame, Property
 
 # フレーム作成
 frame = Frame(
-    tid=Frame.next_tid(),
+    tid=1,
     seoj=EOJ(0x05FF01),    # コントローラ
     deoj=EOJ(0x013001),    # エアコン
     esv=0x62,              # Get
@@ -192,7 +192,6 @@ class HemsInstanceListEvent:
     received_at: float            # 受信時刻
     instances: list[EOJ]          # EOJ のリスト
     node_id: str                  # ノード識別番号（EPC 0x83）
-    properties: dict[int, bytes]  # 取得したプロパティ
 ```
 
 ### HemsFrameEvent
@@ -224,20 +223,23 @@ class HemsErrorEvent:
 ```python
 client = HemsClient(
     interface="0.0.0.0",     # バインドするインターフェース
-    poll_interval=60.0,      # ノードプローブの間隔（秒）
-    extra_epcs=[0x8A, 0x8D], # 追加で取得するEPC
+    discovery_interval=3600.0,  # ノードプローブの間隔（秒）
 )
 ```
 
 - `interface`: UDP ソケットをバインドする IP アドレス
-- `poll_interval`: 定期的なノード検出の間隔
-- `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
+- `discovery_interval`: 定期的なノード検出の間隔
 
 `HemsClient.start()` は初期探索を開始し、30 秒後に定期探索を開始します。
 
 ## DeviceManager と PropertyPoller
 
 `DeviceManager` は `HemsInstanceListEvent` / `HemsFrameEvent` を処理して、ノードごとの状態を保持します。
+新しく見つかった機器の setup は、ノードごとのタスクで実行されます。setup ではメーカーコード（0x8A）を先に読むので、
+`monitored_epcs` には `(class_code, manufacturer_code)` を受け取る関数も渡せます。
+
+1 つのノードへの要求は、ノードごとのキューを通して 1 つずつ送られます。順番は `RequestPriority`
+（Set、setup などの読み出し、ポーリングの順）で決まります（`docs/adr/0011-serialize-requests-per-node.md`）。
 
 ```python
 from pyhems import DeviceManager, PropertyPoller
@@ -261,12 +263,25 @@ await device_manager.async_stop()
 await client.stop()
 ```
 
+`DeviceManager.subscribe(callback)` で、型付きの `DeviceManagerEvent` を受け取れます。
+
+- `DeviceAdded`: 機器の setup が完了した
+- `PropertiesChanged`: キャッシュ値が変わった（変わった EPC を `epcs` に持つ）
+- `AvailabilityChanged`: ポーリングによる可用性が変わった
+- `RuntimeActivity`: フレームを受信した
+
+プロパティと可用性のイベントは、値が実際に変わったときだけ通知されます。最後にフレームを受信した時刻、
+または機器の setup を行った時刻は `DeviceManager.last_activity_at` で参照できます。
+
+`DeviceManager.set_properties(..., refresh=True)` は、受理された EPC のうち読み出せるものを、書き込みの
+少し後に読み直します。機器が実際に適用した値をキャッシュに反映するためです。
+
 `PropertyPoller` は固定周期ではなく、機器状態に応じてポーリング間隔を調整します。
 
-- TID 相関で in-flight リクエストを追跡し、遅い機器へのリクエスト詰まりを抑制
+- 機器ごとに同時に 1 つのポーリング周期だけを実行し、ノードのキューを通して応答を待つことで、遅い機器へのリクエスト詰まりを抑制
 - 応答遅延（EWMA）と連続失敗回数に応じて通常ポーリング間隔を動的に調整
 - 瞬時値向け EPC（`fast_poll_epcs`）を高頻度レーンで別スケジュール
-- 部分応答が発生した場合、観測済みバッチ上限（`observed_batch_capacity`）を学習してチャンク送信
+- setup で学習した同時応答数の上限（`observed_batch_capacity`）と機器ごとの GET の制約でチャンクに分けて送信し、応答に含まれなかった EPC は次の周期に任せる
 - `DeviceManager.subscribe_epcs(...)` により実効ポーリング対象を動的に絞り込み
 
 `NodeState`（`device_manager.data[device_key]`）には以下の情報が保持されます。
@@ -274,12 +289,13 @@ await client.stop()
 - `properties`: 取得済み EPC 値（`dict[int, bytes]`）
 - `get_epcs` / `set_epcs` / `inf_epcs`: 機器のプロパティマップ解析結果
 - `poll_epcs`: 通知で取得できないため定期取得が必要な EPC
+- `inf_request_epcs` / `inf_notified_epcs` / `inf_unconfirmed_epcs`: setup で 1 回送る INF_REQ（0x63）の対象、そのうち機器が通知した EPC、拒否または応答がなかった EPC。通知された EPC はポーリングしません（`docs/adr/0009-assume-persistent-status-notifications.md`）
 - `manufacturer_code` / `product_code` / `serial_number`
 
 ## エンティティ定義
 
 pyhems は MRA（Machine Readable Appendix）データに基づいたエンティティ定義を提供します。
-これにより、Home Assistant などの統合で使用するセンサーやスイッチを簡単に構成できます。
+利用側は、この定義からセンサーやスイッチなどの表示を構成できます。
 
 ### 定義レジストリの使用
 
@@ -304,41 +320,48 @@ class EntityDefinition:
     epc: int                # プロパティコード
     name_en: str            # 英語名
     name_ja: str            # 日本語名
-    get: str                # GETアクセスルール
-    set: str                # SETアクセスルール
+    readable: bool          # Get で読み出せるか
+    writable: bool          # Set で書き込めるか
     format: str | None      # 数値フォーマット（"uint8", "int16" など）
     unit: str | None        # 単位（"W", "Celsius", "%RH" など）
     minimum: float | None   # 最小有効値
     maximum: float | None   # 最大有効値
     multiple_of: float      # スケール係数
-    enum_values: tuple[EnumValue, ...]  # 列挙値
+    enum_values: tuple[EnumValue, ...]  # 列挙値（キーは MRA の表記のまま）
     byte_offset: int        # EDT内のバイト位置
     manufacturer_code: int | None  # メーカー固有の場合のコード
+    role: PropertyRole      # 機器の中での役割
+    quantity: Quantity | None        # 数値が表す物理量
+    value_kind: ValueKind | None     # 数値の時間的な性質（計測値、合計、積算）
+    indication: Indication | None    # 真偽値の true が示す状態
 ```
 
-### デコーダファクトリ
+enum のキーは、MRA に由来するものは MRA の表記（`allStop` など）のまま、pyhems が定めるもの
+（`true`/`false` など）は snake_case です（`docs/adr/0012-keep-mra-identifiers.md`）。
 
-EDT データを解釈するためのデコーダ関数を生成できます。
+`quantity`、`value_kind`、`indication` は、`scripts/generate_definitions.py` が単位と英語名から
+導出します。`value_kind` が `None` の数値は、定格値や容量などの静的な値です。
+
+### コーデック
+
+`get_codec_for_epc()` は、EDT と Python の値を相互に変換するコーデックを返します。
 
 ```python
-from pyhems import create_binary_decoder, create_enum_decoder, create_numeric_decoder
+from pyhems import get_codec_for_epc
 
-# 数値デコーダ（温度: uint8, 0〜50℃）
-temp_decoder = create_numeric_decoder(
-    mra_format="uint8",
-    minimum=0,
-    maximum=50,
-)
-value = temp_decoder(b"\x1E")  # 30
+# 温度設定値（家庭用エアコン EPC 0xB3）
+codec = get_codec_for_epc(0x0130, 0xB3)
+codec.decode(b"\x1a")  # 26
+codec.encode(27)        # b"\x1b"
 
-# バイナリデコーダ（ON/OFF）
-power_decoder = create_binary_decoder(on_value=b"\x30")
-is_on = power_decoder(b"\x30")  # True
-
-# 列挙型デコーダ
-mode_decoder = create_enum_decoder()
-mode = mode_decoder(b"\x42")  # 0x42
+# 係数を持つ値は、同じ機器オブジェクトのプロパティを context として渡す
+codec = get_codec_for_epc(0x0287, 0xC0)
+codec.decode(node.properties[0xC0], node.properties)
 ```
+
+メーカー固有の定義や、1 つの EDT に詰められた複数の値は、`manufacturer_code` と
+`byte_offset` で選びます。`encode()` は、`byte_offset` が 0 以外の値や、`minimum`/`maximum`
+の範囲外の値に対して `ValueError` を送出します。
 
 ## モジュール構成
 

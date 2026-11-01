@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+from collections.abc import Callable
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pyhems import EOJ, ESV, GetAbortedError, Property, SetRequestResult
+from pyhems import (
+    EOJ,
+    ESV,
+    GetAbortedError,
+    GetResponse,
+    Property,
+    RequestPriority,
+    SetRequestResult,
+)
 from pyhems.device_manager import (
+    AvailabilityChanged,
+    DeviceAdded,
     DeviceManager,
+    DeviceManagerEvent,
     NodeState,
+    PropertiesChanged,
+    RuntimeActivity,
     _compute_poll_epcs,
     _decode_ascii_property,
     _parse_property_map,
@@ -21,7 +36,7 @@ from pyhems.runtime import (
     HemsClient,
     HemsFrameEvent,
     HemsInstanceListEvent,
-    NotificationRequestResult,
+    InfRequestResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -109,7 +124,7 @@ def test_parse_property_map(edt: bytes, expected: frozenset[int] | None) -> None
         "monitored_epcs",
         "get_epcs",
         "fast_candidate_epcs",
-        "confirmed_inf_epcs",
+        "inf_notified_epcs",
         "expected",
     ),
     [
@@ -151,7 +166,7 @@ def test_compute_poll_epcs(
     monitored_epcs: frozenset[int],
     get_epcs: frozenset[int],
     fast_candidate_epcs: frozenset[int],
-    confirmed_inf_epcs: frozenset[int],
+    inf_notified_epcs: frozenset[int],
     expected: tuple[frozenset[int], frozenset[int]],
 ) -> None:
     """Poll/fast-poll EPCs are recomputed from confirmed INF subscriptions."""
@@ -160,7 +175,7 @@ def test_compute_poll_epcs(
             monitored_epcs=monitored_epcs,
             get_epcs=get_epcs,
             fast_candidate_epcs=fast_candidate_epcs,
-            confirmed_inf_epcs=confirmed_inf_epcs,
+            inf_notified_epcs=inf_notified_epcs,
         )
         == expected
     )
@@ -287,11 +302,11 @@ def _make_node(
 
 async def _default_request_notifications(
     _node_id: str, _deoj: EOJ, epcs: list[int]
-) -> NotificationRequestResult:
+) -> InfRequestResult:
     """Simulate every requested EPC subscribing successfully by default."""
-    return NotificationRequestResult(
-        successful_epcs=frozenset(epcs),
-        failed_epcs=frozenset(),
+    return InfRequestResult(
+        notified_epcs=frozenset(epcs),
+        rejected_epcs=frozenset(),
         unanswered_epcs=frozenset(),
     )
 
@@ -304,6 +319,17 @@ def _make_client() -> AsyncMock:
         return cast(list[Property], await client.get(*args, **kwargs))
 
     client.setup_get = AsyncMock(side_effect=setup_get)
+
+    async def read_manufacturer_code(
+        node_id: str, eoj: EOJ, *_args: object, **_kwargs: object
+    ) -> int:
+        for prop in await client.setup_get(node_id, eoj, [0x8A]):
+            if prop.epc == 0x8A and len(prop.edt) >= 3:
+                return int.from_bytes(prop.edt[:3], "big")
+        raise GetAbortedError("Could not read manufacturer code (EPC 0x8A)")
+
+    client.read_manufacturer_code = AsyncMock(side_effect=read_manufacturer_code)
+    client.request_get = AsyncMock(return_value=None)
     client.send = MagicMock(return_value=True)
     client.request_notifications = AsyncMock(side_effect=_default_request_notifications)
     client.get_observed_batch_capacity = MagicMock(return_value=None)
@@ -320,22 +346,45 @@ def _make_client() -> AsyncMock:
     return client
 
 
+def _subscribe_keys(
+    dm: DeviceManager,
+    event_type: type[DeviceAdded | PropertiesChanged | AvailabilityChanged],
+    keys: list[str],
+) -> Callable[[], None]:
+    """Collect the device keys of events of ``event_type``."""
+
+    def _listener(event: DeviceManagerEvent) -> None:
+        if isinstance(event, event_type) and not isinstance(event, RuntimeActivity):
+            keys.append(event.device_key)
+
+    return dm.subscribe(_listener)
+
+
+async def _drain_node_jobs(dm: DeviceManager) -> None:
+    """Wait until every queued per-node job has run."""
+    while dm._node_workers:
+        await asyncio.gather(*list(dm._node_workers.values()))
+
+
 class TestDeviceManagerRuntimeEvents:
     """Tests for DeviceManager runtime event processing."""
 
     @pytest.mark.asyncio
-    async def test_async_start_processes_events_in_order(self) -> None:
-        """Instance lists are processed before following frame events."""
+    async def test_instance_list_setup_does_not_block_frames(self) -> None:
+        """Setup runs in the node's job task while later frames are processed."""
         client = _make_client()
         unsubscribe = MagicMock()
         client.subscribe.return_value = unsubscribe
         dm = DeviceManager(client, {})
         processed: list[str] = []
+        release = asyncio.Event()
 
         async def _process_instance_list_event(
             _event: HemsInstanceListEvent,
         ) -> list[str]:
-            processed.append("instance_list")
+            processed.append("instance_list_started")
+            await release.wait()
+            processed.append("instance_list_done")
             return []
 
         async def _process_frame_event(_event: HemsFrameEvent) -> bool:
@@ -361,7 +410,6 @@ class TestDeviceManagerRuntimeEvents:
                     received_at=1.0,
                     instances=[],
                     node_id="node",
-                    properties={},
                 )
             )
             callback(
@@ -372,11 +420,14 @@ class TestDeviceManagerRuntimeEvents:
                     [],
                 )
             )
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
+            for _ in range(5):
+                await asyncio.sleep(0)
 
-            assert processed == ["instance_list", "frame"]
+            assert sorted(processed) == ["frame", "instance_list_started"]
+
+            release.set()
+            await _drain_node_jobs(dm)
+            assert processed[-1] == "instance_list_done"
 
             await dm.async_stop()
 
@@ -400,18 +451,24 @@ class TestDeviceManagerRuntimeEvents:
         client = _make_client()
         dm = DeviceManager(client, {})
         received_at: list[float] = []
-        dm.on_runtime_activity(received_at.append)
+        dm.subscribe(
+            lambda event: (
+                received_at.append(event.received_at)
+                if isinstance(event, RuntimeActivity)
+                else None
+            )
+        )
 
         await dm.process_instance_list_event(
             HemsInstanceListEvent(
                 received_at=1.0,
                 instances=[],
                 node_id="node",
-                properties={},
             )
         )
 
         assert received_at == [1.0]
+        assert dm.last_activity_at == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +534,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x31", 0xB0: b"\x41", 0xB1: b"\x42"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
         properties = [
             Property(epc=0x80, edt=b"\x30"),
             Property(epc=0xB0, edt=b"\x40"),
@@ -509,7 +566,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x30"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         await dm.set_properties(
             node_id=node.node_id,
@@ -556,7 +613,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         await dm.set_properties(
             node_id=node.node_id,
@@ -598,10 +655,12 @@ class TestProcessFrameEvent:
         )
 
         assert await dm.process_frame_event(event) is False
+        await _drain_node_jobs(dm)
         assert client.set_properties.call_count == 1
         call = client.set_properties.call_args
         assert call.kwargs["node_id"] == node.node_id
         assert call.kwargs["deoj"] == node.eoj
+        assert call.kwargs["priority"] == RequestPriority.SETUP
         assert call.kwargs["properties"] == [
             Property(epc=0xB2, edt=b"\x01\x1c"),
             Property(epc=0xB6, edt=b"\x01\x1c"),
@@ -610,6 +669,7 @@ class TestProcessFrameEvent:
         ]
 
         assert await dm.process_frame_event(event) is False
+        await _drain_node_jobs(dm)
         assert client.set_properties.call_count == 1
 
     @pytest.mark.asyncio
@@ -633,7 +693,7 @@ class TestProcessFrameEvent:
         )
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
         event = _make_frame_event(
             node.node_id,
             node.eoj,
@@ -641,7 +701,8 @@ class TestProcessFrameEvent:
             [Property(epc=0xB3, edt=node.properties[0xB3])],
         )
 
-        assert await dm.process_frame_event(event) is True
+        assert await dm.process_frame_event(event) is False
+        await _drain_node_jobs(dm)
         assert node.properties[0xB2] == b"\x01\x1c"
         assert updated_keys == [node.device_key]
 
@@ -674,7 +735,9 @@ class TestProcessFrameEvent:
         )
 
         await dm.process_frame_event(event)
+        await _drain_node_jobs(dm)
         await dm.process_frame_event(event)
+        await _drain_node_jobs(dm)
 
         assert client.set_properties.call_count == 1
         assert node.range_recovery_attempted_epcs == {0xB2}
@@ -753,15 +816,15 @@ class TestProcessFrameEvent:
         assert node.properties[0x80] == b"\x30"
 
     @pytest.mark.asyncio
-    async def test_on_device_updated_callback(self) -> None:
-        """Callback is invoked when a device is updated."""
+    async def test_properties_changed_event(self) -> None:
+        """PropertiesChanged is emitted when a cached value changes."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -778,7 +841,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         updated_keys: list[str] = []
-        unsub = dm.on_device_updated(updated_keys.append)
+        unsub = _subscribe_keys(dm, PropertiesChanged, updated_keys)
         unsub()
 
         event = _make_frame_event(
@@ -787,100 +850,55 @@ class TestProcessFrameEvent:
         await dm.process_frame_event(event)
         assert updated_keys == []
 
+    @pytest.mark.parametrize(
+        "esv",
+        [ESV.SET_RES, ESV.SETC_SNA, ESV.SETI_SNA, ESV.SETGET_SNA, ESV.INF_SNA],
+    )
     @pytest.mark.asyncio
-    async def test_on_frame_received_fires_even_without_value_change(self) -> None:
-        """on_frame_received fires for any response frame, unlike on_device_updated."""
+    async def test_frames_without_values_do_not_update_cache(self, esv: ESV) -> None:
+        """Only frames carrying current values update the cache."""
         client = _make_client()
         dm = DeviceManager(client, {})
-        node = _make_node(properties={0x80: b"\x30"})
+        node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
-        received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
-
-        # Same value as already stored: on_device_updated would not fire,
-        # but on_frame_received should still fire (a response was observed).
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, esv, [Property(epc=0x80, edt=b"\x30")]
         )
+
         assert await dm.process_frame_event(event) is False
-        assert received_keys == [node.device_key]
+        assert node.properties[0x80] == b"\x31"
 
+    @pytest.mark.parametrize("esv", [ESV.GET_RES, ESV.GET_SNA, ESV.INF, ESV.INFC])
     @pytest.mark.asyncio
-    async def test_on_frame_received_passes_epcs_in_frame(self) -> None:
-        """on_frame_received passes the set of EPCs present in the frame."""
-        client = _make_client()
-        dm = DeviceManager(client, {})
-        node = _make_node(properties={0x80: b"\x30"})
-        dm.data[node.device_key] = node
-
-        received_epcs: list[frozenset[int]] = []
-        dm.on_frame_received(lambda _key, _tid, _esv, epcs: received_epcs.append(epcs))
-
-        event = _make_frame_event(
-            node.node_id,
-            node.eoj,
-            ESV.GET_RES,
-            [Property(epc=0x80, edt=b"\x31"), Property(epc=0x81, edt=b"\x01")],
-        )
-        await dm.process_frame_event(event)
-
-        assert received_epcs == [frozenset({0x80, 0x81})]
-
-    @pytest.mark.asyncio
-    async def test_on_frame_received_fires_for_set_response(self) -> None:
-        """on_frame_received fires even for Set responses."""
+    async def test_frames_with_values_update_cache(self, esv: ESV) -> None:
+        """Get responses and notifications update the cache."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
-        received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
-
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV.SET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, esv, [Property(epc=0x80, edt=b"\x30")]
         )
-        await dm.process_frame_event(event)
-        assert received_keys == [node.device_key]
+
+        assert await dm.process_frame_event(event) is True
+        assert node.properties[0x80] == b"\x30"
 
     @pytest.mark.asyncio
-    async def test_on_frame_received_ignores_unknown_device(self) -> None:
-        """on_frame_received does not fire for unknown devices."""
-        client = _make_client()
-        dm = DeviceManager(client, {})
-
-        received_keys: list[str] = []
-        dm.on_frame_received(lambda key, _tid, _esv, _epcs: received_keys.append(key))
-
-        event = _make_frame_event(
-            "fe00000000000000000000000000000001",
-            EOJ(0x013001),
-            ESV.GET_RES,
-            [Property(epc=0x80, edt=b"\x30")],
-        )
-        await dm.process_frame_event(event)
-        assert received_keys == []
-
-    @pytest.mark.asyncio
-    async def test_on_frame_received_unsubscribe(self) -> None:
-        """Unsubscribe prevents further on_frame_received callbacks."""
+    async def test_get_sna_empty_value_is_stored(self) -> None:
+        """An empty EDT in Get_SNA discards the previous value."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
-        received_keys: list[str] = []
-        unsub = dm.on_frame_received(
-            lambda key, _tid, _esv, _epcs: received_keys.append(key)
-        )
-        unsub()
-
         event = _make_frame_event(
-            node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
+            node.node_id, node.eoj, ESV.GET_SNA, [Property(epc=0x80, edt=b"")]
         )
-        await dm.process_frame_event(event)
-        assert received_keys == []
+
+        assert await dm.process_frame_event(event) is True
+        assert node.properties[0x80] == b""
 
 
 # ---------------------------------------------------------------------------
@@ -930,7 +948,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -968,13 +985,12 @@ class TestProcessInstanceListEvent:
         dm = DeviceManager(client, monitored_epcs)
 
         added_keys: list[str] = []
-        dm.on_device_added(added_keys.append)
+        _subscribe_keys(dm, DeviceAdded, added_keys)
 
         event = HemsInstanceListEvent(
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1016,14 +1032,13 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={},
             )
         )
 
         node = dm.data[result[0]]
         assert node.monitored_epcs == frozenset({0x88})
-        assert node.attempted_inf_epcs == frozenset({0x88})
-        assert node.confirmed_inf_epcs == frozenset({0x88})
+        assert node.inf_request_epcs == frozenset({0x88})
+        assert node.inf_notified_epcs == frozenset({0x88})
         assert node.poll_epcs == frozenset()
         assert node.polling_available is None
 
@@ -1057,7 +1072,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1098,7 +1112,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1132,9 +1145,9 @@ class TestProcessInstanceListEvent:
             Property(epc=0xB1, edt=b"\x41"),
         ]
         client.request_notifications.side_effect = None
-        client.request_notifications.return_value = NotificationRequestResult(
-            successful_epcs=frozenset({0xB0}),
-            failed_epcs=frozenset({0xB1}),
+        client.request_notifications.return_value = InfRequestResult(
+            notified_epcs=frozenset({0xB0}),
+            rejected_epcs=frozenset({0xB1}),
             unanswered_epcs=frozenset(),
         )
 
@@ -1145,14 +1158,13 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
         node = dm.data[result[0]]
-        assert node.attempted_inf_epcs == frozenset({0xB0, 0xB1})
-        assert node.confirmed_inf_epcs == frozenset({0xB0})
-        assert node.failed_inf_epcs == frozenset({0xB1})
+        assert node.inf_request_epcs == frozenset({0xB0, 0xB1})
+        assert node.inf_notified_epcs == frozenset({0xB0})
+        assert node.inf_unconfirmed_epcs == frozenset({0xB1})
         # 0xB0 confirmed -> excluded from polling; 0xB1 rejected -> still polled
         assert node.poll_epcs == frozenset({0x80, 0xB1})
 
@@ -1175,9 +1187,9 @@ class TestProcessInstanceListEvent:
             Property(epc=0xB0, edt=b"\x41"),
         ]
         client.request_notifications.side_effect = None
-        client.request_notifications.return_value = NotificationRequestResult(
-            successful_epcs=frozenset(),
-            failed_epcs=frozenset(),
+        client.request_notifications.return_value = InfRequestResult(
+            notified_epcs=frozenset(),
+            rejected_epcs=frozenset(),
             unanswered_epcs=frozenset({0xB0}),
         )
 
@@ -1188,13 +1200,12 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
         node = dm.data[result[0]]
-        assert node.confirmed_inf_epcs == frozenset()
-        assert node.failed_inf_epcs == frozenset({0xB0})
+        assert node.inf_notified_epcs == frozenset()
+        assert node.inf_unconfirmed_epcs == frozenset({0xB0})
         assert node.poll_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
@@ -1209,24 +1220,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[node.eoj],
             node_id=node.node_id,
-            properties={},
-        )
-
-        result = await dm.process_instance_list_event(event)
-        assert result == []
-        client.get.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_class_code_filter(self) -> None:
-        """Devices with filtered class codes are skipped."""
-        client = _make_client()
-        dm = DeviceManager(client, {}, class_code_filter=frozenset({0x0130}))
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[EOJ(0x027901)],
-            node_id="fe00000000000000000000000000000001",
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1251,7 +1244,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id="fe00000000000000000000000000000001",
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1277,7 +1269,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={0x8A: b"\x12\x34\x56"},
             )
         )
 
@@ -1304,11 +1295,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id=node_id,
-            properties={
-                0x8A: b"\x12\x34\x56",
-                0x8C: b"NP_PRODUCT\x00",
-                0x8D: b"NP_SERIAL\x00",
-            },
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1336,7 +1322,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -1350,7 +1335,7 @@ class TestProcessInstanceListEvent:
         ("missing", "properties"),
         [
             (
-                "[8A]",
+                "(EPC 0x8A)",
                 [
                     Property(epc=0x9D, edt=b"\x00"),
                     Property(epc=0x9E, edt=b"\x00"),
@@ -1392,7 +1377,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id=node_id,
-            properties={},
         )
 
         assert await dm.process_instance_list_event(event) == []
@@ -1432,7 +1416,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[EOJ(0x029001), EOJ(0x029002)],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -1450,76 +1433,73 @@ class TestProcessInstanceListEvent:
 class TestPollDevice:
     """Tests for DeviceManager.poll_device."""
 
-    def test_poll_known_device(self) -> None:
-        """Polling a known device sends a GET frame."""
+    @pytest.mark.asyncio
+    async def test_poll_known_device(self) -> None:
+        """Polling a known device requests its poll EPCs with poll priority."""
         client = _make_client()
+        response = GetResponse(esv=ESV.GET_RES, properties=(), latency=0.5)
+        client.request_get.return_value = response
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
-        result = dm.poll_device(node.device_key)
-        assert result is not None
-        client.send.assert_called_once()
-        _node_id, frame = client.send.call_args.args
-        assert frame.esv == ESV.GET
-        assert {p.epc for p in frame.properties} == {0x80, 0xB0}
-        assert frame.tid == result
+        result = await dm.poll_device(node.device_key, request_timeout=5.0)
 
-    def test_poll_unknown_device(self) -> None:
-        """Polling an unknown device returns False."""
+        assert result is response
+        client.request_get.assert_awaited_once()
+        call = client.request_get.await_args
+        assert call.args[:2] == (node.node_id, node.eoj)
+        assert set(call.args[2]) == {0x80, 0xB0}
+        assert call.kwargs == {
+            "request_timeout": 5.0,
+            "priority": RequestPriority.POLL,
+        }
+
+    @pytest.mark.asyncio
+    async def test_poll_unknown_device(self) -> None:
+        """Polling an unknown device sends nothing."""
         client = _make_client()
         dm = DeviceManager(client, {})
 
-        result = dm.poll_device("unknown-device")
-        assert result is None
-        client.send.assert_not_called()
+        assert await dm.poll_device("unknown-device", request_timeout=5.0) is None
+        client.request_get.assert_not_awaited()
 
-    def test_poll_device_no_poll_epcs(self) -> None:
-        """Polling a device with no poll EPCs returns False."""
+    @pytest.mark.asyncio
+    async def test_poll_device_no_poll_epcs(self) -> None:
+        """Polling a device with no poll EPCs sends nothing."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset())
         dm.data[node.device_key] = node
 
-        result = dm.poll_device(node.device_key)
-        assert result is None
+        assert await dm.poll_device(node.device_key, request_timeout=5.0) is None
+        client.request_get.assert_not_awaited()
 
-    def test_poll_device_with_explicit_epcs(self) -> None:
-        """An explicit epcs argument overrides the device's poll_epcs."""
+    @pytest.mark.asyncio
+    async def test_poll_device_preserves_explicit_epc_order(self) -> None:
+        """An explicit EPC collection overrides poll_epcs and keeps its order."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(poll_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        await dm.poll_device(node.device_key, (0xC0, 0xB3, 0xB8), request_timeout=5.0)
+
+        assert client.request_get.await_args.args[2] == [0xC0, 0xB3, 0xB8]
+
+    @pytest.mark.asyncio
+    async def test_poll_device_with_empty_explicit_epcs(self) -> None:
+        """An explicit empty epcs argument sends nothing."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
         dm.data[node.device_key] = node
 
-        result = dm.poll_device(node.device_key, frozenset({0xE0}))
-        assert result is not None
-        _node_id, frame = client.send.call_args.args
-        assert {p.epc for p in frame.properties} == {0xE0}
-        assert frame.tid == result
-
-    def test_poll_device_preserves_explicit_epc_order(self) -> None:
-        """An ordered explicit EPC collection is preserved in the GET frame."""
-        client = _make_client()
-        dm = DeviceManager(client, {})
-        node = _make_node()
-        dm.data[node.device_key] = node
-
-        result = dm.poll_device(node.device_key, (0xC0, 0xB3, 0xB8))
-
-        assert result is not None
-        _node_id, frame = client.send.call_args.args
-        assert [prop.epc for prop in frame.properties] == [0xC0, 0xB3, 0xB8]
-
-    def test_poll_device_with_empty_explicit_epcs(self) -> None:
-        """An explicit empty epcs argument returns False without sending."""
-        client = _make_client()
-        dm = DeviceManager(client, {})
-        node = _make_node(poll_epcs=frozenset({0x80, 0xB0}))
-        dm.data[node.device_key] = node
-
-        result = dm.poll_device(node.device_key, frozenset())
-        assert result is None
-        client.send.assert_not_called()
+        assert (
+            await dm.poll_device(node.device_key, frozenset(), request_timeout=5.0)
+            is None
+        )
+        client.request_get.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -1712,12 +1692,11 @@ class TestEventConsumerResilience:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        assert client._pending_gets
+        assert client._pending
 
         await client.stop()
         await asyncio.sleep(0)
@@ -1726,3 +1705,330 @@ class TestEventConsumerResilience:
         assert not dm.event_consumer_task_done
         assert dm.data == {}
         await dm.async_stop()
+
+
+def _setup_properties(manufacturer: bytes = b"\x00\x00\x01") -> list[Property]:
+    get_epcs = frozenset({0x80, 0xF0})
+    return [
+        Property(epc=0x9D, edt=_make_property_map_edt(frozenset())),
+        Property(epc=0x9E, edt=_make_property_map_edt(frozenset())),
+        Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
+        Property(epc=0x8A, edt=manufacturer),
+        Property(epc=0x80, edt=b"\x30"),
+        Property(epc=0xF0, edt=b"\x01"),
+    ]
+
+
+class TestSetupInNodeJobs:
+    """Tests for setup running outside the event consumer (ADR-0011)."""
+
+    @pytest.mark.asyncio
+    async def test_monitored_epcs_depend_on_manufacturer(self) -> None:
+        """The manufacturer code is read first and selects the monitored EPCs."""
+        client = _make_client()
+        client.get.return_value = _setup_properties(b"\x00\x00\x05")
+        selections: list[tuple[int, int]] = []
+
+        def monitored(class_code: int, manufacturer_code: int) -> frozenset[int]:
+            selections.append((class_code, manufacturer_code))
+            return frozenset({0x80, 0xF0}) if manufacturer_code == 5 else frozenset()
+
+        dm = DeviceManager(client, monitored, fast_epcs=monitored)
+        node_id = "fe00000000000000000000000000000001"
+
+        await dm.process_instance_list_event(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id=node_id,
+            )
+        )
+
+        node = dm.data[f"{node_id}-013001"]
+        assert selections == [(0x0130, 5), (0x0130, 5)]
+        assert node.manufacturer_code == 5
+        assert node.monitored_epcs == frozenset({0x80, 0xF0})
+        requested = client.setup_get.await_args_list[-1].args[2]
+        assert 0x8A not in requested
+        assert {0x80, 0xF0} <= set(requested)
+
+    @pytest.mark.asyncio
+    async def test_frames_during_setup_are_applied_after_setup(self) -> None:
+        """A frame received while the device is set up is applied afterwards."""
+        client = _make_client()
+        client.get.return_value = _setup_properties()
+        release = asyncio.Event()
+        setup_get = client.setup_get.side_effect
+
+        async def slow_setup_get(*args: object, **kwargs: object) -> list[Property]:
+            if args[2] != [0x8A]:
+                await release.wait()
+            return cast(list[Property], await setup_get(*args, **kwargs))
+
+        client.setup_get.side_effect = slow_setup_get
+        dm = DeviceManager(client, {0x0130: frozenset({0x80})})
+        await dm.async_start()
+        callback = client.subscribe.call_args.args[0]
+        node_id = "fe00000000000000000000000000000001"
+
+        callback(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id=node_id,
+            )
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        callback(
+            _make_frame_event(
+                node_id, EOJ(0x013001), ESV.INF, [Property(epc=0x80, edt=b"\x31")]
+            )
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert dm.data == {}
+
+        release.set()
+        await _drain_node_jobs(dm)
+
+        assert dm.data[f"{node_id}-013001"].properties[0x80] == b"\x31"
+        assert dm._deferred_frames == {}
+        await dm.async_stop()
+
+    @pytest.mark.asyncio
+    async def test_frames_for_failed_setup_are_discarded(self) -> None:
+        """Frames kept for a device whose setup fails are dropped."""
+        client = _make_client()
+        client.read_manufacturer_code.side_effect = GetAbortedError("no answer")
+        dm = DeviceManager(client, {})
+        node_id = "fe00000000000000000000000000000001"
+        release = asyncio.Event()
+
+        async def blocked() -> None:
+            await release.wait()
+
+        dm._enqueue_node_job(node_id, blocked)
+        dm._enqueue_node_job(
+            node_id,
+            functools.partial(
+                dm.process_instance_list_event,
+                HemsInstanceListEvent(
+                    received_at=1.0,
+                    instances=[EOJ(0x013001)],
+                    node_id=node_id,
+                ),
+            ),
+        )
+        await dm.process_frame_event(
+            _make_frame_event(
+                node_id, EOJ(0x013001), ESV.INF, [Property(epc=0x80, edt=b"\x31")]
+            )
+        )
+        assert list(dm._deferred_frames) == [f"{node_id}-013001"]
+
+        release.set()
+        await _drain_node_jobs(dm)
+
+        assert dm.data == {}
+        assert dm._deferred_frames == {}
+
+    @pytest.mark.asyncio
+    async def test_nodes_are_set_up_in_parallel(self) -> None:
+        """A node whose setup is slow does not delay another node."""
+        client = _make_client()
+        client.get.return_value = _setup_properties()
+        release = asyncio.Event()
+        setup_get = client.setup_get.side_effect
+        slow_node = "fe00000000000000000000000000000001"
+        fast_node = "fe00000000000000000000000000000002"
+
+        async def node_setup_get(*args: object, **kwargs: object) -> list[Property]:
+            if args[0] == slow_node:
+                await release.wait()
+            return cast(list[Property], await setup_get(*args, **kwargs))
+
+        client.setup_get.side_effect = node_setup_get
+        dm = DeviceManager(client, {})
+        await dm.async_start()
+        callback = client.subscribe.call_args.args[0]
+
+        for node_id in (slow_node, fast_node):
+            callback(
+                HemsInstanceListEvent(
+                    received_at=1.0,
+                    instances=[EOJ(0x013001)],
+                    node_id=node_id,
+                )
+            )
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+        assert list(dm.data) == [f"{fast_node}-013001"]
+
+        release.set()
+        await _drain_node_jobs(dm)
+        assert set(dm.data) == {f"{slow_node}-013001", f"{fast_node}-013001"}
+        await dm.async_stop()
+
+    @pytest.mark.asyncio
+    async def test_async_stop_cancels_node_jobs(self) -> None:
+        """Stopping the manager cancels setup still in progress."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        started = asyncio.Event()
+
+        async def blocked() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        await dm.async_start()
+        dm._enqueue_node_job("node", blocked)
+        await started.wait()
+
+        await dm.async_stop()
+
+        assert dm._node_workers == {}
+        assert dm._node_jobs == {}
+
+
+class TestDeviceManagerEvents:
+    """Tests for the typed device manager events."""
+
+    @pytest.mark.asyncio
+    async def test_properties_changed_lists_changed_epcs(self) -> None:
+        """PropertiesChanged carries only the EPCs whose value changed."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30", 0xB0: b"\x41"})
+        dm.data[node.device_key] = node
+        events: list[object] = []
+        dm.subscribe(events.append)
+
+        await dm.process_frame_event(
+            _make_frame_event(
+                node.node_id,
+                node.eoj,
+                ESV.GET_RES,
+                [Property(epc=0x80, edt=b"\x30"), Property(epc=0xB0, edt=b"\x42")],
+            )
+        )
+
+        assert [e for e in events if isinstance(e, PropertiesChanged)] == [
+            PropertiesChanged(device_key=node.device_key, epcs=frozenset({0xB0}))
+        ]
+
+    @pytest.mark.asyncio
+    async def test_availability_changed_only_on_change(self) -> None:
+        """AvailabilityChanged is emitted when the polling result changes."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+        events: list[object] = []
+        dm.subscribe(events.append)
+
+        dm.record_poll_success(node.device_key)
+        dm.record_poll_success(node.device_key)
+        dm.record_poll_failure(node.device_key)
+
+        assert events == [
+            AvailabilityChanged(device_key=node.device_key, available=True),
+            AvailabilityChanged(device_key=node.device_key, available=False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_listener_error_does_not_stop_other_listeners(self) -> None:
+        """A failing listener does not prevent delivery to the others."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+        events: list[object] = []
+
+        def _failing(_event: object) -> None:
+            raise RuntimeError("listener bug")
+
+        dm.subscribe(_failing)
+        dm.subscribe(events.append)
+
+        dm.record_poll_failure(node.device_key)
+
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_set_properties_refreshes_accepted_readable_epcs(self) -> None:
+        """With refresh, accepted readable EPCs are read back with poll priority."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80, 0xB0, 0xE0}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        with patch("pyhems.device_manager._REFRESH_DELAY", 0):
+            await dm.set_properties(
+                node.node_id,
+                node.eoj,
+                [
+                    Property(epc=0x80, edt=b"\x30"),
+                    Property(epc=0xB0, edt=b"\x41"),
+                    Property(epc=0xE0, edt=b"\x01"),
+                ],
+                refresh=True,
+            )
+            await asyncio.gather(*dm._refresh_tasks)
+
+        client.get.assert_awaited_once_with(
+            node.node_id, node.eoj, [0x80, 0xB0], priority=RequestPriority.POLL
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_properties_without_refresh_does_not_read(self) -> None:
+        """Without refresh, nothing is read back."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        await dm.set_properties(
+            node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")]
+        )
+
+        assert dm._refresh_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_async_stop_cancels_refresh(self) -> None:
+        """Stopping the manager cancels pending read-backs."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+        await dm.async_start()
+
+        await dm.set_properties(
+            node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")], refresh=True
+        )
+        await dm.async_stop()
+
+        assert dm._refresh_tasks == set()
+        client.get.assert_not_awaited()

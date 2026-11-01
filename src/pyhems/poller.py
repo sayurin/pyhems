@@ -5,10 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Collection
 from dataclasses import dataclass
 
-from .const import ESV
 from .device_manager import DeviceManager
 from .get_batch_policy import take_first_batch
 
@@ -34,22 +32,12 @@ _DEFAULT_FAST_POLL_INTERVAL = 10.0
 
 @dataclass
 class _DeviceScheduleState:
-    """Per-device state for the adaptive polling algorithm.
+    """Per-device state for the adaptive polling algorithm."""
 
-    Consolidates everything :class:`PropertyPoller` tracks per device (in
-    addition to ``_pending``/``_scheduled``, which are keyed the same way
-    but serve a different purpose) into a single object, instead of several
-    parallel dicts that all need to be kept in sync by hand.
-    """
-
-    # Monotonic timestamp when a poll was sent and a response is still
-    # outstanding, or None if no poll is currently in flight. Shared by both
-    # tiers: only one poll (normal or fast) may be in flight at a time.
-    awaiting_since: float | None = None
-    # Transaction ID of the poll currently in flight, used to ignore
-    # unrelated response frames from the same device.
-    awaiting_tid: int | None = None
-    # Monotonic timestamp of the most recent normal-tier poll actually sent.
+    # Poll cycle in progress, if any. Shared by both tiers: only one cycle
+    # (normal, fast, or merged) runs per device at a time.
+    cycle_task: asyncio.Task[None] | None = None
+    # Monotonic timestamp of the most recent normal-tier cycle started.
     last_polled_at: float | None = None
     # Same as above, but for the fast tier.
     last_fast_polled_at: float | None = None
@@ -58,28 +46,15 @@ class _DeviceScheduleState:
     # the device's actual responsiveness regardless of which tier triggered
     # the poll.
     latency_ewma: float | None = None
-    # Number of consecutive polls that timed out without a response (reset
-    # to 0 whenever any frame is received). Shared by both tiers for the
-    # same reason as ``latency_ewma``.
+    # Number of consecutive polls that were not answered (reset to 0 when a
+    # poll is answered). Shared by both tiers for the same reason as
+    # ``latency_ewma``.
     consecutive_failures: int = 0
-    # Whether the poll cycle in progress is a scheduled poll used for
-    # liveness tracking (immediate polls are not).
-    liveness_requested: bool = False
-    # EPCs still to be sent for the poll cycle currently in progress.
-    remaining_epcs: tuple[int, ...] = ()
-    # Whether ``remaining_epcs`` belongs to the fast tier (affects which
-    # last-polled timestamp subsequent chunks update).
-    remaining_epcs_fast: bool = False
-    # Whether ``remaining_epcs`` belongs to the normal tier. Both flags can be
-    # true when a merged normal/fast poll is split into chunks.
-    remaining_epcs_normal: bool = False
 
-    def end_cycle(self) -> None:
-        """Forget the poll cycle in progress."""
-        self.liveness_requested = False
-        self.remaining_epcs = ()
-        self.remaining_epcs_fast = False
-        self.remaining_epcs_normal = False
+    @property
+    def polling(self) -> bool:
+        """Return whether a poll cycle is in progress."""
+        return self.cycle_task is not None and not self.cycle_task.done()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,15 +70,18 @@ class DevicePollerStats:
 class PropertyPoller:
     """Periodically poll devices whose monitored EPCs lack notification support.
 
-    This scheduler iterates ``device_manager.data`` on a fixed interval and
-    sends GET requests for each device's ``poll_epcs``.  It also supports
-    expedited polling (e.g. after a Set operation) via
-    :meth:`schedule_immediate_poll`.
+    This scheduler iterates ``device_manager.data`` on a fixed tick and polls
+    each device's ``poll_epcs``. Reading values back after a Set is done by
+    ``DeviceManager.set_properties(..., refresh=True)``.
 
-    A device is never sent a new poll while a previous one is still
-    outstanding (no response frame observed yet): this avoids piling up
-    overlapping GET requests on slow devices, which would otherwise make
-    them fall further behind. See :meth:`_is_awaiting`.
+    A device is never sent a new poll cycle while a previous one is still in
+    progress. Each cycle is split into chunks by the device's
+    concurrent-response limit learned during setup and by device-specific
+    GET policies. Chunks are requested one at a time through the node's
+    request queue (ADR-0011), each after the previous one is answered. The
+    poller never probes or learns the limit, and never requeues EPCs missing
+    from a response: an unanswered chunk ends the cycle, which is left to
+    the next one.
 
     Each device also gets its own *adaptive* polling interval on top of the
     shared ``poll_interval`` tick: devices with a higher observed response
@@ -113,25 +91,18 @@ class PropertyPoller:
     :meth:`_effective_interval`.
 
     Devices with a non-empty ``NodeState.fast_poll_epcs`` (e.g. instantaneous
-    power) are additionally polled on a second, faster cadence
-    by the combined scheduler. The fast tier shares the same in-flight
-    tracking and latency/backoff signals as the normal tier, so a device that
-    turns out to be slow automatically has its fast-tier cadence folded back
-    into the normal one instead of being hammered independently. See
+    power) are additionally polled on a second, faster cadence by the same
+    scheduler. The fast tier shares the in-progress cycle and the
+    latency/backoff signals with the normal tier, so a device that turns out
+    to be slow automatically has its fast-tier cadence folded back into the
+    normal one instead of being hammered independently. See
     :meth:`_effective_fast_interval`.
-
-    Each poll cycle is split into chunks by the device's concurrent-response
-    limit learned during setup and by device-specific GET policies. Chunks
-    are sent one at a time, each only after the previous chunk's response is
-    observed (see :meth:`_send_next_chunk`). The poller never probes or
-    learns the limit, and never requeues EPCs missing from a response: a
-    timeout ends the current cycle, which is left to the next one.
 
     Both tiers request ``device_manager.effective_poll_epcs()`` /
     ``effective_fast_poll_epcs()`` rather than the raw
     ``NodeState.poll_epcs``/``fast_poll_epcs``: callers can narrow the set of
     EPCs actually polled per device via ``DeviceManager.subscribe_epcs()``
-    (e.g. Home Assistant unsubscribing a disabled Entity's EPC). A device
+    (e.g. a consumer unsubscribing an EPC it no longer displays). A device
     with no active subscribers for a tier is skipped entirely for that tier.
     """
 
@@ -152,10 +123,9 @@ class PropertyPoller:
             poll_interval: Base interval between poll cycles (seconds). Also
                 the lower bound of the per-device adaptive interval. Defaults
                 to 60 seconds.
-            awaiting_timeout: How long to wait for a response to an
-                outstanding poll before giving up and allowing a new one to
-                be sent (seconds). Defaults to ``poll_interval`` so a device
-                that never answers is retried on the next regular cycle.
+            awaiting_timeout: How long to wait for the response to one poll
+                request after it is sent (seconds). Defaults to
+                ``poll_interval``.
             safety_factor: Multiplier applied to a device's observed latency
                 (EWMA) when computing its adaptive interval. Higher values
                 poll slow devices more conservatively.
@@ -175,17 +145,10 @@ class PropertyPoller:
         self._safety_factor = max(1.0, float(safety_factor))
         self._max_interval = max(self._poll_interval, float(max_interval))
         self._fast_poll_interval = max(1.0, float(fast_poll_interval))
-        self._pending: set[str] = set()
-        self._scheduled: dict[str, asyncio.TimerHandle] = {}
         self._task: asyncio.Task[None] | None = None
 
-        # device_key -> per-device scheduling state (in-flight tracking,
-        # latency EWMA, backoff, last-polled timestamps). See
-        # _DeviceScheduleState.
+        # device_key -> per-device scheduling state. See _DeviceScheduleState.
         self._state: dict[str, _DeviceScheduleState] = {}
-        self._unsub_frame_received = device_manager.on_frame_received(
-            self._on_frame_received
-        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -203,44 +166,21 @@ class PropertyPoller:
             )
 
     def stop(self) -> None:
-        """Cancel the polling loop and all scheduled callbacks."""
+        """Cancel the polling loop and cycles in progress.
+
+        The poller can be started again afterwards.
+        """
         if self._task is not None:
             self._task.cancel()
             self._task = None
-        for handle in self._scheduled.values():
-            handle.cancel()
-        self._scheduled.clear()
-        self._pending.clear()
+        for state in self._state.values():
+            if state.cycle_task is not None:
+                state.cycle_task.cancel()
         self._state.clear()
-        self._unsub_frame_received()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def schedule_immediate_poll(self, device_key: str, *, delay: float = 1.0) -> None:
-        """Schedule polling for a device earlier than the regular cadence.
-
-        Intended to be called after a Set operation so the caller can
-        observe the updated device state sooner.
-        """
-        if device_key not in self._device_manager.data:
-            return
-
-        if device_key in self._pending:
-            return
-
-        if self._is_awaiting(device_key):
-            return
-
-        if handle := self._scheduled.pop(device_key, None):
-            handle.cancel()
-
-        delay = max(0.0, float(delay))
-        loop = asyncio.get_running_loop()
-        self._scheduled[device_key] = loop.call_later(
-            delay, self._scheduled_fire, device_key
-        )
 
     def get_device_stats(self, device_key: str) -> DevicePollerStats:
         """Return a diagnostics-friendly snapshot for one device."""
@@ -259,10 +199,9 @@ class PropertyPoller:
     async def _poll_loop(self) -> None:
         """Run forever, polling each device on the combined cadence.
 
-        When the fast tier is enabled, the loop wakes on the faster tick and
-        then decides whether normal and/or fast EPCs are due. This avoids two
-        separate poll tasks racing on the same device while still respecting
-        each tier's adaptive timing.
+        The loop wakes on the faster tick and then decides whether normal
+        and/or fast EPCs are due. This avoids two separate poll tasks racing
+        on the same device while still respecting each tier's adaptive timing.
         """
         while True:
             await asyncio.sleep(self._fast_poll_interval)
@@ -270,17 +209,13 @@ class PropertyPoller:
             self._schedule_polls()
 
     def _cleanup_stale(self) -> None:
-        """Remove pending/scheduled entries for devices no longer present."""
+        """Remove the state of devices no longer present."""
         current = set(self._device_manager.data)
-        for device_key in list(self._pending):
-            if device_key not in current:
-                self._pending.discard(device_key)
-        for device_key in list(self._scheduled):
-            if device_key not in current:
-                self._scheduled.pop(device_key).cancel()
         for device_key in list(self._state):
             if device_key not in current:
-                self._state.pop(device_key, None)
+                state = self._state.pop(device_key)
+                if state.cycle_task is not None:
+                    state.cycle_task.cancel()
 
     def _get_state(self, device_key: str) -> _DeviceScheduleState:
         """Return the per-device schedule state, creating it if absent."""
@@ -290,19 +225,20 @@ class PropertyPoller:
             self._state[device_key] = state
         return state
 
-    def _schedule_polls(self) -> None:
-        """Enqueue poll requests for devices that need polling.
+    def _is_polling(self, device_key: str) -> bool:
+        """Return True if a poll cycle for ``device_key`` is in progress."""
+        state = self._state.get(device_key)
+        return state is not None and state.polling
 
-        When both tiers are due for the same device, the request is merged into a
-        single GET containing the union of the normal and fast EPC sets. This
-        avoids the race where a slow device would otherwise receive separate
-        overlapping polls on the same tick.
+    def _schedule_polls(self) -> None:
+        """Start poll cycles for devices that need polling.
+
+        When both tiers are due for the same device, a single cycle requests
+        the union of the normal and fast EPC sets.
         """
         now = time.monotonic()
         for device_key, node in self._device_manager.data.items():
-            if device_key in self._pending or device_key in self._scheduled:
-                continue
-            if self._is_awaiting(device_key):
+            if self._is_polling(device_key):
                 continue
             if not node.poll_epcs and not node.fast_poll_epcs:
                 continue
@@ -326,21 +262,16 @@ class PropertyPoller:
 
             self._fire_poll(device_key, fast=fast_due, normal=normal_due)
 
-    def _scheduled_fire(self, device_key: str) -> None:
-        self._scheduled.pop(device_key, None)
-        self._fire_poll(device_key, normal=True, fast=True, liveness=False)
-
     def _fire_poll(
         self,
         device_key: str,
         *,
         fast: bool,
         normal: bool,
-        liveness: bool = True,
     ) -> None:
-        if device_key in self._pending:
-            return
         node = self._device_manager.data.get(device_key)
+        if node is None:
+            return
         normal_epcs = (
             self._device_manager.effective_poll_epcs(device_key)
             if normal
@@ -348,37 +279,57 @@ class PropertyPoller:
         )
         fast_epcs = (
             self._device_manager.effective_fast_poll_epcs(device_key)
-            if fast and node is not None and node.fast_poll_epcs
+            if fast
             else frozenset()
         )
         epcs = normal_epcs | fast_epcs
         if not epcs:
             return
-        self._poll_node(
-            device_key, epcs=epcs, fast=fast, normal=normal, liveness=liveness
+
+        state = self._get_state(device_key)
+        now = time.monotonic()
+        if normal:
+            state.last_polled_at = now
+        if fast:
+            state.last_fast_polled_at = now
+        state.cycle_task = asyncio.get_running_loop().create_task(
+            self._run_cycle(device_key, tuple(sorted(epcs))),
+            name=f"pyhems_poll_{device_key}",
         )
 
-    def _is_awaiting(self, device_key: str) -> bool:
-        """Return True if a poll response for ``device_key`` is still outstanding.
+    async def _run_cycle(self, device_key: str, epcs: tuple[int, ...]) -> None:
+        """Request ``epcs`` chunk by chunk until done or unanswered.
 
-        If the outstanding poll has been unanswered for longer than
-        ``awaiting_timeout``, the wait is abandoned (the entry is cleared),
-        the rest of the poll cycle is dropped, and the timeout is counted as a
-        failure, feeding the exponential backoff in :meth:`_effective_interval`.
+        Records whether the device answered, for availability tracking.
         """
-        state = self._state.get(device_key)
-        if state is None or state.awaiting_since is None:
-            return False
-        if time.monotonic() - state.awaiting_since >= self._awaiting_timeout:
-            liveness_requested = state.liveness_requested
-            state.awaiting_since = None
-            state.awaiting_tid = None
-            state.end_cycle()
-            state.consecutive_failures += 1
-            if liveness_requested:
+        state = self._get_state(device_key)
+        remaining = epcs
+        while remaining:
+            node = self._device_manager.data.get(device_key)
+            if node is None:
+                return
+            capacity = self._device_manager.get_observed_batch_capacity(device_key)
+            chunk, remaining = take_first_batch(
+                remaining,
+                manufacturer_code=node.manufacturer_code,
+                class_code=node.eoj.class_code,
+                observed_batch_capacity=capacity,
+            )
+            if not chunk:
+                return
+            response = await self._device_manager.poll_device(
+                device_key, chunk, request_timeout=self._awaiting_timeout
+            )
+            if response is None:
+                _LOGGER.debug("Poll of %s was not answered", device_key)
+                state.consecutive_failures += 1
                 self._device_manager.record_poll_failure(device_key)
-            return False
-        return True
+                return
+            # A 0x72 or 0x52 response shows the device is responsive, even if
+            # some EPCs are missing or empty.
+            self._update_latency(state, response.latency)
+            state.consecutive_failures = 0
+            self._device_manager.record_poll_success(device_key)
 
     def _effective_interval(self, device_key: str) -> float:
         """Return the current adaptive polling interval for a device.
@@ -431,7 +382,8 @@ class PropertyPoller:
         interval = min(interval, self._max_interval)
         return min(interval, self._effective_interval(device_key))
 
-    def _update_latency(self, state: _DeviceScheduleState, latency: float) -> None:
+    @staticmethod
+    def _update_latency(state: _DeviceScheduleState, latency: float) -> None:
         """Update the smoothed (EWMA) latency estimate for a device."""
         if state.latency_ewma is None:
             state.latency_ewma = latency
@@ -440,99 +392,6 @@ class PropertyPoller:
                 _LATENCY_EWMA_ALPHA * latency
                 + (1 - _LATENCY_EWMA_ALPHA) * state.latency_ewma
             )
-
-    def _on_frame_received(
-        self,
-        device_key: str,
-        tid: int,
-        _esv: ESV,
-        _received_epcs: frozenset[int],
-    ) -> None:
-        """Clear the awaiting state and send the next chunk on a matching response.
-
-        A response (0x72 or 0x52) to the outstanding poll is evidence that the
-        device is responsive, even if some EPCs are missing or empty: the
-        consecutive-failure counter is reset and the observed latency feeds the
-        EWMA used by :meth:`_effective_interval`. Missing EPCs are not
-        requested again in this cycle.
-        """
-        state = self._state.get(device_key)
-        if state is None or state.awaiting_tid is None or tid != state.awaiting_tid:
-            return
-        sent_at = state.awaiting_since
-        state.awaiting_since = None
-        state.awaiting_tid = None
-        if sent_at is not None:
-            self._update_latency(state, time.monotonic() - sent_at)
-        state.consecutive_failures = 0
-        if state.liveness_requested:
-            self._device_manager.record_poll_success(device_key)
-        if state.remaining_epcs:
-            self._send_next_chunk(device_key)
-        else:
-            state.end_cycle()
-
-    def _poll_node(
-        self,
-        device_key: str,
-        *,
-        epcs: Collection[int],
-        fast: bool,
-        normal: bool,
-        liveness: bool = True,
-    ) -> None:
-        """Start a poll cycle for ``epcs`` and send its first chunk."""
-        state = self._get_state(device_key)
-        state.remaining_epcs = tuple(sorted(epcs))
-        state.remaining_epcs_fast = fast
-        state.remaining_epcs_normal = normal
-        state.liveness_requested = liveness
-        self._send_next_chunk(device_key)
-
-    def _send_next_chunk(self, device_key: str) -> None:
-        """Plan and send the next chunk of the poll cycle in progress."""
-        state = self._get_state(device_key)
-        node = self._device_manager.data.get(device_key)
-        if node is None or not state.remaining_epcs:
-            state.end_cycle()
-            return
-        capacity = self._device_manager.get_observed_batch_capacity(device_key)
-        chunk, remaining = take_first_batch(
-            state.remaining_epcs,
-            manufacturer_code=node.manufacturer_code,
-            class_code=node.eoj.class_code,
-            observed_batch_capacity=(
-                capacity if isinstance(capacity, int) and capacity >= 1 else None
-            ),
-        )
-        if not chunk:
-            state.end_cycle()
-            return
-        state.remaining_epcs = remaining
-
-        self._pending.add(device_key)
-        try:
-            sent_tid = self._device_manager.poll_device(device_key, chunk)
-        finally:
-            self._pending.discard(device_key)
-
-        if sent_tid is None:
-            _LOGGER.debug(
-                "Failed to poll node %s: no poll EPCs or address unknown",
-                device_key,
-            )
-            if state.liveness_requested:
-                self._device_manager.record_poll_failure(device_key)
-            state.end_cycle()
-            return
-
-        now = time.monotonic()
-        state.awaiting_since = now
-        state.awaiting_tid = sent_tid
-        if state.remaining_epcs_normal:
-            state.last_polled_at = now
-        if state.remaining_epcs_fast:
-            state.last_fast_polled_at = now
 
 
 __all__ = ["DevicePollerStats", "PropertyPoller"]

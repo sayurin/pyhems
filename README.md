@@ -75,24 +75,41 @@ asyncio.run(main())
 - `HemsClient.probe_nodes()`: Trigger recurring multicast node discovery using
   only the self-node instance list.
 - `HemsClient.start_periodic_discovery()`: Start recurring discovery immediately.
-- `HemsClient.get(node_id, deoj, epcs)`: Read property values.
+- `HemsClient.get(node_id, deoj, epcs)`: Read property values. Returns one
+  `Property` per requested EPC; values that could not be read are empty.
+- `HemsClient.request_get(node_id, deoj, epcs)`: Send one unsplit GET and
+  return its `GetResponse`, or `None` when it is not answered.
+- `HemsClient.read_manufacturer_code(node_id, deoj)`: Read EPC 0x8A on its
+  own once and remember it for the device object.
 - `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property and
   wait for the acknowledged result.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple
   properties and wait for the acknowledged result. The returned
   `SetRequestResult` separates accepted, rejected, and unanswered EPCs. This
   low-level client API does not update a `DeviceManager` cache.
-- `DeviceManager.set_properties(node_id, deoj, properties)`: Write through the
-  runtime client and update cached values for accepted EPCs. Fires
-  `on_device_updated` only when cached values change.
+- `DeviceManager.set_properties(node_id, deoj, properties, *, refresh=False)`:
+  Write through the runtime client and update cached values for accepted EPCs.
+  With `refresh=True`, the accepted readable EPCs are read back shortly after
+  the write so the cache reflects the value the device actually applied.
+- `DeviceManager.subscribe(callback)`: Receive typed `DeviceManagerEvent`s:
+  `DeviceAdded`, `PropertiesChanged` (with the changed EPCs),
+  `AvailabilityChanged`, and `RuntimeActivity`. Property and availability
+  events are emitted only when a value actually changes.
+- `DeviceManager.last_activity_at`: Monotonic time of the latest frame received
+  or device setup.
 - `DeviceManager.async_start()` / `DeviceManager.async_stop()`: Subscribe to
-  runtime events and process device events in arrival order.
+  runtime events and process device events in arrival order. Setup of newly
+  discovered devices runs in a separate task per node.
+
+Requests to one node are sent one at a time through a per-node queue, ordered
+by `RequestPriority` (Set, then setup and other reads, then polling); see
+`docs/adr/0011-serialize-requests-per-node.md`.
 
 ## Adaptive Property Polling
 
 `PropertyPoller` uses an adaptive scheduler designed for mixed ECHONET Lite devices:
 
-- TID-correlated in-flight tracking avoids request pileups on slow devices.
+- One poll cycle per device at a time, each request awaited through the node's request queue, avoids request pileups on slow devices.
 - Poll cadence is adjusted from latency EWMA and failure backoff, starting from the base interval.
 - Instantaneous-value EPCs can be scheduled on a separate fast lane (`fast_poll_epcs`).
 - Requests are split by the per-device batch limit learned during setup (see `docs/adr/`); omitted EPCs are left to the next poll.
@@ -113,3 +130,23 @@ for entity in ac_entities[:3]:
 
 `DeviceClass` is an `IntEnum` generated from the MRA `shortName` values. Custom
 device classes defined in `scripts/custom_definitions.yaml` are included too.
+
+Each `EntityDefinition` exposes `readable`/`writable` flags, enum keys (MRA
+identifiers keep their MRA spelling, such as `allStop`; keys defined by pyhems,
+such as `true`/`false`, are snake_case; see `docs/adr/0012-keep-mra-identifiers.md`),
+its `PropertyRole`, and the value semantics derived by the generator from
+the unit and the English name: `quantity` (physical quantity), `value_kind`
+(measurement, total, or cumulative; `None` for static values such as ratings),
+and `indication` (the condition indicated by a boolean `true`).
+
+`get_codec_for_epc(class_code, epc, *, manufacturer_code=None, byte_offset=0)`
+returns a codec converting between EDT bytes and Python values. Values whose
+scale depends on sibling properties take those properties as context:
+
+```python
+codec = get_codec_for_epc(0x0287, 0xC0)
+value = codec.decode(node.properties[0xC0], node.properties)
+```
+
+`encode()` raises `ValueError` for fields at a non-zero `byte_offset` and for
+values outside `minimum`/`maximum`.

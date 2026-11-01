@@ -2,11 +2,13 @@
 
 import asyncio
 import contextlib
+import heapq
+import itertools
 import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from enum import IntEnum
 
 from bidict import bidict
 
@@ -87,14 +89,11 @@ class HemsInstanceListEvent(RuntimeEvent):
     Attributes:
         instances: List of EOJs discovered on the device.
         node_id: Device node ID (hex string from EPC 0x83).
-        properties: All properties from the node profile response.
-            Key is EPC, value is EDT bytes.
 
     """
 
     instances: list[EOJ]
     node_id: str
-    properties: dict[int, bytes]
 
 
 @dataclass(slots=True)
@@ -105,20 +104,20 @@ class HemsErrorEvent(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class NotificationRequestResult:
-    """Result of an ``ESV.INF_REQ`` (0x63) notification-subscription request.
+class InfRequestResult:
+    """Result of an ``ESV.INF_REQ`` (0x63) request.
 
-    Per ECHONET Lite, a device that supports the request responds with
-    ``ESV.INF`` (0x73) listing EPCs it will now notify, or ``ESV.INF_SNA``
-    (0x53) listing EPCs it could not subscribe to. Requested EPCs missing
-    from either response, or for which no response arrives before the
-    request times out, are reported as ``unanswered_epcs`` so callers can
-    fall back to polling them instead of assuming notifications will
-    arrive.
+    INF_REQ asks a device to notify the current values of the requested EPCs
+    once. A device that supports the request responds with ``ESV.INF``
+    (0x73) carrying the values it notified (``notified_epcs``), or
+    ``ESV.INF_SNA`` (0x53) listing the EPCs it rejected (``rejected_epcs``).
+    Requested EPCs missing from either response, or for which no response
+    arrives before the request times out, are reported as
+    ``unanswered_epcs``.
     """
 
-    successful_epcs: frozenset[int]
-    failed_epcs: frozenset[int]
+    notified_epcs: frozenset[int]
+    rejected_epcs: frozenset[int]
     unanswered_epcs: frozenset[int]
 
 
@@ -134,11 +133,91 @@ class SetRequestResult:
 
 
 @dataclass(frozen=True, slots=True)
-class _GetResponse:
-    """Response received for one ESV.GET request."""
+class GetResponse:
+    """Response received for one ESV.GET request.
+
+    Attributes:
+        esv: ``ESV.GET_RES`` or ``ESV.GET_SNA``.
+        properties: Properties in the response frame, in frame order.
+        latency: Seconds from sending the request to receiving the response.
+    """
 
     esv: ESV
     properties: tuple[Property, ...]
+    latency: float
+
+
+class RequestPriority(IntEnum):
+    """Order in which queued requests to one node are sent (ADR-0011).
+
+    Lower values are sent first; requests with the same priority are sent in
+    arrival order.
+    """
+
+    SET = 0
+    SETUP = 1
+    POLL = 2
+
+
+_GET_RESPONSE_ESVS = frozenset({ESV.GET_RES, ESV.GET_SNA})
+_SET_RESPONSE_ESVS = frozenset({ESV.SET_RES, ESV.SETC_SNA})
+_INF_REQ_RESPONSE_ESVS = frozenset({ESV.INF, ESV.INF_SNA})
+
+
+@dataclass(slots=True)
+class _PendingRequest:
+    """A request sent to a device and waiting for its response."""
+
+    address: str
+    deoj: EOJ
+    seoj: EOJ
+    response_esvs: frozenset[ESV]
+    future: asyncio.Future[Frame]
+
+
+class _NodeRequestQueue:
+    """Allow one outstanding request per node, granted by priority (ADR-0011)."""
+
+    def __init__(self) -> None:
+        self._busy = False
+        self._waiters: list[tuple[int, int, asyncio.Future[None]]] = []
+        self._sequence = itertools.count()
+
+    @property
+    def idle(self) -> bool:
+        """Return whether no request holds or waits for the slot."""
+        return not self._busy and not self._waiters
+
+    async def acquire(self, priority: RequestPriority) -> None:
+        """Wait until this request may be sent to the node."""
+        if self.idle:
+            self._busy = True
+            return
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        heapq.heappush(self._waiters, (priority, next(self._sequence), future))
+        try:
+            await future
+        except asyncio.CancelledError:
+            if future.done() and not future.cancelled():
+                # The slot was handed over just before the cancellation.
+                self.release()
+            raise
+
+    def release(self) -> None:
+        """Hand the slot to the next waiting request, if any."""
+        while self._waiters:
+            _priority, _sequence, future = heapq.heappop(self._waiters)
+            if not future.done():
+                future.set_result(None)
+                return
+        self._busy = False
+
+    def fail_waiters(self, error: Exception) -> None:
+        """Fail every waiting request with ``error``."""
+        for _priority, _sequence, future in self._waiters:
+            if not future.done():
+                future.set_exception(error)
+        self._waiters.clear()
 
 
 @dataclass(slots=True)
@@ -159,26 +238,19 @@ class HemsClient:
     def __init__(
         self,
         interface: str = "0.0.0.0",
-        poll_interval: float = 60.0 * 60.0,
-        extra_epcs: list[int] | None = None,
+        discovery_interval: float = 60.0 * 60.0,
     ) -> None:
         """Initialize the HEMS client.
 
         Args:
             interface: Network interface IP to bind to.
-            poll_interval: Interval for recurring node discovery (seconds).
-            extra_epcs: Additional EPCs to request from the node profile during
-                initial discovery. These will be included in
-                HemsInstanceListEvent.properties.
+            discovery_interval: Interval for recurring node discovery
+                (seconds).
 
         """
         self._interface = interface
-        self._poll_interval = poll_interval
-        # Combine initial discovery EPCs with extras, preserving order and
-        # avoiding duplicates.
-        self._initial_discovery_epcs = list(
-            dict.fromkeys(list(DISCOVERY_INITIAL_EPCS) + (extra_epcs or []))
-        )
+        self._discovery_interval = discovery_interval
+        self._initial_discovery_epcs = list(DISCOVERY_INITIAL_EPCS)
         self._protocol: EchonetLiteProtocol | None = None
         self._callbacks: list[EventCallback] = []
         # address <-> node_id (hex) bidirectional mapping
@@ -188,21 +260,15 @@ class HemsClient:
         # Per-address direct node discovery tasks started by unknown discovery
         # frames.
         self._address_discovery_tasks: dict[str, asyncio.Task[None]] = {}
-        self._poll_task: asyncio.Task[None] | None = None
-        # Pending Get requests: tid -> (address, deoj, seoj, future)
-        self._pending_gets: dict[
-            int, tuple[str, EOJ, EOJ, asyncio.Future[_GetResponse]]
-        ] = {}
+        self._discovery_task: asyncio.Task[None] | None = None
+        # Requests waiting for their response, keyed by TID.
+        self._pending: dict[int, _PendingRequest] = {}
+        # Per-address queues that serialize requests to one node (ADR-0011).
+        self._node_queues: dict[str, _NodeRequestQueue] = {}
+        self._tid_counter = 0
         # Observed GET response behavior, scoped to a node and destination EOJ.
         # This is intentionally runtime-only and is relearned after restart.
         self._get_capabilities: dict[tuple[str, EOJ], _GetCapability] = {}
-        # Pending INF_REQ (0x63) requests awaiting a 0x73/0x53 response:
-        # tid -> (address, deoj, seoj, future)
-        self._pending_infs: dict[int, tuple[str, EOJ, EOJ, asyncio.Future[Frame]]] = {}
-        # Pending SetC requests: tid -> (address, deoj, seoj, requested_epcs, future)
-        self._pending_sets: dict[
-            int, tuple[str, EOJ, EOJ, frozenset[int], asyncio.Future[Frame]]
-        ] = {}
         self._decode_error_count = 0
 
     @property
@@ -256,26 +322,25 @@ class HemsClient:
         if not self._protocol:
             return
 
-        # Cancel poll task
-        if self._poll_task:
-            self._poll_task.cancel()
+        if self._discovery_task:
+            self._discovery_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._poll_task
-            self._poll_task = None
+                await self._discovery_task
+            self._discovery_task = None
 
-        # Fail pending requests instead of cancelling them: cancellation would
-        # propagate into, and terminate, the callers' tasks.
-        pending_futures: list[asyncio.Future[Any]] = [
-            *(future for *_, future in self._pending_gets.values()),
-            *(future for *_, future in self._pending_infs.values()),
-            *(future for *_, future in self._pending_sets.values()),
-        ]
-        self._pending_gets.clear()
-        self._pending_infs.clear()
-        self._pending_sets.clear()
-        for future in pending_futures:
-            if not future.done():
-                future.set_exception(ClientStoppedError("Runtime client stopped"))
+        # Fail pending and queued requests instead of cancelling them:
+        # cancellation would propagate into, and terminate, the callers' tasks.
+        pending = list(self._pending.values())
+        self._pending.clear()
+        for request in pending:
+            if not request.future.done():
+                request.future.set_exception(
+                    ClientStoppedError("Runtime client stopped")
+                )
+        queues = list(self._node_queues.values())
+        self._node_queues.clear()
+        for queue in queues:
+            queue.fail_waiters(ClientStoppedError("Runtime client stopped"))
 
         self._protocol.close()
         self._protocol = None
@@ -283,15 +348,10 @@ class HemsClient:
 
     def _next_transaction_id(self) -> int:
         """Return a transaction ID that is not used by a pending request."""
-        pending_tids = (
-            self._pending_gets.keys()
-            | self._pending_infs.keys()
-            | self._pending_sets.keys()
-        )
         for _ in range(0xFFFF):
-            tid = Frame.next_tid()
-            if tid not in pending_tids:
-                return tid
+            self._tid_counter = self._tid_counter % 0xFFFF + 1
+            if self._tid_counter not in self._pending:
+                return self._tid_counter
         raise RuntimeError("No transaction ID is available")
 
     def _clear_get_capabilities_for_node(self, node_id: str) -> None:
@@ -326,7 +386,7 @@ class HemsClient:
             return False
 
         frame = Frame(
-            tid=Frame.next_tid(),
+            tid=self._next_transaction_id(),
             seoj=CONTROLLER_INSTANCE,
             deoj=NODE_PROFILE_INSTANCE,
             esv=ESV.GET,
@@ -336,8 +396,8 @@ class HemsClient:
 
     def start_periodic_discovery(self) -> None:
         """Start recurring node discovery immediately."""
-        if self._protocol and self._poll_task is None:
-            self._poll_task = asyncio.create_task(self._poll_loop())
+        if self._protocol and self._discovery_task is None:
+            self._discovery_task = asyncio.create_task(self._discovery_loop())
 
     async def get(
         self,
@@ -346,15 +406,16 @@ class HemsClient:
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
+        priority: RequestPriority = RequestPriority.SETUP,
     ) -> list[Property]:
         """Send Get requests to a device by node ID.
 
         The EPCs are split by the device's known concurrent-response limit
         and by device-specific GET policies, and each batch is sent once with
-        a new TID. EPCs omitted from a partial response are requested again
-        in a later batch. Unanswered requests are not retried, and the
-        concurrent-response limit is neither probed nor learned here; see
-        :meth:`setup_get`.
+        a new TID through the node's request queue. EPCs omitted from a
+        partial response are requested again in a later batch. Unanswered
+        requests are not retried, and the concurrent-response limit is
+        neither probed nor learned here; see :meth:`setup_get`.
 
         Args:
             node_id: Device node ID (hex string from EPC 0x83).
@@ -362,25 +423,114 @@ class HemsClient:
             epcs: List of EPCs to read.
             seoj: Source EOJ (default: controller).
             request_timeout: Timeout in seconds for each request.
+            priority: Queue priority of the requests.
 
         Returns:
-            List of Property objects in the requested order.
+            One Property per requested EPC, in the requested order.
             Properties that couldn't be read have empty edt.
 
         """
+        unread = [Property(epc=epc, edt=b"") for epc in epcs]
         address = self._device_addresses.inverse.get(node_id)
         if not address:
             _LOGGER.warning("No address known for device %s", node_id)
-            return []
+            return unread
+        if not self._protocol or not epcs:
+            return unread
 
-        return await self._get_at_address(
-            address=address,
-            deoj=deoj,
-            epcs=epcs,
-            seoj=seoj,
-            request_timeout=request_timeout,
-            capability_key=node_id,
+        received: dict[int, Property] = {}
+        capability = self._get_capabilities.setdefault(
+            (node_id, deoj), _GetCapability()
         )
+        try:
+            await self._get_at_address(
+                address=address,
+                deoj=deoj,
+                epcs=epcs,
+                seoj=seoj,
+                request_timeout=request_timeout,
+                capability=capability,
+                received=received,
+                priority=priority,
+            )
+        except (GetAbortedError, ClientStoppedError) as err:
+            _LOGGER.debug("Get request to %s %r stopped: %s", address, deoj, err)
+        return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
+
+    async def request_get(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        epcs: list[int],
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
+        priority: RequestPriority = RequestPriority.POLL,
+    ) -> GetResponse | None:
+        """Send one Get request without splitting it, and wait for its response.
+
+        The request is sent once through the node's request queue. Callers
+        are responsible for keeping ``epcs`` within the device's limits (see
+        :meth:`get_observed_batch_capacity` and
+        :func:`~pyhems.take_first_batch`).
+
+        Returns:
+            The response, or None if the request could not be sent, was not
+            answered before ``request_timeout``, or the client was stopped.
+        """
+        address = self._device_addresses.inverse.get(node_id)
+        if not address or not epcs:
+            return None
+        try:
+            _sent, response = await self._attempt_get_request(
+                address, deoj, seoj, epcs, request_timeout, priority
+            )
+        except ClientStoppedError:
+            return None
+        return response
+
+    async def read_manufacturer_code(
+        self,
+        node_id: str,
+        deoj: EOJ,
+        seoj: EOJ = CONTROLLER_INSTANCE,
+        request_timeout: float = SETUP_REQUEST_TIMEOUT,
+    ) -> int:
+        """Return the manufacturer code (EPC 0x8A) of a device object.
+
+        The code is read on its own the first time and then remembered for
+        the device object until the client stops, so device-specific GET
+        policies can be applied to later requests.
+
+        Raises:
+            GetAbortedError: The code could not be read.
+            ClientStoppedError: The client was stopped while reading.
+        """
+        capability = self._get_capabilities.setdefault(
+            (node_id, deoj), _GetCapability()
+        )
+        if capability.manufacturer_code is not None:
+            return capability.manufacturer_code
+        address = self._device_addresses.inverse.get(node_id)
+        if not address:
+            raise GetAbortedError(f"No address known for device {node_id}")
+        if not self._protocol:
+            raise GetAbortedError("Runtime client is not started")
+        if (
+            await self._read_manufacturer_code(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                request_timeout=request_timeout,
+                capability=capability,
+                priority=RequestPriority.SETUP,
+            )
+            is None
+            or capability.manufacturer_code is None
+        ):
+            raise GetAbortedError(
+                f"Could not read manufacturer code (EPC 0x8A) from {node_id} {deoj!r}"
+            )
+        return capability.manufacturer_code
 
     async def setup_get(
         self,
@@ -402,6 +552,7 @@ class HemsClient:
             GetAbortedError: The device object could not be read, e.g. because
                 a single-EPC request timed out or the request could not be
                 sent. Other device objects are not affected.
+            ClientStoppedError: The client was stopped while reading.
 
         Returns:
             List of Property objects in the requested order.
@@ -425,6 +576,7 @@ class HemsClient:
                 seoj=seoj,
                 request_timeout=request_timeout,
                 capability=capability,
+                priority=RequestPriority.SETUP,
             )
             if manufacturer is None:
                 raise GetAbortedError(
@@ -442,6 +594,7 @@ class HemsClient:
             capability=capability,
             received=received,
             probe=True,
+            priority=RequestPriority.SETUP,
         )
         return [received.get(epc, Property(epc=epc, edt=b"")) for epc in epcs]
 
@@ -452,52 +605,49 @@ class HemsClient:
 
     async def _get_at_address(
         self,
+        *,
         address: str,
         deoj: EOJ,
         epcs: list[int],
-        seoj: EOJ = CONTROLLER_INSTANCE,
-        request_timeout: float = SETUP_REQUEST_TIMEOUT,
-        capability_key: str | None = None,
-    ) -> list[Property]:
-        """Send Get requests to an address without probing the response limit."""
-        if not self._protocol or not epcs:
-            return []
+        seoj: EOJ,
+        request_timeout: float,
+        capability: _GetCapability,
+        received: dict[int, Property],
+        priority: RequestPriority,
+    ) -> None:
+        """Read ``epcs`` into ``received`` without probing the response limit.
 
-        requested_epcs = list(epcs)
-        received: dict[int, Property] = {}
-        capability = self._get_capabilities.setdefault(
-            (capability_key or address, deoj), _GetCapability()
-        )
-        try:
-            if capability.manufacturer_code is None and has_get_batch_policy_for_class(
-                deoj.class_code
-            ):
-                manufacturer = await self._read_manufacturer_code(
-                    address=address,
-                    deoj=deoj,
-                    seoj=seoj,
-                    request_timeout=request_timeout,
-                    capability=capability,
-                )
-                if manufacturer is None:
-                    return [Property(epc=epc, edt=b"") for epc in requested_epcs]
-                if EPC.MANUFACTURER_CODE in requested_epcs:
-                    received[EPC.MANUFACTURER_CODE] = manufacturer
-
-            await self._run_get_batches(
+        Raises:
+            GetAbortedError: A request was not answered or could not be sent.
+            ClientStoppedError: The client was stopped.
+        """
+        if capability.manufacturer_code is None and has_get_batch_policy_for_class(
+            deoj.class_code
+        ):
+            manufacturer = await self._read_manufacturer_code(
                 address=address,
                 deoj=deoj,
                 seoj=seoj,
-                epcs=[epc for epc in requested_epcs if epc not in received],
                 request_timeout=request_timeout,
                 capability=capability,
-                received=received,
-                probe=False,
+                priority=priority,
             )
-        except (GetAbortedError, ClientStoppedError) as err:
-            _LOGGER.debug("Get request to %s %r stopped: %s", address, deoj, err)
+            if manufacturer is None:
+                return
+            if EPC.MANUFACTURER_CODE in epcs:
+                received[EPC.MANUFACTURER_CODE] = manufacturer
 
-        return [received.get(epc, Property(epc=epc, edt=b"")) for epc in requested_epcs]
+        await self._run_get_batches(
+            address=address,
+            deoj=deoj,
+            seoj=seoj,
+            epcs=[epc for epc in epcs if epc not in received],
+            request_timeout=request_timeout,
+            capability=capability,
+            received=received,
+            probe=False,
+            priority=priority,
+        )
 
     async def _read_manufacturer_code(
         self,
@@ -507,6 +657,7 @@ class HemsClient:
         seoj: EOJ,
         request_timeout: float,
         capability: _GetCapability,
+        priority: RequestPriority,
     ) -> Property | None:
         """Read 0x8A on its own before applying a device-specific GET policy.
 
@@ -515,7 +666,7 @@ class HemsClient:
         """
         manufacturer_epc = EPC.MANUFACTURER_CODE
         _sent, response = await self._attempt_get_request(
-            address, deoj, seoj, [manufacturer_epc], request_timeout
+            address, deoj, seoj, [manufacturer_epc], request_timeout, priority
         )
         manufacturer_property = (
             None
@@ -555,6 +706,7 @@ class HemsClient:
         capability: _GetCapability,
         received: dict[int, Property],
         probe: bool,
+        priority: RequestPriority,
     ) -> None:
         """Request ``epcs`` in batches, storing values in ``received``.
 
@@ -593,7 +745,7 @@ class HemsClient:
             batch = list(batch_tuple)
             n = len(batch)
             sent, response = await self._attempt_get_request(
-                address, deoj, seoj, batch, request_timeout
+                address, deoj, seoj, batch, request_timeout, priority
             )
             if not sent:
                 raise GetAbortedError(
@@ -710,11 +862,19 @@ class HemsClient:
     async def _discover_address(self, address: str) -> None:
         """Discover an unknown node directly from its source address."""
         try:
+            # The node ID is not known yet, so nothing is learned for it.
             await self._get_at_address(
-                address,
-                NODE_PROFILE_INSTANCE,
-                self._initial_discovery_epcs,
+                address=address,
+                deoj=NODE_PROFILE_INSTANCE,
+                epcs=self._initial_discovery_epcs,
+                seoj=CONTROLLER_INSTANCE,
+                request_timeout=SETUP_REQUEST_TIMEOUT,
+                capability=_GetCapability(),
+                received={},
+                priority=RequestPriority.SETUP,
             )
+        except (GetAbortedError, ClientStoppedError) as err:
+            _LOGGER.debug("Direct discovery of %s stopped: %s", address, err)
         finally:
             if address not in self._device_addresses:
                 self._pending_frames.pop(address, None)
@@ -734,6 +894,8 @@ class HemsClient:
         if not address:
             _LOGGER.warning("No address known for device %s", node_id)
             return False
+        if frame.tid == 0:
+            frame.tid = self._next_transaction_id()
         return self._send_to_address(frame, address)
 
     async def request_notifications(
@@ -743,14 +905,15 @@ class HemsClient:
         epcs: list[int],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
-    ) -> NotificationRequestResult:
+        priority: RequestPriority = RequestPriority.SETUP,
+    ) -> InfRequestResult:
         """Send an INF_REQ (0x63) and wait for its 0x73/0x53 response.
 
         Unlike :meth:`get`, this makes a single attempt (no retries): an
         EPC that is not confirmed successful — whether explicitly rejected
         (0x53), absent from the response, or unanswered before
         ``request_timeout`` — is reported in ``unanswered_epcs``/
-        ``failed_epcs`` so the caller can fall back to polling it rather
+        ``rejected_epcs`` so the caller can fall back to polling it rather
         than assuming a notification will eventually arrive.
 
         Args:
@@ -759,6 +922,7 @@ class HemsClient:
             epcs: EPCs to request notifications for.
             seoj: Source EOJ (default: controller).
             request_timeout: Timeout in seconds for the response.
+            priority: Queue priority of the request.
 
         Returns:
             The outcome, split into successful/failed/unanswered EPCs.
@@ -767,58 +931,32 @@ class HemsClient:
         requested = frozenset(epcs)
         address = self._device_addresses.inverse.get(node_id)
         if not address or not self._protocol or not epcs:
-            return NotificationRequestResult(
-                successful_epcs=frozenset(),
-                failed_epcs=frozenset(),
+            return InfRequestResult(
+                notified_epcs=frozenset(),
+                rejected_epcs=frozenset(),
                 unanswered_epcs=requested,
             )
 
-        tid = self._next_transaction_id()
-        future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
-        self._pending_infs[tid] = (address, deoj, seoj, future)
-
-        frame = Frame(
-            tid=tid,
-            seoj=seoj,
-            deoj=deoj,
-            esv=ESV.INF_REQ,
-            properties=[Property(epc=epc) for epc in epcs],
+        no_response = InfRequestResult(
+            notified_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=requested,
         )
-
-        if not self._send_to_address(frame, address):
-            self._pending_infs.pop(tid, None)
-            return NotificationRequestResult(
-                successful_epcs=frozenset(),
-                failed_epcs=frozenset(),
-                unanswered_epcs=requested,
-            )
-
         try:
-            response_frame = await asyncio.wait_for(
-                asyncio.shield(future), request_timeout
+            _sent, response_frame, _latency = await self._send_request(
+                address,
+                deoj=deoj,
+                seoj=seoj,
+                esv=ESV.INF_REQ,
+                properties=[Property(epc=epc) for epc in epcs],
+                response_esvs=_INF_REQ_RESPONSE_ESVS,
+                request_timeout=request_timeout,
+                priority=priority,
             )
-        except TimeoutError:
-            if not future.done() or future.exception() is not None:
-                _LOGGER.debug(
-                    "Notification request (0x63) to %s %r timed out for EPCs: [%s]",
-                    address,
-                    deoj,
-                    " ".join(f"{epc:02X}" for epc in sorted(requested)),
-                )
-                return NotificationRequestResult(
-                    successful_epcs=frozenset(),
-                    failed_epcs=frozenset(),
-                    unanswered_epcs=requested,
-                )
-            response_frame = future.result()
         except ClientStoppedError:
-            return NotificationRequestResult(
-                successful_epcs=frozenset(),
-                failed_epcs=frozenset(),
-                unanswered_epcs=requested,
-            )
-        finally:
-            self._pending_infs.pop(tid, None)
+            return no_response
+        if response_frame is None:
+            return no_response
 
         responded_epcs = frozenset(prop.epc for prop in response_frame.properties)
         # Per spec, 0x73 (INF) means the whole request was accepted and
@@ -835,9 +973,9 @@ class HemsClient:
             failed = responded_epcs & requested
         unanswered = requested - responded_epcs
 
-        return NotificationRequestResult(
-            successful_epcs=successful,
-            failed_epcs=failed,
+        return InfRequestResult(
+            notified_epcs=successful,
+            rejected_epcs=failed,
             unanswered_epcs=unanswered,
         )
 
@@ -849,6 +987,7 @@ class HemsClient:
         edt: bytes,
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SET_REQUEST_TIMEOUT,
+        priority: RequestPriority = RequestPriority.SET,
     ) -> SetRequestResult:
         """Send a SetC request with a single EPC/EDT pair.
 
@@ -859,6 +998,7 @@ class HemsClient:
             edt: Property value.
             seoj: Source EOJ (default: controller).
             request_timeout: Timeout in seconds for the response.
+            priority: Queue priority of the request.
 
         Returns:
             The acknowledged SetC result.
@@ -869,6 +1009,7 @@ class HemsClient:
             properties=[Property(epc=epc, edt=edt)],
             seoj=seoj,
             request_timeout=request_timeout,
+            priority=priority,
         )
 
     async def set_properties(
@@ -878,6 +1019,7 @@ class HemsClient:
         properties: list[Property],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SET_REQUEST_TIMEOUT,
+        priority: RequestPriority = RequestPriority.SET,
     ) -> SetRequestResult:
         """Send a SetC request with multiple properties.
 
@@ -886,7 +1028,9 @@ class HemsClient:
             deoj: Destination EOJ.
             properties: List of properties to write.
             seoj: Source EOJ (default: controller).
-            request_timeout: Timeout in seconds for the response.
+            request_timeout: Timeout in seconds for the response, not
+                including the time spent waiting in the node's queue.
+            priority: Queue priority of the request.
 
         Returns:
             The acknowledged SetC result.
@@ -912,20 +1056,27 @@ class HemsClient:
                 unanswered_epcs=requested_epcs,
             )
 
-        tid = self._next_transaction_id()
-        future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
-        self._pending_sets[tid] = (address, deoj, seoj, requested_epcs, future)
-
-        frame = Frame(
-            tid=tid,
-            seoj=seoj,
-            deoj=deoj,
-            esv=ESV.SETC,
-            properties=properties,
+        no_response = SetRequestResult(
+            sent=True,
+            response_esv=None,
+            accepted_epcs=frozenset(),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=requested_epcs,
         )
-
-        if not self._send_to_address(frame, address):
-            self._pending_sets.pop(tid, None)
+        try:
+            sent, response_frame, _latency = await self._send_request(
+                address,
+                deoj=deoj,
+                seoj=seoj,
+                esv=ESV.SETC,
+                properties=properties,
+                response_esvs=_SET_RESPONSE_ESVS,
+                request_timeout=request_timeout,
+                priority=priority,
+            )
+        except ClientStoppedError:
+            return no_response
+        if not sent:
             return SetRequestResult(
                 sent=False,
                 response_esv=None,
@@ -933,37 +1084,8 @@ class HemsClient:
                 rejected_epcs=frozenset(),
                 unanswered_epcs=requested_epcs,
             )
-
-        try:
-            response_frame = await asyncio.wait_for(
-                asyncio.shield(future), request_timeout
-            )
-        except TimeoutError:
-            if not future.done() or future.exception() is not None:
-                _LOGGER.debug(
-                    "SetC request to %s %r timed out for EPCs: [%s]",
-                    address,
-                    deoj,
-                    " ".join(f"{epc:02X}" for epc in sorted(requested_epcs)),
-                )
-                return SetRequestResult(
-                    sent=True,
-                    response_esv=None,
-                    accepted_epcs=frozenset(),
-                    rejected_epcs=frozenset(),
-                    unanswered_epcs=requested_epcs,
-                )
-            response_frame = future.result()
-        except ClientStoppedError:
-            return SetRequestResult(
-                sent=True,
-                response_esv=None,
-                accepted_epcs=frozenset(),
-                rejected_epcs=frozenset(),
-                unanswered_epcs=requested_epcs,
-            )
-        finally:
-            self._pending_sets.pop(tid, None)
+        if response_frame is None:
+            return no_response
 
         if response_frame.esv == ESV.SET_RES:
             return SetRequestResult(
@@ -1036,39 +1158,19 @@ class HemsClient:
             _LOGGER.debug("Discarding request frame: %s", _format_frame(frame))
             return
 
-        # Responses also continue to be dispatched as events below.
-        if frame.esv in (ESV.GET_RES, ESV.GET_SNA) and (
-            pending_get := self._pending_gets.get(frame.tid)
+        # Responses also continue to be dispatched as events below; a 0x73
+        # answering an INF_REQ also carries a real notification.
+        pending = self._pending.get(frame.tid)
+        if (
+            pending is not None
+            and frame.esv in pending.response_esvs
+            and self._matches_request(
+                frame, address, pending.address, pending.deoj, pending.seoj
+            )
         ):
-            req_address, req_deoj, req_seoj, future = pending_get
-            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
-                del self._pending_gets[frame.tid]
-                if not future.done():
-                    future.set_result(
-                        _GetResponse(
-                            esv=frame.esv,
-                            properties=tuple(frame.properties),
-                        )
-                    )
-
-        if frame.esv in (ESV.SET_RES, ESV.SETC_SNA) and (
-            pending_set := self._pending_sets.get(frame.tid)
-        ):
-            req_address, req_deoj, req_seoj, _set_epcs, set_future = pending_set
-            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
-                del self._pending_sets[frame.tid]
-                if not set_future.done():
-                    set_future.set_result(frame)
-
-        # 0x73 also carries a real notification other subscribers need to see.
-        if frame.esv in (ESV.INF, ESV.INF_SNA) and (
-            pending_inf := self._pending_infs.get(frame.tid)
-        ):
-            req_address, req_deoj, req_seoj, inf_future = pending_inf
-            if self._matches_request(frame, address, req_address, req_deoj, req_seoj):
-                del self._pending_infs[frame.tid]
-                if not inf_future.done():
-                    inf_future.set_result(frame)
+            del self._pending[frame.tid]
+            if not pending.future.done():
+                pending.future.set_result(frame)
 
         # An INF from an unknown address is normally a multicast state
         # update. Discover that source directly before applying any
@@ -1177,13 +1279,10 @@ class HemsClient:
         if not instances:
             return
 
-        # Collect all properties with non-empty EDT
-        properties = {p.epc: p.edt for p in frame.properties if p.edt}
-
         _LOGGER.debug(
             "Node profile for %s: EPCs=%s",
             node_id,
-            [f"0x{epc:02X}" for epc in properties],
+            [f"0x{p.epc:02X}" for p in frame.properties if p.edt],
         )
 
         self._dispatch(
@@ -1191,7 +1290,6 @@ class HemsClient:
                 received_at=time.monotonic(),
                 instances=instances,
                 node_id=node_id,
-                properties=properties,
             )
         )
 
@@ -1217,17 +1315,17 @@ class HemsClient:
             except Exception:
                 _LOGGER.exception("Error in runtime event callback")
 
-    async def _poll_loop(self) -> None:
-        """Periodic polling loop for node probe."""
+    async def _discovery_loop(self) -> None:
+        """Send the recurring node probe."""
         await asyncio.sleep(_INITIAL_DISCOVERY_DELAY)
         while self._protocol:
             try:
                 self.probe_nodes()
-                await asyncio.sleep(self._poll_interval)
+                await asyncio.sleep(self._discovery_interval)
             except asyncio.CancelledError:
                 break
             except Exception:
-                _LOGGER.exception("Error in poll loop")
+                _LOGGER.exception("Error in discovery loop")
 
     async def _attempt_get_request(
         self,
@@ -1236,49 +1334,97 @@ class HemsClient:
         seoj: EOJ,
         epcs: list[int],
         request_timeout: float,
-    ) -> tuple[bool, _GetResponse | None]:
+        priority: RequestPriority,
+    ) -> tuple[bool, GetResponse | None]:
         """Send one Get request with a new TID and wait for its response.
 
         Returns:
             Whether the request was sent, and the response or None if the
             request was not sent or timed out.
-        """
-        tid = self._next_transaction_id()
-        future: asyncio.Future[_GetResponse] = (
-            asyncio.get_running_loop().create_future()
-        )
-        self._pending_gets[tid] = (address, deoj, seoj, future)
 
-        frame = Frame(
-            tid=tid,
-            seoj=seoj,
+        Raises:
+            ClientStoppedError: The client was stopped.
+        """
+        sent, response, latency = await self._send_request(
+            address,
             deoj=deoj,
+            seoj=seoj,
             esv=ESV.GET,
             properties=[Property(epc=epc) for epc in epcs],
+            response_esvs=_GET_RESPONSE_ESVS,
+            request_timeout=request_timeout,
+            priority=priority,
+        )
+        if response is None:
+            return sent, None
+        return sent, GetResponse(
+            esv=response.esv,
+            properties=tuple(response.properties),
+            latency=latency,
         )
 
-        if not self._send_to_address(frame, address):
-            self._pending_gets.pop(tid, None)
-            return False, None
+    async def _send_request(
+        self,
+        address: str,
+        *,
+        deoj: EOJ,
+        seoj: EOJ,
+        esv: ESV,
+        properties: list[Property],
+        response_esvs: frozenset[ESV],
+        request_timeout: float,
+        priority: RequestPriority,
+    ) -> tuple[bool, Frame | None, float]:
+        """Send one request through the node's queue and wait for its response.
 
+        ``request_timeout`` starts when the request is sent, not when it is
+        queued.
+
+        Returns:
+            Whether the request was sent, the response frame or None if it
+            was not sent or timed out, and the seconds from sending the
+            request to receiving the response.
+
+        Raises:
+            ClientStoppedError: The client was stopped.
+        """
+        queue = self._node_queues.get(address)
+        if queue is None:
+            queue = self._node_queues[address] = _NodeRequestQueue()
+        await queue.acquire(priority)
+        tid: int | None = None
         try:
-            response_props = await asyncio.wait_for(
-                asyncio.shield(future), request_timeout
+            tid = self._next_transaction_id()
+            future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
+            self._pending[tid] = _PendingRequest(
+                address=address,
+                deoj=deoj,
+                seoj=seoj,
+                response_esvs=response_esvs,
+                future=future,
             )
-        except TimeoutError:
-            if not future.done():
-                _LOGGER.debug(
-                    "Get request to %s %r for EPCs [%s] timed out",
-                    address,
-                    deoj,
-                    _format_epcs(epcs),
+            frame = Frame(tid=tid, seoj=seoj, deoj=deoj, esv=esv, properties=properties)
+            sent_at = time.monotonic()
+            if not self._send_to_address(frame, address):
+                return False, None, 0.0
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.shield(future), request_timeout
                 )
-                return True, None
-            response_props = future.result()
+            except TimeoutError:
+                if not future.done():
+                    _LOGGER.debug(
+                        "Request to %s timed out: %s", address, _format_frame(frame)
+                    )
+                    return True, None, time.monotonic() - sent_at
+                response = future.result()
+            return True, response, time.monotonic() - sent_at
         finally:
-            self._pending_gets.pop(tid, None)
-
-        return True, response_props
+            if tid is not None:
+                self._pending.pop(tid, None)
+            queue.release()
+            if queue.idle and self._node_queues.get(address) is queue:
+                del self._node_queues[address]
 
     def _send_to_address(self, frame: Frame, address: str) -> bool:
         """Send a frame to a specific address.
@@ -1293,10 +1439,6 @@ class HemsClient:
         """
         if not self._protocol:
             return False
-
-        # Assign TID if not set (0)
-        if frame.tid == 0:
-            frame.tid = Frame.next_tid()
 
         try:
             _LOGGER.debug(

@@ -1,9 +1,8 @@
 """High-level value codecs for ECHONET Lite properties.
 
-This module wraps the lower-level decoder/encoder factories in
-:mod:`pyhems.definitions` behind a uniform :class:`PropertyCodec` protocol
-and exposes :func:`get_codec`, which selects the appropriate codec from an
-:class:`EntityDefinition`.
+This module defines the :class:`PropertyCodec` protocol and its
+implementations, and exposes :func:`get_codec` and :func:`get_codec_for_epc`,
+which select the appropriate codec for an :class:`EntityDefinition`.
 
 The goal is to let callers exchange typed Python values (``bool``, ``int``,
 ``float``, ``str`` enum key, :class:`InstallationLocation`) with a node
@@ -11,17 +10,22 @@ without having to assemble raw EDT bytes themselves.
 
 Typical usage::
 
-    from pyhems import get_codec
+    from pyhems import get_codec_for_epc
 
-    codec = get_codec(entity_def)
-    value = codec.decode(edt_bytes)        # bytes -> typed value
-    edt = codec.encode(True)               # typed value -> bytes
+    codec = get_codec_for_epc(class_code, epc)
+    value = codec.decode(edt_bytes, node.properties)  # bytes -> typed value
+    edt = codec.encode(True)                          # typed value -> bytes
+
+The optional ``context`` argument of ``decode`` maps EPCs to the current EDTs
+of the same device object. Only values whose scale depends on sibling
+properties (MRA ``coefficient``) use it.
 """
 
 from __future__ import annotations
 
 import functools
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -35,7 +39,6 @@ from .definitions import (
     PropertyValueDefinition,
     ScalarDefinition,
 )
-from .device_manager import NodeState
 from .installation_location import (
     INSTALLATION_LOCATIONS,
     InstallationLocation,
@@ -56,8 +59,11 @@ _FORMAT_INFO: dict[str, tuple[bool, int]] = {
 class PropertyCodec(Protocol):
     """Bidirectional EDT bytes ⇔ typed Python value conversion."""
 
-    def decode(self, edt: bytes) -> Any:
+    def decode(self, edt: bytes, context: Mapping[int, bytes] | None = None) -> Any:
         """Decode raw EDT bytes to a typed Python value.
+
+        ``context`` maps EPCs to the current EDTs of the same device object;
+        codecs that do not depend on sibling properties ignore it.
 
         Returns ``None`` when the bytes are empty or do not represent a
         valid value for this codec.
@@ -67,8 +73,19 @@ class PropertyCodec(Protocol):
         """Encode a typed Python value to raw EDT bytes.
 
         Raises :class:`ValueError` when the value is outside the supported
-        domain.
+        domain, or when the codec reads a field at a non-zero
+        ``byte_offset`` (writing part of a multi-field EDT requires merging
+        with the device's current value, which is the caller's job).
         """
+
+
+def _reject_byte_offset(codec: object, byte_offset: int) -> None:
+    """Raise when encoding a field that does not start the EDT."""
+    if byte_offset:
+        raise ValueError(
+            f"{type(codec).__name__}.encode does not support byte_offset; "
+            "compose the full EDT in the caller"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +100,11 @@ class BinaryCodec:
     off_edt: int
     byte_offset: int = 0
 
-    def decode(self, edt: bytes) -> bool | None:
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> bool | None:
         """Return ``True``/``False`` for the configured ON/OFF bytes."""
         if not edt or self.byte_offset >= len(edt):
             return None
@@ -96,6 +117,7 @@ class BinaryCodec:
 
     def encode(self, value: bool) -> bytes:
         """Encode a ``bool`` to the matching ON/OFF byte."""
+        _reject_byte_offset(self, self.byte_offset)
         return bytes([self.on_edt if value else self.off_edt])
 
 
@@ -120,7 +142,11 @@ class EnumCodec:
         """
         return cls(by_key=forward, by_edt={v: k for k, v in forward.items()})
 
-    def decode(self, edt: bytes) -> str | None:
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> str | None:
         """Return the ``key`` matching the EDT byte at ``byte_offset``, or ``None``."""
         if not edt or self.byte_offset >= len(edt):
             return None
@@ -128,6 +154,7 @@ class EnumCodec:
 
     def encode(self, value: str) -> bytes:
         """Encode a ``key`` from ``enum_values`` to the matching byte."""
+        _reject_byte_offset(self, self.byte_offset)
         try:
             return bytes([self.by_key[value]])
         except KeyError as ex:
@@ -142,13 +169,12 @@ class NumericCodec:
     range checks, and ``multipleOf`` scaling. ``byte_offset`` lets a single
     EPC expose several numeric fields packed in one EDT.
 
-    ``coefficient_epcs`` handles the MRA ``coefficient`` pattern (e.g. EPC
-    0xC2 "Unit for cumulative amounts of electric energy"): the true value is
-    this codec's raw value multiplied by the *current* value of one or more
-    sibling EPCs. Resolving it requires the owning node's state, so ``decode``
-    accepts an optional ``node`` argument used only when ``coefficient_epcs``
-    is non-empty; without it (or when the coefficient EPC is not yet known),
-    ``None`` is returned rather than an unscaled, potentially wrong value.
+    ``coefficients`` handles the MRA ``coefficient`` pattern (e.g. EPC 0xC2
+    "Unit for cumulative amounts of electric energy"): the true value is this
+    codec's raw value multiplied by the *current* value of one or more
+    sibling EPCs, each paired with the codec that decodes it. ``decode``
+    reads those values from ``context``; without them, ``None`` is returned
+    rather than an unscaled, potentially wrong value.
     """
 
     mra_format: str
@@ -156,15 +182,12 @@ class NumericCodec:
     minimum: float | None
     maximum: float | None
     byte_offset: int
-    coefficient_epcs: tuple[int, ...] = ()
+    coefficients: tuple[tuple[int, PropertyCodec], ...] = ()
 
-    def decode(self, edt: bytes, node: NodeState | None = None) -> int | float | None:
-        """Decode EDT bytes to a (scaled) numeric value.
-
-        ``node`` supplies the current values of ``coefficient_epcs`` when
-        this property's unit depends on a sibling property; it is ignored
-        when ``coefficient_epcs`` is empty.
-        """
+    def decode(
+        self, edt: bytes, context: Mapping[int, bytes] | None = None
+    ) -> int | float | None:
+        """Decode EDT bytes to a (scaled) numeric value."""
         format_info = _FORMAT_INFO.get(self.mra_format)
         if not format_info:
             return None
@@ -180,19 +203,17 @@ class NumericCodec:
         if self.maximum is not None and raw > self.maximum:
             return None
         value = raw if self.scale == 1.0 else raw * self.scale
-        if not self.coefficient_epcs:
+        if not self.coefficients:
             return value
-        if node is None:
+        if context is None:
             return None
         coefficient = 1.0
-        for coef_epc in self.coefficient_epcs:
-            coef_edt = node.properties.get(coef_epc)
+        for coef_epc, coef_codec in self.coefficients:
+            coef_edt = context.get(coef_epc)
             if coef_edt is None:
                 return None
-            coef_value = get_codec_for_epc(node.eoj.class_code, coef_epc).decode(
-                coef_edt
-            )
-            if coef_value is None:
+            coef_value = coef_codec.decode(coef_edt)
+            if not isinstance(coef_value, int | float) or isinstance(coef_value, bool):
                 return None
             coefficient *= coef_value
         return value * coefficient
@@ -200,26 +221,28 @@ class NumericCodec:
     def encode(self, value: int | float) -> bytes:
         """Encode a numeric value to EDT bytes.
 
-        ``byte_offset`` is not supported here because writing only a portion
-        of a multi-field EDT requires merging with the device's current
-        value, which is the caller's responsibility.
+        Raises :class:`ValueError` when the scaled value falls outside
+        ``minimum``/``maximum`` or the format's range.
         """
-        if self.coefficient_epcs:
+        if self.coefficients:
             raise ValueError(
-                "NumericCodec.encode does not support coefficient_epcs; "
-                "resolving the coefficient requires node state, which "
+                "NumericCodec.encode does not support coefficients; "
+                "resolving the coefficient requires device state, which "
                 "encode() does not receive"
             )
-        if self.byte_offset:
-            raise ValueError(
-                "NumericCodec.encode does not support byte_offset; "
-                "compose the full EDT in the caller"
-            )
+        _reject_byte_offset(self, self.byte_offset)
         format_info = _FORMAT_INFO.get(self.mra_format)
         if not format_info:
             raise ValueError(f"Unknown MRA format: {self.mra_format}")
         signed, byte_count = format_info
         raw = round(value / self.scale) if self.scale != 1.0 else round(value)
+        if (self.minimum is not None and raw < self.minimum) or (
+            self.maximum is not None and raw > self.maximum
+        ):
+            raise ValueError(
+                f"Value {value} out of range [{self.minimum}, {self.maximum}] "
+                f"(scale {self.scale})"
+            )
         try:
             return int(raw).to_bytes(byte_count, "big", signed=signed)
         except OverflowError as ex:
@@ -241,7 +264,11 @@ class NumericValueCodec:
     by_edt: dict[int, float]
     byte_offset: int = 0
 
-    def decode(self, edt: bytes) -> float | None:
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> float | None:
         """Return the numeric value matching the EDT byte at ``byte_offset``."""
         if not edt or self.byte_offset >= len(edt):
             return None
@@ -254,6 +281,7 @@ class NumericValueCodec:
         ``value`` may not be the same float object/computation that produced
         a table entry (e.g. round-tripped through JSON or user input).
         """
+        _reject_byte_offset(self, self.byte_offset)
         for edt, val in self.by_edt.items():
             if math.isclose(val, value, rel_tol=1e-9):
                 return bytes([edt])
@@ -269,7 +297,11 @@ class InstallationLocationCodec:
     (``b"\x00"`` or ``b"\xff"``) via the low-level API.
     """
 
-    def decode(self, edt: bytes) -> InstallationLocation | None:
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> InstallationLocation | None:
         """Decode EDT bytes to an :class:`InstallationLocation`."""
         return decode_installation_location(edt)
 
@@ -284,7 +316,25 @@ class InstallationLocationCodec:
         return bytes([((value.code & 0x0F) << 3) | (value.instance & 0x07)])
 
 
-def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
+def _coefficient_codecs(
+    coefficient_epcs: tuple[int, ...], class_code: int | None, epc: int
+) -> tuple[tuple[int, PropertyCodec], ...]:
+    """Resolve the codecs of the coefficient EPCs of ``epc``."""
+    if not coefficient_epcs:
+        return ()
+    if class_code is None:
+        raise ValueError(
+            f"class_code is required to resolve the coefficient EPCs of EPC 0x{epc:02X}"
+        )
+    return tuple(
+        (coef_epc, get_codec_for_epc(class_code, coef_epc))
+        for coef_epc in coefficient_epcs
+    )
+
+
+def get_codec(
+    entity_def: EntityDefinition, *, class_code: int | None = None
+) -> PropertyCodec:
     """Return the appropriate :class:`PropertyCodec` for ``entity_def``.
 
     Selection rules:
@@ -295,8 +345,12 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
     * Any other non-empty ``enum_values`` produces an :class:`EnumCodec`.
     * A populated ``format`` field produces a :class:`NumericCodec`.
 
+    ``class_code`` is required when ``entity_def`` has ``coefficient_epcs``,
+    so that the coefficient codecs can be looked up for the device class.
+
     Raises :class:`ValueError` when no codec can be selected (for example
-    when ``enum_values``, ``format``, and ``numeric_values`` are all absent).
+    when ``enum_values``, ``format``, and ``numeric_values`` are all absent)
+    or when the coefficient EPCs cannot be resolved.
     """
     if entity_def.numeric_values:
         return NumericValueCodec(
@@ -325,7 +379,9 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
             minimum=entity_def.minimum,
             maximum=entity_def.maximum,
             byte_offset=entity_def.byte_offset,
-            coefficient_epcs=entity_def.coefficient_epcs or (),
+            coefficients=_coefficient_codecs(
+                entity_def.coefficient_epcs or (), class_code, entity_def.epc
+            ),
         )
 
     raise ValueError(
@@ -338,26 +394,38 @@ def get_codec(entity_def: EntityDefinition) -> PropertyCodec:
 def get_codec_for_epc(
     class_code: int,
     epc: int,
+    *,
+    manufacturer_code: int | None = None,
+    byte_offset: int = 0,
 ) -> PropertyCodec:
-    """Return the appropriate codec for *epc* on device class *class_code*.
+    """Return the codec for *epc* on device class *class_code*.
 
-    Looks up the :class:`~pyhems.EntityDefinition` for the given EPC in
-    :data:`pyhems.REGISTRY` and calls :func:`get_codec` on it.
+    Looks up the :class:`~pyhems.EntityDefinition` for the EPC field at
+    ``byte_offset`` in :data:`pyhems.REGISTRY` and calls :func:`get_codec` on
+    it. A definition specific to ``manufacturer_code`` takes precedence over
+    the generic one; without ``manufacturer_code`` only generic definitions
+    are considered.
 
-    Results are cached (keyed by ``class_code``/``epc``) since :data:`REGISTRY`
-    is an immutable singleton built once at import time; this avoids repeating
-    the linear scan and :class:`PropertyCodec` construction on every call,
-    which matters for :class:`NumericCodec`'s ``coefficient_epcs`` resolution
-    (invoked on every ``decode()`` of a coefficient-bearing property).
+    Results are cached since :data:`REGISTRY` is an immutable singleton
+    built once at import time.
 
-    Raises :class:`LookupError` when no definition exists for the EPC on the
-    given class.  Propagates :class:`ValueError` from :func:`get_codec` when
-    no codec can be built from the definition (e.g. neither ``enum_values``
-    nor ``format`` is set).
+    Raises :class:`LookupError` when no matching definition exists.
+    Propagates :class:`ValueError` from :func:`get_codec` when no codec can
+    be built from the definition.
     """
+    generic: EntityDefinition | None = None
     for entity_def in REGISTRY.entities.get(class_code, ()):
-        if entity_def.epc == epc:
-            return get_codec(entity_def)
+        if entity_def.epc != epc or entity_def.byte_offset != byte_offset:
+            continue
+        if (
+            manufacturer_code is not None
+            and entity_def.manufacturer_code == manufacturer_code
+        ):
+            return get_codec(entity_def, class_code=class_code)
+        if entity_def.manufacturer_code is None and generic is None:
+            generic = entity_def
+    if generic is not None:
+        return get_codec(generic, class_code=class_code)
     raise LookupError(f"EPC 0x{epc:02X} not found for class 0x{class_code:04X}")
 
 
@@ -372,12 +440,7 @@ def get_codec_for_epc(
 # ============================================================================
 
 
-def _scalar_byte_size(value_def: ScalarDefinition) -> int:
-    """Return the byte width declared for a scalar leaf value."""
-    return value_def.size
-
-
-def value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
+def _value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
     """Return the fixed byte width of *value_def*.
 
     Raises :class:`ValueError` when *value_def* has no fixed width (i.e. it
@@ -385,19 +448,22 @@ def value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
     :class:`OneOfDefinition`'s options disagree on their byte width.
     """
     if isinstance(value_def, ScalarDefinition):
-        return _scalar_byte_size(value_def)
+        return value_def.size
     if isinstance(value_def, OneOfDefinition):
-        sizes = {value_definition_byte_size(option) for option in value_def.options}
+        sizes = {_value_definition_byte_size(option) for option in value_def.options}
         if len(sizes) != 1:
             raise ValueError("oneOf options must share the same byte size")
         return next(iter(sizes))
     if isinstance(value_def, ObjectDefinition):
-        return sum(value_definition_byte_size(f.value) for f in value_def.fields)
+        return sum(_value_definition_byte_size(f.value) for f in value_def.fields)
     raise ValueError("ArrayDefinition has no fixed byte size")
 
 
 def _decode_scalar(
-    value_def: ScalarDefinition, chunk: bytes, node: NodeState | None
+    value_def: ScalarDefinition,
+    chunk: bytes,
+    context: Mapping[int, bytes] | None,
+    class_code: int | None,
 ) -> Any:
     """Decode a single scalar leaf value from *chunk*."""
     if len(chunk) != value_def.size:
@@ -407,22 +473,26 @@ def _decode_scalar(
             by_edt={nv.edt: nv.value for nv in value_def.numeric_values}
         ).decode(chunk)
     if value_def.enum_values:
-        if len(chunk) < value_def.size:
-            return None
-        raw = int.from_bytes(chunk[: value_def.size], "big", signed=False)
+        raw = int.from_bytes(chunk, "big", signed=False)
         for ev in value_def.enum_values:
             if ev.edt == raw:
                 return ev.key
         return None
     if value_def.format:
+        if value_def.coefficient_epcs and class_code is None:
+            return None
         return NumericCodec(
             mra_format=value_def.format,
             scale=value_def.multiple_of,
             minimum=value_def.minimum,
             maximum=value_def.maximum,
             byte_offset=0,
-            coefficient_epcs=value_def.coefficient_epcs,
-        ).decode(chunk, node)
+            coefficients=(
+                _coefficient_codecs(value_def.coefficient_epcs, class_code, 0)
+                if class_code is not None
+                else ()
+            ),
+        ).decode(chunk, context)
     return chunk
 
 
@@ -432,17 +502,24 @@ def _fixed_size_options(
     """Return each fixed-size decoding option for a value definition."""
     if isinstance(value_def, OneOfDefinition):
         return tuple(
-            (option, value_definition_byte_size(option)) for option in value_def.options
+            (option, _value_definition_byte_size(option))
+            for option in value_def.options
         )
-    return ((value_def, value_definition_byte_size(value_def)),)
+    return ((value_def, _value_definition_byte_size(value_def)),)
 
 
 def decode_property_value(
     value_def: PropertyValueDefinition,
     chunk: bytes,
-    node: NodeState | None = None,
+    context: Mapping[int, bytes] | None = None,
+    *,
+    class_code: int | None = None,
 ) -> Any:
     """Recursively decode *chunk* according to *value_def*.
+
+    ``context`` and ``class_code`` resolve values whose scale depends on
+    sibling properties (MRA ``coefficient``); such values decode to ``None``
+    without them.
 
     Returns ``None`` when *chunk* is malformed for *value_def* (wrong
     length, an array exceeding its declared ``max_items``/``min_items``, or
@@ -460,11 +537,13 @@ def decode_property_value(
     * :class:`ArrayDefinition` decodes to a ``tuple`` of item values.
     """
     if isinstance(value_def, ScalarDefinition):
-        return _decode_scalar(value_def, chunk, node)
+        return _decode_scalar(value_def, chunk, context, class_code)
 
     if isinstance(value_def, OneOfDefinition):
         for option in value_def.options:
-            option_result = decode_property_value(option, chunk, node)
+            option_result = decode_property_value(
+                option, chunk, context, class_code=class_code
+            )
             if option_result is not None:
                 return option_result
         return None
@@ -479,7 +558,9 @@ def decode_property_value(
             if isinstance(field.value, ArrayDefinition):
                 if field_index != len(value_def.fields) - 1:
                     return None
-                item_value = decode_property_value(field.value, chunk[cursor:], node)
+                item_value = decode_property_value(
+                    field.value, chunk[cursor:], context, class_code=class_code
+                )
                 return {field.key: item_value} if item_value is not None else None
 
             try:
@@ -495,7 +576,10 @@ def decode_property_value(
                     continue
                 return {
                     field.key: decode_property_value(
-                        field.value, chunk[cursor:next_cursor], node
+                        field.value,
+                        chunk[cursor:next_cursor],
+                        context,
+                        class_code=class_code,
                     ),
                     **remaining,
                 }
@@ -514,7 +598,10 @@ def decode_property_value(
             return None
         return tuple(
             decode_property_value(
-                value_def.item, chunk[i * item_size : (i + 1) * item_size], node
+                value_def.item,
+                chunk[i * item_size : (i + 1) * item_size],
+                context,
+                class_code=class_code,
             )
             for i in range(count)
         )
@@ -547,7 +634,7 @@ def _get_path(value: Any, path: tuple[str, ...]) -> Any:
     return node
 
 
-def decode_collection(binding: CollectionBinding, value: Any) -> CollectionPage | None:
+def _decode_collection(binding: CollectionBinding, value: Any) -> CollectionPage | None:
     """Normalize a decoded structured *value* into a :class:`CollectionPage`.
 
     Returns ``None`` when the header (``start_path``/``page_count_path``) is
@@ -586,9 +673,12 @@ def decode_collection_page(
     class_code: int,
     result_epc: int,
     edt: bytes,
-    node: NodeState | None = None,
+    context: Mapping[int, bytes] | None = None,
 ) -> CollectionPage | None:
     """Decode and normalize *edt* for a paged list property in one call.
+
+    ``context`` maps EPCs to the current EDTs of the same device object and
+    resolves item values whose scale depends on sibling properties.
 
     Returns ``None`` when *class_code*/*result_epc* has no curated
     :class:`CollectionBinding`, no :class:`PropertyValueDefinition`, or *edt*
@@ -598,10 +688,10 @@ def decode_collection_page(
     binding = get_collection_binding(class_code, result_epc)
     if value_def is None or binding is None:
         return None
-    value = decode_property_value(value_def, edt, node)
+    value = decode_property_value(value_def, edt, context, class_code=class_code)
     if value is None:
         return None
-    return decode_collection(binding, value)
+    return _decode_collection(binding, value)
 
 
 __all__ = [
@@ -612,12 +702,10 @@ __all__ = [
     "NumericCodec",
     "NumericValueCodec",
     "PropertyCodec",
-    "decode_collection",
     "decode_collection_page",
     "decode_property_value",
     "get_codec",
     "get_codec_for_epc",
     "get_collection_binding",
     "get_structured_value",
-    "value_definition_byte_size",
 ]
