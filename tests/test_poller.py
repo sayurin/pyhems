@@ -116,8 +116,8 @@ class TestPropertyPollerLifecycle:
         assert task.cancelled()
 
     @pytest.mark.asyncio
-    async def test_stop_cancels_scheduled_and_cycles(self) -> None:
-        """stop() cancels scheduled callbacks and poll cycles in progress."""
+    async def test_stop_cancels_cycles(self) -> None:
+        """stop() cancels poll cycles in progress."""
         release = asyncio.Event()
 
         async def poll(*_args: object, **_kwargs: object) -> GetResponse:
@@ -128,7 +128,6 @@ class TestPropertyPollerLifecycle:
         dm.poll_device = AsyncMock(side_effect=poll)
         poller = PropertyPoller(dm, poll_interval=60)
         poller._fire_poll("k1", fast=False, normal=True)
-        poller.schedule_immediate_poll("k2", delay=60)
         cycle = poller._state["k1"].cycle_task
 
         poller.stop()
@@ -136,7 +135,6 @@ class TestPropertyPollerLifecycle:
 
         assert cycle is not None
         assert cycle.cancelled()
-        assert poller._scheduled == {}
         assert poller._state == {}
 
     @pytest.mark.asyncio
@@ -180,18 +178,6 @@ class TestSchedulePolls:
 
         dm.poll_device.assert_not_awaited()
         assert "k1" not in poller._state
-
-    @pytest.mark.asyncio
-    async def test_skips_scheduled_devices(self) -> None:
-        """A device with an immediate poll scheduled is skipped."""
-        dm = _make_dm(_make_node("k1"))
-        poller = PropertyPoller(dm, poll_interval=60)
-        poller.schedule_immediate_poll("k1", delay=60)
-
-        poller._schedule_polls()
-
-        dm.poll_device.assert_not_awaited()
-        poller.stop()
 
     @pytest.mark.asyncio
     async def test_skips_device_with_cycle_in_progress(self) -> None:
@@ -244,8 +230,8 @@ class TestCleanupStale:
     """Tests for _cleanup_stale."""
 
     @pytest.mark.asyncio
-    async def test_removes_state_and_scheduled_for_removed_devices(self) -> None:
-        """State, scheduled polls and cycles of removed devices are discarded."""
+    async def test_removes_state_for_removed_devices(self) -> None:
+        """State and cycles of removed devices are discarded."""
         release = asyncio.Event()
 
         async def poll(*_args: object, **_kwargs: object) -> GetResponse:
@@ -256,7 +242,6 @@ class TestCleanupStale:
         dm.poll_device = AsyncMock(side_effect=poll)
         poller = PropertyPoller(dm, poll_interval=60)
         poller._fire_poll("k1", fast=False, normal=True)
-        poller.schedule_immediate_poll("k2", delay=60)
         _set_state(poller, "k3", consecutive_failures=2)
         cycle = poller._state["k1"].cycle_task
         dm.data = {}
@@ -265,7 +250,6 @@ class TestCleanupStale:
         await asyncio.sleep(0)
 
         assert poller._state == {}
-        assert poller._scheduled == {}
         assert cycle is not None
         assert cycle.cancelled()
 
@@ -436,70 +420,6 @@ class TestFastPollTier:
         assert poller._effective_fast_interval("k1") == 20.0
         _set_state(poller, "k1", latency_ewma=100.0)
         assert poller._effective_fast_interval("k1") == poller._effective_interval("k1")
-
-
-class TestScheduleImmediatePoll:
-    """Tests for schedule_immediate_poll."""
-
-    @pytest.mark.asyncio
-    async def test_fires_after_delay_without_liveness(self) -> None:
-        """An immediate poll requests both tiers and does not record liveness."""
-        dm = _make_dm(
-            _make_node(
-                "k1", poll_epcs=frozenset({0xE0}), fast_poll_epcs=frozenset({0xE7})
-            )
-        )
-        poller = PropertyPoller(dm, poll_interval=60)
-
-        poller.schedule_immediate_poll("k1", delay=0)
-        await asyncio.sleep(0.01)
-        await _finish_cycles(poller)
-
-        assert _polled_chunks(dm) == [(0xE0, 0xE7)]
-        dm.record_poll_success.assert_not_called()
-        assert "k1" not in poller._scheduled
-
-    @pytest.mark.asyncio
-    async def test_ignored_for_unknown_device(self) -> None:
-        """An unknown device is not scheduled."""
-        poller = PropertyPoller(_make_dm(), poll_interval=60)
-
-        poller.schedule_immediate_poll("unknown", delay=0)
-
-        assert poller._scheduled == {}
-
-    @pytest.mark.asyncio
-    async def test_ignored_while_cycle_in_progress(self) -> None:
-        """No immediate poll is scheduled while a cycle is in progress."""
-        release = asyncio.Event()
-
-        async def poll(*_args: object, **_kwargs: object) -> GetResponse:
-            await release.wait()
-            return _ANSWER
-
-        dm = _make_dm(_make_node("k1"))
-        dm.poll_device = AsyncMock(side_effect=poll)
-        poller = PropertyPoller(dm, poll_interval=60)
-        poller._fire_poll("k1", fast=False, normal=True)
-
-        poller.schedule_immediate_poll("k1", delay=0)
-
-        assert poller._scheduled == {}
-        release.set()
-        await _finish_cycles(poller)
-
-    @pytest.mark.asyncio
-    async def test_reschedules_existing_immediate_poll(self) -> None:
-        """A new immediate poll replaces the one already scheduled."""
-        poller = PropertyPoller(_make_dm(_make_node("k1")), poll_interval=60)
-        poller.schedule_immediate_poll("k1", delay=60)
-        first = poller._scheduled["k1"]
-
-        poller.schedule_immediate_poll("k1", delay=60)
-
-        assert first.cancelled()
-        assert poller._scheduled["k1"] is not first
-        poller.stop()
 
 
 class TestChunking:

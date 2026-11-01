@@ -537,7 +537,7 @@ def test_all_structured_values_are_byte_size_consistent() -> None:
     known, pre-existing limitation of the generic layer rather than a
     regression.
     """
-    from pyhems.codecs import value_definition_byte_size
+    from pyhems.codecs import _value_definition_byte_size
     from pyhems.definitions import ArrayDefinition, OneOfDefinition, ScalarDefinition
 
     for epc, value_def in REGISTRY.structured_values[0x0287].items():
@@ -548,7 +548,7 @@ def test_all_structured_values_are_byte_size_consistent() -> None:
                 )
             elif isinstance(node, OneOfDefinition):
                 # Raises ValueError if options disagree on byte size.
-                value_definition_byte_size(node)
+                _value_definition_byte_size(node)
             elif isinstance(node, ArrayDefinition):
                 assert node.item_size > 0, (
                     f"class 0x0287 EPC 0x{epc:02X}: ArrayDefinition.item_size must be > 0"

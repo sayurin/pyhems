@@ -197,21 +197,21 @@ def _compute_poll_epcs(
     monitored_epcs: frozenset[int],
     get_epcs: frozenset[int],
     fast_candidate_epcs: frozenset[int],
-    confirmed_inf_epcs: frozenset[int],
+    inf_notified_epcs: frozenset[int],
 ) -> tuple[frozenset[int], frozenset[int]]:
     """Split monitored, gettable EPCs into normal and fast poll tiers.
 
-    An EPC is only excluded from polling once its INF_REQ (0x63)
-    subscription is *confirmed* successful (``confirmed_inf_epcs``); EPCs
-    that are merely candidates (in the device's INF property map) but not
-    yet confirmed, rejected (0x53), or unanswered, remain polled. This is
-    re-run whenever ``confirmed_inf_epcs`` changes (see
+    An EPC is excluded from polling only after the device notified it in
+    response to INF_REQ (0x63) (``inf_notified_epcs``); such EPCs are assumed
+    to be notified on every later change (docs/adr/0009). EPCs that are
+    merely in the device's INF property map, rejected (0x53), or unanswered
+    remain polled. This is re-run whenever ``inf_notified_epcs`` changes (see
     :meth:`DeviceManager._send_initial_notification`).
 
     Returns:
         ``(poll_epcs, fast_poll_epcs)``, a partition of the pollable EPCs.
     """
-    pollable = (monitored_epcs & get_epcs) - confirmed_inf_epcs
+    pollable = (monitored_epcs & get_epcs) - inf_notified_epcs
     fast_poll_epcs = pollable & fast_candidate_epcs
     poll_epcs = pollable - fast_poll_epcs
     return poll_epcs, fast_poll_epcs
@@ -290,22 +290,22 @@ class NodeState:
     product_code: str | None
     serial_number: str | None
     # Monitored EPCs for this device's class (candidate set for both Get
-    # polling and INF_REQ subscription).
+    # polling and INF_REQ).
     monitored_epcs: frozenset[int] = field(default_factory=frozenset)
     # Subset of monitored_epcs earmarked for the high-frequency poll tier
     # (see DeviceManager's fast_epcs). Static: does not change once set.
     fast_candidate_epcs: frozenset[int] = field(default_factory=frozenset)
-    # Subset of monitored_epcs for which an INF_REQ (0x63) subscription was
-    # attempted (monitored_epcs & inf_epcs at setup time).
-    attempted_inf_epcs: frozenset[int] = field(default_factory=frozenset)
-    # Subset of attempted_inf_epcs confirmed via a successful 0x73 response:
-    # these are excluded from poll_epcs/fast_poll_epcs since notifications
-    # are expected instead.
-    confirmed_inf_epcs: frozenset[int] = field(default_factory=frozenset)
-    # Subset of attempted_inf_epcs that failed to subscribe (0x53, or no
-    # response before the request timed out). Kept polled like any other
-    # non-confirmed EPC; tracked separately for diagnostics visibility.
-    failed_inf_epcs: frozenset[int] = field(default_factory=frozenset)
+    # Subset of monitored_epcs requested with INF_REQ (0x63) once at setup
+    # (monitored_epcs & inf_epcs).
+    inf_request_epcs: frozenset[int] = field(default_factory=frozenset)
+    # Subset of inf_request_epcs the device notified in its 0x73 response.
+    # These are excluded from poll_epcs/fast_poll_epcs: the device is assumed
+    # to keep notifying them on change (docs/adr/0009).
+    inf_notified_epcs: frozenset[int] = field(default_factory=frozenset)
+    # Subset of inf_request_epcs the device rejected (0x53) or did not answer
+    # before the request timed out. Kept polled like any other EPC; tracked
+    # separately for diagnostics visibility.
+    inf_unconfirmed_epcs: frozenset[int] = field(default_factory=frozenset)
     # Whether the most recent scheduled poll received a response. None means
     # no pollable EPCs exist or no poll has completed yet.
     polling_available: bool | None = None
@@ -379,7 +379,6 @@ class DeviceManager:
         self,
         client: HemsClient,
         monitored_epcs: EpcSelection,
-        class_code_filter: frozenset[int] | None = None,
         fast_epcs: EpcSelection | None = None,
     ) -> None:
         """Initialize the device manager.
@@ -390,8 +389,6 @@ class DeviceManager:
                 mapping of class_code -> EPCs or as a function of
                 (class_code, manufacturer_code). The manufacturer code is
                 read before the other EPCs during setup (ADR-0011).
-            class_code_filter: If set, only these class codes are accepted.
-                If None, all class codes are accepted.
             fast_epcs: EPCs that should be polled at a higher frequency (e.g.
                 instantaneous power), in the same form as ``monitored_epcs``.
                 EPCs that are not monitored are ignored. Defaults to no
@@ -399,7 +396,6 @@ class DeviceManager:
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
-        self._class_code_filter = class_code_filter
         self._fast_epcs = fast_epcs or {}
 
         self.data: dict[str, NodeState] = {}
@@ -927,17 +923,6 @@ class DeviceManager:
             if device_key in self.data or device_key in self._pending_setups:
                 continue
 
-            if (
-                self._class_code_filter is not None
-                and eoj.class_code not in self._class_code_filter
-            ):
-                _LOGGER.debug(
-                    "Skipping device class 0x%04X from node %s (not in filter)",
-                    eoj.class_code,
-                    node_id,
-                )
-                continue
-
             self._pending_setups.add(device_key)
             _LOGGER.debug("Discovered new %r from node %s", eoj, node_id)
             result = await self.setup_device(node_id, eoj)
@@ -1039,12 +1024,12 @@ class DeviceManager:
         fast_candidate_epcs = initial_epcs & _select_epcs(
             self._fast_epcs, eoj.class_code, manufacturer_code
         )
-        attempted_inf_epcs = frozenset(initial_epcs & inf_epcs)
+        inf_request_epcs = frozenset(initial_epcs & inf_epcs)
         poll_epcs, fast_poll_epcs = _compute_poll_epcs(
             monitored_epcs=initial_epcs,
             get_epcs=get_epcs,
             fast_candidate_epcs=fast_candidate_epcs,
-            confirmed_inf_epcs=frozenset(),
+            inf_notified_epcs=frozenset(),
         )
 
         node = NodeState(
@@ -1058,7 +1043,7 @@ class DeviceManager:
             fast_poll_epcs=fast_poll_epcs,
             monitored_epcs=initial_epcs,
             fast_candidate_epcs=fast_candidate_epcs,
-            attempted_inf_epcs=attempted_inf_epcs,
+            inf_request_epcs=inf_request_epcs,
             manufacturer_code=manufacturer_code,
             product_code=product_code,
             serial_number=serial_number,
@@ -1088,15 +1073,15 @@ class DeviceManager:
     async def _send_initial_notification(
         self, device_key: str, node: NodeState
     ) -> None:
-        """Send a one-time INF_REQ and confirm success via the 0x73/0x53 response.
+        """Send a one-time INF_REQ and record which EPCs were notified.
 
-        Updates ``node.confirmed_inf_epcs``/``node.failed_inf_epcs`` from the
-        result, and recomputes ``node.poll_epcs``/``node.fast_poll_epcs`` so
-        EPCs that are not confirmed (rejected, unanswered, or the request
-        itself failed to send) fall back to being polled instead of relying
-        on a notification that may never arrive.
+        Updates ``node.inf_notified_epcs``/``node.inf_unconfirmed_epcs`` from the
+        0x73/0x53 response, and recomputes ``node.poll_epcs``/
+        ``node.fast_poll_epcs`` so EPCs that were not notified (rejected,
+        unanswered, or the request itself failed to send) fall back to being
+        polled instead of relying on a notification that may never arrive.
         """
-        epcs = node.attempted_inf_epcs
+        epcs = node.inf_request_epcs
         if not epcs:
             return
 
@@ -1110,21 +1095,21 @@ class DeviceManager:
             node.node_id, node.eoj, sorted(epcs)
         )
 
-        node.confirmed_inf_epcs = result.successful_epcs
-        node.failed_inf_epcs = result.failed_epcs | result.unanswered_epcs
+        node.inf_notified_epcs = result.notified_epcs
+        node.inf_unconfirmed_epcs = result.rejected_epcs | result.unanswered_epcs
         node.poll_epcs, node.fast_poll_epcs = _compute_poll_epcs(
             monitored_epcs=node.monitored_epcs,
             get_epcs=node.get_epcs,
             fast_candidate_epcs=node.fast_candidate_epcs,
-            confirmed_inf_epcs=node.confirmed_inf_epcs,
+            inf_notified_epcs=node.inf_notified_epcs,
         )
 
         _LOGGER.debug(
-            "Initial 0x63 notification request to node %s: confirmed=[%s] "
-            "failed=[%s] unanswered=[%s]",
+            "Initial 0x63 notification request to node %s: notified=[%s] "
+            "rejected=[%s] unanswered=[%s]",
             device_key,
-            " ".join(f"{epc:02X}" for epc in sorted(result.successful_epcs)),
-            " ".join(f"{epc:02X}" for epc in sorted(result.failed_epcs)),
+            " ".join(f"{epc:02X}" for epc in sorted(result.notified_epcs)),
+            " ".join(f"{epc:02X}" for epc in sorted(result.rejected_epcs)),
             " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
         )
 

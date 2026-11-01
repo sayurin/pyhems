@@ -36,7 +36,7 @@ from pyhems.runtime import (
     HemsClient,
     HemsFrameEvent,
     HemsInstanceListEvent,
-    NotificationRequestResult,
+    InfRequestResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def test_parse_property_map(edt: bytes, expected: frozenset[int] | None) -> None
         "monitored_epcs",
         "get_epcs",
         "fast_candidate_epcs",
-        "confirmed_inf_epcs",
+        "inf_notified_epcs",
         "expected",
     ),
     [
@@ -166,7 +166,7 @@ def test_compute_poll_epcs(
     monitored_epcs: frozenset[int],
     get_epcs: frozenset[int],
     fast_candidate_epcs: frozenset[int],
-    confirmed_inf_epcs: frozenset[int],
+    inf_notified_epcs: frozenset[int],
     expected: tuple[frozenset[int], frozenset[int]],
 ) -> None:
     """Poll/fast-poll EPCs are recomputed from confirmed INF subscriptions."""
@@ -175,7 +175,7 @@ def test_compute_poll_epcs(
             monitored_epcs=monitored_epcs,
             get_epcs=get_epcs,
             fast_candidate_epcs=fast_candidate_epcs,
-            confirmed_inf_epcs=confirmed_inf_epcs,
+            inf_notified_epcs=inf_notified_epcs,
         )
         == expected
     )
@@ -302,11 +302,11 @@ def _make_node(
 
 async def _default_request_notifications(
     _node_id: str, _deoj: EOJ, epcs: list[int]
-) -> NotificationRequestResult:
+) -> InfRequestResult:
     """Simulate every requested EPC subscribing successfully by default."""
-    return NotificationRequestResult(
-        successful_epcs=frozenset(epcs),
-        failed_epcs=frozenset(),
+    return InfRequestResult(
+        notified_epcs=frozenset(epcs),
+        rejected_epcs=frozenset(),
         unanswered_epcs=frozenset(),
     )
 
@@ -410,7 +410,6 @@ class TestDeviceManagerRuntimeEvents:
                     received_at=1.0,
                     instances=[],
                     node_id="node",
-                    properties={},
                 )
             )
             callback(
@@ -465,7 +464,6 @@ class TestDeviceManagerRuntimeEvents:
                 received_at=1.0,
                 instances=[],
                 node_id="node",
-                properties={},
             )
         )
 
@@ -950,7 +948,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -994,7 +991,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1036,14 +1032,13 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={},
             )
         )
 
         node = dm.data[result[0]]
         assert node.monitored_epcs == frozenset({0x88})
-        assert node.attempted_inf_epcs == frozenset({0x88})
-        assert node.confirmed_inf_epcs == frozenset({0x88})
+        assert node.inf_request_epcs == frozenset({0x88})
+        assert node.inf_notified_epcs == frozenset({0x88})
         assert node.poll_epcs == frozenset()
         assert node.polling_available is None
 
@@ -1077,7 +1072,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1118,7 +1112,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1152,9 +1145,9 @@ class TestProcessInstanceListEvent:
             Property(epc=0xB1, edt=b"\x41"),
         ]
         client.request_notifications.side_effect = None
-        client.request_notifications.return_value = NotificationRequestResult(
-            successful_epcs=frozenset({0xB0}),
-            failed_epcs=frozenset({0xB1}),
+        client.request_notifications.return_value = InfRequestResult(
+            notified_epcs=frozenset({0xB0}),
+            rejected_epcs=frozenset({0xB1}),
             unanswered_epcs=frozenset(),
         )
 
@@ -1165,14 +1158,13 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
         node = dm.data[result[0]]
-        assert node.attempted_inf_epcs == frozenset({0xB0, 0xB1})
-        assert node.confirmed_inf_epcs == frozenset({0xB0})
-        assert node.failed_inf_epcs == frozenset({0xB1})
+        assert node.inf_request_epcs == frozenset({0xB0, 0xB1})
+        assert node.inf_notified_epcs == frozenset({0xB0})
+        assert node.inf_unconfirmed_epcs == frozenset({0xB1})
         # 0xB0 confirmed -> excluded from polling; 0xB1 rejected -> still polled
         assert node.poll_epcs == frozenset({0x80, 0xB1})
 
@@ -1195,9 +1187,9 @@ class TestProcessInstanceListEvent:
             Property(epc=0xB0, edt=b"\x41"),
         ]
         client.request_notifications.side_effect = None
-        client.request_notifications.return_value = NotificationRequestResult(
-            successful_epcs=frozenset(),
-            failed_epcs=frozenset(),
+        client.request_notifications.return_value = InfRequestResult(
+            notified_epcs=frozenset(),
+            rejected_epcs=frozenset(),
             unanswered_epcs=frozenset({0xB0}),
         )
 
@@ -1208,13 +1200,12 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[eoj],
             node_id=node_id,
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
         node = dm.data[result[0]]
-        assert node.confirmed_inf_epcs == frozenset()
-        assert node.failed_inf_epcs == frozenset({0xB0})
+        assert node.inf_notified_epcs == frozenset()
+        assert node.inf_unconfirmed_epcs == frozenset({0xB0})
         assert node.poll_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
@@ -1229,24 +1220,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[node.eoj],
             node_id=node.node_id,
-            properties={},
-        )
-
-        result = await dm.process_instance_list_event(event)
-        assert result == []
-        client.get.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_class_code_filter(self) -> None:
-        """Devices with filtered class codes are skipped."""
-        client = _make_client()
-        dm = DeviceManager(client, {}, class_code_filter=frozenset({0x0130}))
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[EOJ(0x027901)],
-            node_id="fe00000000000000000000000000000001",
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1271,7 +1244,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id="fe00000000000000000000000000000001",
-            properties={},
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1297,7 +1269,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[eoj],
                 node_id=node_id,
-                properties={0x8A: b"\x12\x34\x56"},
             )
         )
 
@@ -1324,11 +1295,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id=node_id,
-            properties={
-                0x8A: b"\x12\x34\x56",
-                0x8C: b"NP_PRODUCT\x00",
-                0x8D: b"NP_SERIAL\x00",
-            },
         )
 
         result = await dm.process_instance_list_event(event)
@@ -1356,7 +1322,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -1412,7 +1377,6 @@ class TestProcessInstanceListEvent:
             received_at=1.0,
             instances=[EOJ(0x013001)],
             node_id=node_id,
-            properties={},
         )
 
         assert await dm.process_instance_list_event(event) == []
@@ -1452,7 +1416,6 @@ class TestProcessInstanceListEvent:
                 received_at=1.0,
                 instances=[EOJ(0x029001), EOJ(0x029002)],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -1729,7 +1692,6 @@ class TestEventConsumerResilience:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
         await asyncio.sleep(0)
@@ -1779,7 +1741,6 @@ class TestSetupInNodeJobs:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
 
@@ -1815,7 +1776,6 @@ class TestSetupInNodeJobs:
                 received_at=1.0,
                 instances=[EOJ(0x013001)],
                 node_id=node_id,
-                properties={},
             )
         )
         for _ in range(5):
@@ -1857,7 +1817,6 @@ class TestSetupInNodeJobs:
                     received_at=1.0,
                     instances=[EOJ(0x013001)],
                     node_id=node_id,
-                    properties={},
                 ),
             ),
         )
@@ -1900,7 +1859,6 @@ class TestSetupInNodeJobs:
                     received_at=1.0,
                     instances=[EOJ(0x013001)],
                     node_id=node_id,
-                    properties={},
                 )
             )
         for _ in range(10):

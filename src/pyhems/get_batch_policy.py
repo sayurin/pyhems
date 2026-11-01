@@ -1,4 +1,7 @@
-"""GET batch policies for device-specific ECHONET Lite behavior."""
+"""GET batch policies for device-specific ECHONET Lite behavior.
+
+Internal to pyhems: used by the client and the poller to plan GET requests.
+"""
 
 from __future__ import annotations
 
@@ -88,12 +91,3 @@ def take_first_batch(
             batch.append(epc)
 
     return tuple(batch), tuple(remaining)
-
-
-__all__ = [
-    "GET_BATCH_POLICIES",
-    "GetBatchPolicy",
-    "get_get_batch_policy",
-    "has_get_batch_policy_for_class",
-    "take_first_batch",
-]

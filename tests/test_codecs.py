@@ -23,16 +23,18 @@ from pyhems import (
     ObjectField,
     OneOfDefinition,
     ScalarDefinition,
-    decode_collection,
     decode_collection_page,
     decode_property_value,
     get_codec,
     get_codec_for_epc,
     get_collection_binding,
     get_structured_value,
-    value_definition_byte_size,
 )
-from pyhems.codecs import CollectionPage
+from pyhems.codecs import (
+    CollectionPage,
+    _decode_collection,
+    _value_definition_byte_size,
+)
 
 
 def _make_entity(
@@ -834,11 +836,11 @@ class TestDecodePropertyValueArray:
 
 
 class TestValueDefinitionByteSize:
-    """Tests for :func:`value_definition_byte_size`."""
+    """Tests for :func:`_value_definition_byte_size`."""
 
     def test_scalar_size(self) -> None:
         """A scalar's byte size is its declared ``size``."""
-        assert value_definition_byte_size(ScalarDefinition(size=4)) == 4
+        assert _value_definition_byte_size(ScalarDefinition(size=4)) == 4
 
     def test_object_size_is_sum_of_fields(self) -> None:
         """An object's byte size is the sum of its fields' sizes."""
@@ -852,14 +854,14 @@ class TestValueDefinitionByteSize:
                 ),
             )
         )
-        assert value_definition_byte_size(value_def) == 5
+        assert _value_definition_byte_size(value_def) == 5
 
     def test_one_of_requires_matching_sizes(self) -> None:
         """A oneOf's byte size is well-defined when all options agree."""
         value_def = OneOfDefinition(
             options=(ScalarDefinition(size=1), ScalarDefinition(size=1))
         )
-        assert value_definition_byte_size(value_def) == 1
+        assert _value_definition_byte_size(value_def) == 1
 
     def test_one_of_mismatched_sizes_raises(self) -> None:
         """A oneOf with disagreeing option sizes raises :class:`ValueError`."""
@@ -867,17 +869,17 @@ class TestValueDefinitionByteSize:
             options=(ScalarDefinition(size=1), ScalarDefinition(size=4))
         )
         with pytest.raises(ValueError, match="same byte size"):
-            value_definition_byte_size(value_def)
+            _value_definition_byte_size(value_def)
 
     def test_array_has_no_fixed_size(self) -> None:
         """An array's byte size is undefined (variable-length)."""
         value_def = ArrayDefinition(item=ScalarDefinition(size=1), item_size=1)
         with pytest.raises(ValueError, match="no fixed byte size"):
-            value_definition_byte_size(value_def)
+            _value_definition_byte_size(value_def)
 
 
 class TestDecodeCollection:
-    """Tests for :func:`decode_collection` page normalization."""
+    """Tests for :func:`_decode_collection` page normalization."""
 
     _BINDING = CollectionBinding(
         result_epc=0xBE,
@@ -889,7 +891,7 @@ class TestDecodeCollection:
 
     def test_normalizes_valid_page(self) -> None:
         """A consistent header/items pair normalizes to a :class:`CollectionPage`."""
-        page = decode_collection(
+        page = _decode_collection(
             self._BINDING, {"start": 1, "count": 2, "items": (10, 20)}
         )
         assert page == CollectionPage(start=1, count=2, items=(10, 20))
@@ -897,7 +899,7 @@ class TestDecodeCollection:
     def test_rejects_count_mismatch(self) -> None:
         """A declared count that disagrees with the actual item count is rejected."""
         assert (
-            decode_collection(
+            _decode_collection(
                 self._BINDING, {"start": 1, "count": 3, "items": (10, 20)}
             )
             is None
@@ -905,12 +907,12 @@ class TestDecodeCollection:
 
     def test_rejects_missing_header(self) -> None:
         """A missing start/count header is rejected."""
-        assert decode_collection(self._BINDING, {"items": (10, 20)}) is None
+        assert _decode_collection(self._BINDING, {"items": (10, 20)}) is None
 
     def test_rejects_non_tuple_items(self) -> None:
         """A missing or malformed items list is rejected."""
         assert (
-            decode_collection(self._BINDING, {"start": 1, "count": 0, "items": None})
+            _decode_collection(self._BINDING, {"start": 1, "count": 0, "items": None})
             is None
         )
 

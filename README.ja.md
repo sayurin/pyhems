@@ -192,7 +192,6 @@ class HemsInstanceListEvent:
     received_at: float            # 受信時刻
     instances: list[EOJ]          # EOJ のリスト
     node_id: str                  # ノード識別番号（EPC 0x83）
-    properties: dict[int, bytes]  # 取得したプロパティ
 ```
 
 ### HemsFrameEvent
@@ -225,13 +224,11 @@ class HemsErrorEvent:
 client = HemsClient(
     interface="0.0.0.0",     # バインドするインターフェース
     discovery_interval=3600.0,  # ノードプローブの間隔（秒）
-    extra_epcs=[0x8A, 0x8D], # 追加で取得するEPC
 )
 ```
 
 - `interface`: UDP ソケットをバインドする IP アドレス
 - `discovery_interval`: 定期的なノード検出の間隔
-- `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
 
 `HemsClient.start()` は初期探索を開始し、30 秒後に定期探索を開始します。
 
@@ -292,6 +289,7 @@ await client.stop()
 - `properties`: 取得済み EPC 値（`dict[int, bytes]`）
 - `get_epcs` / `set_epcs` / `inf_epcs`: 機器のプロパティマップ解析結果
 - `poll_epcs`: 通知で取得できないため定期取得が必要な EPC
+- `inf_request_epcs` / `inf_notified_epcs` / `inf_unconfirmed_epcs`: setup で 1 回送る INF_REQ（0x63）の対象、そのうち機器が通知した EPC、拒否または応答がなかった EPC。通知された EPC はポーリングしません（`docs/adr/0009-assume-persistent-status-notifications.md`）
 - `manufacturer_code` / `product_code` / `serial_number`
 
 ## エンティティ定義

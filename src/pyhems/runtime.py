@@ -89,14 +89,11 @@ class HemsInstanceListEvent(RuntimeEvent):
     Attributes:
         instances: List of EOJs discovered on the device.
         node_id: Device node ID (hex string from EPC 0x83).
-        properties: All properties from the node profile response.
-            Key is EPC, value is EDT bytes.
 
     """
 
     instances: list[EOJ]
     node_id: str
-    properties: dict[int, bytes]
 
 
 @dataclass(slots=True)
@@ -107,20 +104,20 @@ class HemsErrorEvent(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class NotificationRequestResult:
-    """Result of an ``ESV.INF_REQ`` (0x63) notification-subscription request.
+class InfRequestResult:
+    """Result of an ``ESV.INF_REQ`` (0x63) request.
 
-    Per ECHONET Lite, a device that supports the request responds with
-    ``ESV.INF`` (0x73) listing EPCs it will now notify, or ``ESV.INF_SNA``
-    (0x53) listing EPCs it could not subscribe to. Requested EPCs missing
-    from either response, or for which no response arrives before the
-    request times out, are reported as ``unanswered_epcs`` so callers can
-    fall back to polling them instead of assuming notifications will
-    arrive.
+    INF_REQ asks a device to notify the current values of the requested EPCs
+    once. A device that supports the request responds with ``ESV.INF``
+    (0x73) carrying the values it notified (``notified_epcs``), or
+    ``ESV.INF_SNA`` (0x53) listing the EPCs it rejected (``rejected_epcs``).
+    Requested EPCs missing from either response, or for which no response
+    arrives before the request times out, are reported as
+    ``unanswered_epcs``.
     """
 
-    successful_epcs: frozenset[int]
-    failed_epcs: frozenset[int]
+    notified_epcs: frozenset[int]
+    rejected_epcs: frozenset[int]
     unanswered_epcs: frozenset[int]
 
 
@@ -242,7 +239,6 @@ class HemsClient:
         self,
         interface: str = "0.0.0.0",
         discovery_interval: float = 60.0 * 60.0,
-        extra_epcs: list[int] | None = None,
     ) -> None:
         """Initialize the HEMS client.
 
@@ -250,18 +246,11 @@ class HemsClient:
             interface: Network interface IP to bind to.
             discovery_interval: Interval for recurring node discovery
                 (seconds).
-            extra_epcs: Additional EPCs to request from the node profile during
-                initial discovery. These will be included in
-                HemsInstanceListEvent.properties.
 
         """
         self._interface = interface
         self._discovery_interval = discovery_interval
-        # Combine initial discovery EPCs with extras, preserving order and
-        # avoiding duplicates.
-        self._initial_discovery_epcs = list(
-            dict.fromkeys(list(DISCOVERY_INITIAL_EPCS) + (extra_epcs or []))
-        )
+        self._initial_discovery_epcs = list(DISCOVERY_INITIAL_EPCS)
         self._protocol: EchonetLiteProtocol | None = None
         self._callbacks: list[EventCallback] = []
         # address <-> node_id (hex) bidirectional mapping
@@ -917,14 +906,14 @@ class HemsClient:
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SETUP_REQUEST_TIMEOUT,
         priority: RequestPriority = RequestPriority.SETUP,
-    ) -> NotificationRequestResult:
+    ) -> InfRequestResult:
         """Send an INF_REQ (0x63) and wait for its 0x73/0x53 response.
 
         Unlike :meth:`get`, this makes a single attempt (no retries): an
         EPC that is not confirmed successful — whether explicitly rejected
         (0x53), absent from the response, or unanswered before
         ``request_timeout`` — is reported in ``unanswered_epcs``/
-        ``failed_epcs`` so the caller can fall back to polling it rather
+        ``rejected_epcs`` so the caller can fall back to polling it rather
         than assuming a notification will eventually arrive.
 
         Args:
@@ -942,15 +931,15 @@ class HemsClient:
         requested = frozenset(epcs)
         address = self._device_addresses.inverse.get(node_id)
         if not address or not self._protocol or not epcs:
-            return NotificationRequestResult(
-                successful_epcs=frozenset(),
-                failed_epcs=frozenset(),
+            return InfRequestResult(
+                notified_epcs=frozenset(),
+                rejected_epcs=frozenset(),
                 unanswered_epcs=requested,
             )
 
-        no_response = NotificationRequestResult(
-            successful_epcs=frozenset(),
-            failed_epcs=frozenset(),
+        no_response = InfRequestResult(
+            notified_epcs=frozenset(),
+            rejected_epcs=frozenset(),
             unanswered_epcs=requested,
         )
         try:
@@ -984,9 +973,9 @@ class HemsClient:
             failed = responded_epcs & requested
         unanswered = requested - responded_epcs
 
-        return NotificationRequestResult(
-            successful_epcs=successful,
-            failed_epcs=failed,
+        return InfRequestResult(
+            notified_epcs=successful,
+            rejected_epcs=failed,
             unanswered_epcs=unanswered,
         )
 
@@ -1290,13 +1279,10 @@ class HemsClient:
         if not instances:
             return
 
-        # Collect all properties with non-empty EDT
-        properties = {p.epc: p.edt for p in frame.properties if p.edt}
-
         _LOGGER.debug(
             "Node profile for %s: EPCs=%s",
             node_id,
-            [f"0x{epc:02X}" for epc in properties],
+            [f"0x{p.epc:02X}" for p in frame.properties if p.edt],
         )
 
         self._dispatch(
@@ -1304,7 +1290,6 @@ class HemsClient:
                 received_at=time.monotonic(),
                 instances=instances,
                 node_id=node_id,
-                properties=properties,
             )
         )
 

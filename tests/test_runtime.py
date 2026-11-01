@@ -8,7 +8,6 @@ import pytest
 
 from pyhems import (
     CONTROLLER_INSTANCE,
-    DISCOVERY_INITIAL_EPCS,
     ECHONET_MULTICAST,
     EOJ,
     EPC,
@@ -66,12 +65,10 @@ class TestRuntimeEvents:
             received_at=2.0,
             instances=[EOJ(0x010101), EOJ(0x013001)],
             node_id="def456",
-            properties={0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"},
         )
         assert event.received_at == 2.0
         assert event.instances == [EOJ(0x010101), EOJ(0x013001)]
         assert event.node_id == "def456"
-        assert event.properties == {0x83: b"\xfe" + b"\x00" * 16, 0x8C: b"PRODUCT"}
 
     def test_error_event_fields(self) -> None:
         """Test HemsErrorEvent field values."""
@@ -314,38 +311,6 @@ class TestNodeProbe:
         epcs = [p.epc for p in frame.properties]
         assert EPC.SELF_NODE_INSTANCE_LIST in epcs
         assert epcs == [EPC.SELF_NODE_INSTANCE_LIST]
-
-    def test_probe_initial_nodes_with_extra_epcs(self) -> None:
-        """Test initial probe sends extra EPCs when specified in constructor."""
-        extra_epcs: list[int] = [
-            EPC.MANUFACTURER_CODE,
-            EPC.PRODUCT_CODE,
-            EPC.SERIAL_NUMBER,
-        ]
-        client = HemsClient(extra_epcs=extra_epcs)
-
-        # Mock protocol
-        mock_protocol = MagicMock()
-        client._protocol = mock_protocol
-
-        result = client.probe_initial_nodes()
-        assert result is True
-
-        # Verify send was called
-        mock_protocol.send.assert_called_once()
-        call_args = mock_protocol.send.call_args
-        data, _address = call_args[0]
-
-        # Decode the frame to verify
-        frame = Frame.decode(data)
-        assert len(frame.properties) == len(DISCOVERY_INITIAL_EPCS) + len(extra_epcs)
-
-        epcs = [p.epc for p in frame.properties]
-        assert EPC.IDENTIFICATION_NUMBER in epcs
-        assert EPC.SELF_NODE_INSTANCE_LIST in epcs
-        assert EPC.MANUFACTURER_CODE in epcs
-        assert EPC.PRODUCT_CODE in epcs
-        assert EPC.SERIAL_NUMBER in epcs
 
     @pytest.mark.asyncio
     async def test_start_starts_periodic_discovery_after_initial_delay(self) -> None:
@@ -1317,8 +1282,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset({0x80, 0xB0})
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset({0x80, 0xB0})
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset()
 
     @pytest.mark.asyncio
@@ -1348,8 +1313,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset({0x80})
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset({0x80})
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
@@ -1379,8 +1344,8 @@ class TestRequestNotifications:
         self._simulate_receive(client, response, "192.168.1.10")
 
         result = await request_task
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset({0x80, 0xB0})
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset({0x80, 0xB0})
         assert result.unanswered_epcs == frozenset()
 
     @pytest.mark.asyncio
@@ -1396,8 +1361,8 @@ class TestRequestNotifications:
             node_id, EOJ(0x013001), [0x80, 0xB0], request_timeout=0.1
         )
 
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1436,8 +1401,8 @@ class TestRequestNotifications:
         result = await client.request_notifications(
             "unknown-node", EOJ(0x013001), [0x80, 0xB0]
         )
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1450,8 +1415,8 @@ class TestRequestNotifications:
         client._device_addresses.forceput("192.168.1.10", node_id)
 
         result = await client.request_notifications(node_id, EOJ(0x013001), [])
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset()
 
 
@@ -1592,8 +1557,8 @@ class TestStopInterruptsRequests:
         await client.stop()
 
         result = await request
-        assert result.successful_epcs == frozenset()
-        assert result.failed_epcs == frozenset()
+        assert result.notified_epcs == frozenset()
+        assert result.rejected_epcs == frozenset()
         assert result.unanswered_epcs == frozenset({0x80, 0xB0})
 
     @pytest.mark.asyncio
@@ -1694,7 +1659,7 @@ class TestPendingResponseMatching:
             )
 
         result = await request
-        assert result.successful_epcs == frozenset({0x80})
+        assert result.notified_epcs == frozenset({0x80})
 
 
 class TestUnknownAddressFrames:

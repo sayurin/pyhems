@@ -440,7 +440,7 @@ def get_codec_for_epc(
 # ============================================================================
 
 
-def value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
+def _value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
     """Return the fixed byte width of *value_def*.
 
     Raises :class:`ValueError` when *value_def* has no fixed width (i.e. it
@@ -450,12 +450,12 @@ def value_definition_byte_size(value_def: PropertyValueDefinition) -> int:
     if isinstance(value_def, ScalarDefinition):
         return value_def.size
     if isinstance(value_def, OneOfDefinition):
-        sizes = {value_definition_byte_size(option) for option in value_def.options}
+        sizes = {_value_definition_byte_size(option) for option in value_def.options}
         if len(sizes) != 1:
             raise ValueError("oneOf options must share the same byte size")
         return next(iter(sizes))
     if isinstance(value_def, ObjectDefinition):
-        return sum(value_definition_byte_size(f.value) for f in value_def.fields)
+        return sum(_value_definition_byte_size(f.value) for f in value_def.fields)
     raise ValueError("ArrayDefinition has no fixed byte size")
 
 
@@ -502,9 +502,10 @@ def _fixed_size_options(
     """Return each fixed-size decoding option for a value definition."""
     if isinstance(value_def, OneOfDefinition):
         return tuple(
-            (option, value_definition_byte_size(option)) for option in value_def.options
+            (option, _value_definition_byte_size(option))
+            for option in value_def.options
         )
-    return ((value_def, value_definition_byte_size(value_def)),)
+    return ((value_def, _value_definition_byte_size(value_def)),)
 
 
 def decode_property_value(
@@ -633,7 +634,7 @@ def _get_path(value: Any, path: tuple[str, ...]) -> Any:
     return node
 
 
-def decode_collection(binding: CollectionBinding, value: Any) -> CollectionPage | None:
+def _decode_collection(binding: CollectionBinding, value: Any) -> CollectionPage | None:
     """Normalize a decoded structured *value* into a :class:`CollectionPage`.
 
     Returns ``None`` when the header (``start_path``/``page_count_path``) is
@@ -690,7 +691,7 @@ def decode_collection_page(
     value = decode_property_value(value_def, edt, context, class_code=class_code)
     if value is None:
         return None
-    return decode_collection(binding, value)
+    return _decode_collection(binding, value)
 
 
 __all__ = [
@@ -701,12 +702,10 @@ __all__ = [
     "NumericCodec",
     "NumericValueCodec",
     "PropertyCodec",
-    "decode_collection",
     "decode_collection_page",
     "decode_property_value",
     "get_codec",
     "get_codec_for_epc",
     "get_collection_binding",
     "get_structured_value",
-    "value_definition_byte_size",
 ]
