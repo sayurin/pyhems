@@ -23,12 +23,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Mapping from LLLL code to (translation key, English name, Japanese name).
+# Mapping from LLLL code to (key, English name, Japanese name).
 #
-# The translation key is the snake_case identifier used in Home Assistant
-# ``strings.json`` ``state`` blocks. The display names follow the wording
-# used in the ECHONET Lite specification exactly so consumers can show
-# them verbatim (for example as Home Assistant ``suggested_area`` text).
+# The key is a stable snake_case identifier of the location. The display
+# names follow the wording used in the ECHONET Lite specification exactly so
+# consumers can show them verbatim.
 INSTALLATION_LOCATIONS: dict[int, tuple[str, str, str]] = {
     0x1: ("living_room", "Living room", "リビング"),
     0x2: ("dining_room", "Dining room", "ダイニング"),
@@ -71,7 +70,7 @@ class InstallationLocation:
 
     @property
     def key(self) -> str:
-        """Return the Home Assistant translation key."""
+        """Return the stable snake_case identifier of the location."""
         return self._metadata()[0]
 
     @property

@@ -297,7 +297,7 @@ await client.stop()
 ## エンティティ定義
 
 pyhems は MRA（Machine Readable Appendix）データに基づいたエンティティ定義を提供します。
-これにより、Home Assistant などの統合で使用するセンサーやスイッチを簡単に構成できます。
+利用側は、この定義からセンサーやスイッチなどの表示を構成できます。
 
 ### 定義レジストリの使用
 
@@ -322,41 +322,48 @@ class EntityDefinition:
     epc: int                # プロパティコード
     name_en: str            # 英語名
     name_ja: str            # 日本語名
-    get: str                # GETアクセスルール
-    set: str                # SETアクセスルール
+    readable: bool          # Get で読み出せるか
+    writable: bool          # Set で書き込めるか
     format: str | None      # 数値フォーマット（"uint8", "int16" など）
     unit: str | None        # 単位（"W", "Celsius", "%RH" など）
     minimum: float | None   # 最小有効値
     maximum: float | None   # 最大有効値
     multiple_of: float      # スケール係数
-    enum_values: tuple[EnumValue, ...]  # 列挙値
+    enum_values: tuple[EnumValue, ...]  # 列挙値（キーは MRA の表記のまま）
     byte_offset: int        # EDT内のバイト位置
     manufacturer_code: int | None  # メーカー固有の場合のコード
+    role: PropertyRole      # 機器の中での役割
+    quantity: Quantity | None        # 数値が表す物理量
+    value_kind: ValueKind | None     # 数値の時間的な性質（計測値、合計、積算）
+    indication: Indication | None    # 真偽値の true が示す状態
 ```
 
-### デコーダファクトリ
+enum のキーは、MRA に由来するものは MRA の表記（`allStop` など）のまま、pyhems が定めるもの
+（`true`/`false` など）は snake_case です（`docs/adr/0012-keep-mra-identifiers.md`）。
 
-EDT データを解釈するためのデコーダ関数を生成できます。
+`quantity`、`value_kind`、`indication` は、`scripts/generate_definitions.py` が単位と英語名から
+導出します。`value_kind` が `None` の数値は、定格値や容量などの静的な値です。
+
+### コーデック
+
+`get_codec_for_epc()` は、EDT と Python の値を相互に変換するコーデックを返します。
 
 ```python
-from pyhems import create_binary_decoder, create_enum_decoder, create_numeric_decoder
+from pyhems import get_codec_for_epc
 
-# 数値デコーダ（温度: uint8, 0〜50℃）
-temp_decoder = create_numeric_decoder(
-    mra_format="uint8",
-    minimum=0,
-    maximum=50,
-)
-value = temp_decoder(b"\x1E")  # 30
+# 温度設定値（家庭用エアコン EPC 0xB3）
+codec = get_codec_for_epc(0x0130, 0xB3)
+codec.decode(b"\x1a")  # 26
+codec.encode(27)        # b"\x1b"
 
-# バイナリデコーダ（ON/OFF）
-power_decoder = create_binary_decoder(on_value=b"\x30")
-is_on = power_decoder(b"\x30")  # True
-
-# 列挙型デコーダ
-mode_decoder = create_enum_decoder()
-mode = mode_decoder(b"\x42")  # 0x42
+# 係数を持つ値は、同じ機器オブジェクトのプロパティを context として渡す
+codec = get_codec_for_epc(0x0287, 0xC0)
+codec.decode(node.properties[0xC0], node.properties)
 ```
+
+メーカー固有の定義や、1 つの EDT に詰められた複数の値は、`manufacturer_code` と
+`byte_offset` で選びます。`encode()` は、`byte_offset` が 0 以外の値や、`minimum`/`maximum`
+の範囲外の値に対して `ValueError` を送出します。
 
 ## モジュール構成
 

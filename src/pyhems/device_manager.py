@@ -372,7 +372,7 @@ class DeviceManager:
     """Manage discovered ECHONET Lite devices.
 
     Handles device discovery, property tracking, and frame processing.
-    This is a protocol-level manager that does not depend on Home Assistant.
+    This is a protocol-level manager that does not depend on any consumer.
     """
 
     def __init__(
@@ -665,10 +665,9 @@ class DeviceManager:
         """Register a caller's interest in specific EPCs for a device.
 
         Used by callers that want polling to reflect fine-grained interest
-        (e.g. Home Assistant Entity lifecycle: an Entity subscribes to its
-        EPC(s) in ``async_added_to_hass()`` and unsubscribes in
-        ``async_will_remove_from_hass()``, so a disabled Entity's EPC stops
-        being polled). This is a generic reference-counted API: an EPC
+        (e.g. a consumer subscribes to the EPCs it displays and unsubscribes
+        when it stops displaying them, so those EPCs stop being polled).
+        This is a generic reference-counted API: an EPC
         remains "subscribed" as long as at least one caller has an active
         subscription for it, since multiple callers may be interested in the
         same EPC. See :meth:`effective_poll_epcs`.

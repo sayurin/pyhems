@@ -1,7 +1,7 @@
 """Tests for generated definitions.
 
-Ensures generated entities expose valid ``get``/``set`` access strings and
-unique enum value labels.
+Ensures generated entities expose readable/writable flags, MRA enum keys,
+and unique enum value labels.
 """
 
 from collections.abc import Iterator
@@ -17,7 +17,11 @@ from pyhems import (
     DeviceClass,
     EntityDefinition,
     EnumCodec,
+    Indication,
     PropertyRole,
+    Quantity,
+    ValueKind,
+    decode_collection_page,
     get_codec,
     get_codec_for_epc,
 )
@@ -26,30 +30,17 @@ from pyhems.definitions import PropertyValueDefinition
 
 _generate_definitions = import_module("scripts.generate_definitions")
 
-ALLOWED_ACCESS_VALUES = {
-    "required",
-    "required_c",
-    "required_o",
-    "optional",
-    "notApplicable",
-}
-
 
 def _all_entities() -> Iterator[EntityDefinition]:
     for entities in REGISTRY.entities.values():
         yield from entities
 
 
-def test_all_entities_have_get_set_strings() -> None:
+def test_all_entities_are_readable_or_writable() -> None:
     for ent in _all_entities():
-        assert isinstance(ent.get, str), f"'get' must be string for {ent.id}"
-        assert isinstance(ent.set, str), f"'set' must be string for {ent.id}"
-        assert ent.get in ALLOWED_ACCESS_VALUES, (
-            f"Unexpected get value: {ent.get} in {ent.id}"
-        )
-        assert ent.set in ALLOWED_ACCESS_VALUES, (
-            f"Unexpected set value: {ent.set} in {ent.id}"
-        )
+        assert isinstance(ent.readable, bool), ent.id
+        assert isinstance(ent.writable, bool), ent.id
+        assert ent.readable or ent.writable, ent.id
 
 
 def test_device_class_enum_matches_registry() -> None:
@@ -81,8 +72,8 @@ def test_common_operation_status_access() -> None:
     """Operation status (0x80) is a common superClass property on every device."""
     entities = {e.epc: e for e in REGISTRY.entities[0x0602]}
     op = entities[0x80]
-    assert op.get == "required"
-    assert op.set == "optional"
+    assert op.readable
+    assert op.writable
     mra_tv = Path("mra/devices/0x0602.json")
     assert mra_tv.exists(), "MRA file for TV must exist"
 
@@ -206,7 +197,7 @@ def test_writable_instantaneous_named_setting_is_not_instantaneous_role() -> Non
     a name-only heuristic would match it.
     """
     entity = _entity(0x02A7, 0xCC)
-    assert entity.set != "notApplicable"
+    assert entity.writable
     assert entity.role is PropertyRole.SETTING
 
 
@@ -257,7 +248,7 @@ def test_custom_ventilation_function_normalizes_boolean_values() -> None:
         (0x31, "false"),
         (0x42, "true"),
     )
-    codec = get_codec_for_epc(0x0F01, 0xC0)
+    codec = get_codec_for_epc(0x0F01, 0xC0, manufacturer_code=entity.manufacturer_code)
     assert codec.decode(b"\x31") is False
     assert codec.decode(b"\x42") is True
 
@@ -270,7 +261,10 @@ def test_custom_define_overrides_common_epc_for_its_class() -> None:
     assert entity.id == "class_0f02_epc_8f_000006"
     assert entity.manufacturer_code == 0x000006
     # The common 0x8F decodes 0x42 as False.
-    assert get_codec_for_epc(0x0F02, 0x8F).decode(b"\x42") is True
+    assert (
+        get_codec_for_epc(0x0F02, 0x8F, manufacturer_code=0x000006).decode(b"\x42")
+        is True
+    )
 
 
 def test_custom_patch_preserves_unspecified_mra_values() -> None:
@@ -567,7 +561,7 @@ if __name__ == "__main__":
 
 def test_mitsubishi_vav_keep_operation_true_is_keep_mode() -> None:
     """EPC 0x8F of the Mitsubishi VAV maps true to keep mode (0x42)."""
-    codec = get_codec_for_epc(0x0F02, 0x8F)
+    codec = get_codec_for_epc(0x0F02, 0x8F, manufacturer_code=0x000006)
 
     assert isinstance(codec, BinaryCodec)
     assert (codec.on_edt, codec.off_edt) == (0x42, 0x41)
@@ -608,3 +602,121 @@ def test_custom_boolean_true_edts_are_reviewed() -> None:
                 true_edts[key] = edts["true"]
 
     assert true_edts == _REVIEWED_CUSTOM_TRUE_EDTS
+
+
+def test_mra_enum_keys_keep_their_spelling() -> None:
+    """MRA enum keys are not converted to another naming convention."""
+    assert [value.key for value in _entity(0x03B9, 0xB3).enum_values] == ["allStop"]
+    edt = bytes([1, 1]) + (0x7FFFFFFE).to_bytes(4, "big")
+    page = decode_collection_page(0x0287, 0xB7, edt)
+    assert page is not None
+    assert page.items == ("noData",)
+
+
+@pytest.mark.parametrize(
+    ("class_code", "epc", "quantity", "value_kind"),
+    [
+        (0x0130, 0x84, Quantity.POWER, ValueKind.MEASUREMENT),
+        (0x0130, 0x85, Quantity.ENERGY, ValueKind.CUMULATIVE),
+        (0x026B, 0xCB, Quantity.ENERGY, ValueKind.TOTAL),
+        (0x027D, 0xC7, Quantity.ENERGY, None),
+        (0x027D, 0xE2, Quantity.STORED_ENERGY, ValueKind.MEASUREMENT),
+        (0x027D, 0xE4, Quantity.BATTERY_LEVEL, ValueKind.MEASUREMENT),
+        (0x027C, 0xC8, Quantity.GAS_VOLUME, ValueKind.CUMULATIVE),
+        (0x0281, 0xE0, Quantity.WATER_VOLUME, ValueKind.CUMULATIVE),
+        (0x026B, 0xD8, Quantity.STORED_VOLUME, ValueKind.MEASUREMENT),
+        (0x0130, 0xBB, Quantity.TEMPERATURE, ValueKind.MEASUREMENT),
+        (0x0130, 0x80, None, None),
+    ],
+)
+def test_numeric_value_semantics(
+    class_code: int,
+    epc: int,
+    quantity: Quantity | None,
+    value_kind: ValueKind | None,
+) -> None:
+    """Quantity and value kind are derived from the unit and the name."""
+    entity = _entity(class_code, epc)
+    assert entity.quantity is quantity
+    assert entity.value_kind is value_kind
+
+
+@pytest.mark.parametrize(
+    ("class_code", "epc", "indication"),
+    [
+        (0x0130, 0x80, Indication.RUNNING),
+        (0x0130, 0x88, Indication.PROBLEM),
+        (0x026F, 0xE2, Indication.DOOR),
+        (0x0007, 0xB1, Indication.OCCUPANCY),
+        (0x0130, 0xB3, None),
+    ],
+)
+def test_boolean_indication(
+    class_code: int, epc: int, indication: Indication | None
+) -> None:
+    """Boolean properties carry the condition their true state indicates."""
+    assert _entity(class_code, epc).indication is indication
+
+
+def test_value_kind_of_angle_is_measurement() -> None:
+    """Numeric degree values are measurements regardless of their name."""
+    entity = replace(_entity(0x0130, 0x84), name_en="Cumulative angle", unit="degree")
+    assert _generate_definitions._derive_value_kind(entity) == ValueKind.MEASUREMENT
+
+
+@pytest.mark.parametrize(
+    ("name_en", "unit", "quantity", "value_kind"),
+    [
+        ("AC chargeable electric energy", "Wh", Quantity.ENERGY, ValueKind.TOTAL),
+        (
+            "Cumulative amounts of electric energy",
+            "kWh",
+            Quantity.ENERGY,
+            ValueKind.CUMULATIVE,
+        ),
+        ("Gas consumption", "m3", Quantity.GAS_VOLUME, ValueKind.TOTAL),
+        (
+            "Heating value of hot water storage tank",
+            "MJ",
+            Quantity.ENERGY,
+            ValueKind.TOTAL,
+        ),
+        (
+            "Remaining stored electricity 1",
+            "Wh",
+            Quantity.STORED_ENERGY,
+            ValueKind.MEASUREMENT,
+        ),
+        (
+            "Cumulative maximum electric power demand",
+            "kW",
+            Quantity.POWER,
+            ValueKind.MEASUREMENT,
+        ),
+        ("AC rated electric energy", "Wh", Quantity.ENERGY, None),
+        (
+            "Measured cumulative amount of electric energy generated",
+            "kWh",
+            Quantity.ENERGY,
+            ValueKind.CUMULATIVE,
+        ),
+        (
+            "Measured instantaneous amount of electricity generated",
+            "W",
+            Quantity.POWER,
+            ValueKind.MEASUREMENT,
+        ),
+        ("Tank capacity", "L", None, None),
+        ("Room temperature", "Celsius", Quantity.TEMPERATURE, ValueKind.MEASUREMENT),
+    ],
+)
+def test_derive_numeric_value_semantics_from_name(
+    name_en: str,
+    unit: str,
+    quantity: Quantity | None,
+    value_kind: ValueKind | None,
+) -> None:
+    """The name rules distinguish totals, counters, measurements and ratings."""
+    entity = replace(_entity(0x0130, 0x84), name_en=name_en, unit=unit)
+    assert _generate_definitions._derive_quantity(entity) == quantity
+    assert _generate_definitions._derive_value_kind(entity) == value_kind

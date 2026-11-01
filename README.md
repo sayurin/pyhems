@@ -130,3 +130,23 @@ for entity in ac_entities[:3]:
 
 `DeviceClass` is an `IntEnum` generated from the MRA `shortName` values. Custom
 device classes defined in `scripts/custom_definitions.yaml` are included too.
+
+Each `EntityDefinition` exposes `readable`/`writable` flags, enum keys (MRA
+identifiers keep their MRA spelling, such as `allStop`; keys defined by pyhems,
+such as `true`/`false`, are snake_case; see `docs/adr/0012-keep-mra-identifiers.md`),
+its `PropertyRole`, and the value semantics derived by the generator from
+the unit and the English name: `quantity` (physical quantity), `value_kind`
+(measurement, total, or cumulative; `None` for static values such as ratings),
+and `indication` (the condition indicated by a boolean `true`).
+
+`get_codec_for_epc(class_code, epc, *, manufacturer_code=None, byte_offset=0)`
+returns a codec converting between EDT bytes and Python values. Values whose
+scale depends on sibling properties take those properties as context:
+
+```python
+codec = get_codec_for_epc(0x0287, 0xC0)
+value = codec.decode(node.properties[0xC0], node.properties)
+```
+
+`encode()` raises `ValueError` for fields at a non-zero `byte_offset` and for
+values outside `minimum`/`maximum`.

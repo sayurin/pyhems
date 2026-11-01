@@ -102,7 +102,7 @@ class PropertyPoller:
     ``effective_fast_poll_epcs()`` rather than the raw
     ``NodeState.poll_epcs``/``fast_poll_epcs``: callers can narrow the set of
     EPCs actually polled per device via ``DeviceManager.subscribe_epcs()``
-    (e.g. Home Assistant unsubscribing a disabled Entity's EPC). A device
+    (e.g. a consumer unsubscribing an EPC it no longer displays). A device
     with no active subscribers for a tier is skipped entirely for that tier.
     """
 

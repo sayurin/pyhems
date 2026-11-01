@@ -13,7 +13,8 @@ This script:
 1. Reads MRA data from the local mra/ directory
 2. Parses MRA JSON to extract device and property specifications
 3. Loads custom definitions from custom_definitions.yaml
-4. Generates _definitions_generated.py for runtime entity creation
+4. Derives the value semantics of each property
+5. Generates _definitions_generated.py for runtime entity creation
 
 Run with: uv run scripts/generate_definitions.py
 
@@ -45,6 +46,7 @@ CUSTOM_DEFINITIONS_FILE = Path(__file__).parent / "custom_definitions.yaml"
 MANUFACTURER_CODES_FILE = Path(__file__).parent / "manufacturer_codes.yaml"
 PROPERTY_ROLES_FILE = Path(__file__).parent / "property_roles.xlsx"
 _USER_DEFINED_CLASS_GROUP_CODE = 0x0F
+_ACCESSIBLE_RULES = frozenset({"required", "required_c", "required_o", "optional"})
 _ALLOWED_CUSTOM_CLASS_GROUP_CODES = frozenset(
     (*range(0x07), _USER_DEFINED_CLASS_GROUP_CODE)
 )
@@ -118,6 +120,9 @@ ManufacturerDefinition: TypeAlias = _defs_mod.ManufacturerDefinition  # noqa: UP
 DefinitionsRegistry: TypeAlias = _defs_mod.DefinitionsRegistry  # noqa: UP040
 NumericValueEntry: TypeAlias = _defs_mod.NumericValueEntry  # noqa: UP040
 PropertyRole: TypeAlias = _defs_mod.PropertyRole  # noqa: UP040
+Quantity: TypeAlias = _defs_mod.Quantity  # noqa: UP040
+ValueKind: TypeAlias = _defs_mod.ValueKind  # noqa: UP040
+Indication: TypeAlias = _defs_mod.Indication  # noqa: UP040
 ScalarDefinition: TypeAlias = _defs_mod.ScalarDefinition  # noqa: UP040
 ObjectField: TypeAlias = _defs_mod.ObjectField  # noqa: UP040
 ObjectDefinition: TypeAlias = _defs_mod.ObjectDefinition  # noqa: UP040
@@ -193,6 +198,11 @@ class _MRAProperty:
 # ============================================================================
 # Utility Functions
 # ============================================================================
+
+
+def _is_accessible(access_rule: str) -> bool:
+    """Return whether an MRA access rule allows the access."""
+    return access_rule in _ACCESSIBLE_RULES
 
 
 def _normalize_trailing_number(name: str) -> str:
@@ -440,8 +450,8 @@ def _build_entity_from_property(
     prop: _MRAProperty,
 ) -> EntityDefinition | None:
     """Build EntityDefinition directly from an MRA property."""
-    is_readable = prop.get in ("required", "required_c", "required_o", "optional")
-    is_writable = prop.set in ("required", "required_c", "required_o", "optional")
+    is_readable = _is_accessible(prop.get)
+    is_writable = _is_accessible(prop.set)
     assert is_readable or is_writable, (
         f"Property for class 0x{class_code:04X} EPC 0x{prop.epc:02X} "
         "is neither readable nor writable"
@@ -499,8 +509,8 @@ def _build_entity_from_property(
         epc=prop.epc,
         name_en=name_en,
         name_ja=prop.name_ja,
-        get=prop.get,
-        set=prop.set,
+        readable=is_readable,
+        writable=is_writable,
         description_en=prop.description_en,
         description_ja=prop.description_ja,
         format=prop.mra_format if is_sensor else None,
@@ -737,8 +747,8 @@ def _build_entities_from_object_property(
     access = prop_data["accessRule"]
     get_val = access["get"]
     set_val = access["set"]
-    is_readable = get_val in ("required", "required_c", "required_o", "optional")
-    is_writable = set_val in ("required", "required_c", "required_o", "optional")
+    is_readable = _is_accessible(get_val)
+    is_writable = _is_accessible(set_val)
     assert is_readable or is_writable, (
         f"Property for class 0x{class_code:04X} EPC 0x{epc:02X} "
         "is neither readable nor writable"
@@ -776,8 +786,8 @@ def _build_entities_from_object_property(
                     f"{prop_name_en} - {field['elementName']['en']}"
                 ),
                 name_ja=f"{prop_name_ja} {field['elementName']['ja']}",
-                get=get_val,
-                set=set_val,
+                readable=is_readable,
+                writable=is_writable,
                 description_en=None,
                 description_ja=None,
                 format=mra_format,
@@ -1059,9 +1069,7 @@ def _load_custom_definitions(custom_path: Path) -> dict[str, Any]:
 
 # YAML field name → EntityDefinition attribute name (where they differ)
 _YAML_TO_ATTR: dict[str, str] = {"multipleOf": "multiple_of"}
-_ACCESS_VALUES = frozenset(
-    {"required", "required_c", "required_o", "optional", "notApplicable"}
-)
+_ACCESS_VALUES = _ACCESSIBLE_RULES | {"notApplicable"}
 _NUMERIC_FORMATS = frozenset({"uint8", "int8", "uint16", "int16", "uint32", "int32"})
 _PATCH_FIELDS = frozenset(
     {
@@ -1290,7 +1298,10 @@ def _apply_patch(
             elif field == "role":
                 changes[field] = PropertyRole(value)
             elif field in {"get", "set"}:
-                changes[field] = _validate_access(value, field, class_code, entry)
+                attr = "readable" if field == "get" else "writable"
+                changes[attr] = _is_accessible(
+                    _validate_access(value, field, class_code, entry)
+                )
             else:
                 changes[_YAML_TO_ATTR.get(field, field)] = value
         patched = dataclasses.replace(entity, **changes)
@@ -1353,8 +1364,8 @@ def _build_custom_entity(class_code: int, entry: dict[str, Any]) -> EntityDefini
         epc=epc,
         name_en=entry["name_en"],
         name_ja=entry["name_ja"],
-        get=get,
-        set=set_value,
+        readable=_is_accessible(get),
+        writable=_is_accessible(set_value),
         description_en=entry.get("description_en"),
         description_ja=entry.get("description_ja"),
         format=entry.get("format") if not enum_values else None,
@@ -1560,6 +1571,189 @@ def _load_collection_bindings(
 
 
 # ============================================================================
+# Finalization: value semantics
+#
+# Runs after custom definitions are applied so that patched names and units
+# are taken into account. The value semantics are derived from the MRA unit
+# and the English property name; the rule tables below are the single place
+# to adjust them. Enum keys keep their MRA spelling (docs/adr/0012).
+# ============================================================================
+
+# MRA unit -> ((name keyword, quantity), ...). For each unit the rules are
+# tried in order and the first keyword contained in the lower-cased English
+# name wins; an empty keyword always matches. No match means no quantity.
+_QUANTITY_RULES: tuple[
+    tuple[frozenset[str], tuple[tuple[str, Quantity | None], ...]], ...
+] = (
+    (frozenset({"W", "kW"}), (("", Quantity.POWER),)),
+    (frozenset({"Celsius"}), (("", Quantity.TEMPERATURE),)),
+    (frozenset({"%RH"}), (("", Quantity.HUMIDITY),)),
+    (frozenset({"A", "mA"}), (("", Quantity.CURRENT),)),
+    (frozenset({"V"}), (("", Quantity.VOLTAGE),)),
+    (frozenset({"ppm"}), (("", Quantity.CO2_CONCENTRATION),)),
+    (frozenset({"lux"}), (("", Quantity.ILLUMINANCE),)),
+    (frozenset({"dB"}), (("", Quantity.SOUND_PRESSURE),)),
+    (frozenset({"m/s"}), (("", Quantity.WIND_SPEED),)),
+    (frozenset({"m3/h"}), (("", Quantity.VOLUME_FLOW_RATE),)),
+    (frozenset({"second", "days"}), (("", Quantity.DURATION),)),
+    (
+        frozenset({"%"}),
+        (
+            ("humidity", Quantity.HUMIDITY),
+            ("battery", Quantity.BATTERY_LEVEL),
+            ("remaining", Quantity.BATTERY_LEVEL),
+            ("soc", Quantity.BATTERY_LEVEL),
+            ("moisture", Quantity.MOISTURE),
+        ),
+    ),
+    (
+        frozenset({"Wh", "kWh", "MJ"}),
+        (
+            # Static ratings such as "AC chargeable capacity".
+            ("capacity", None),
+            ("stored", Quantity.STORED_ENERGY),
+            ("", Quantity.ENERGY),
+        ),
+    ),
+    (
+        frozenset({"L"}),
+        (
+            ("capacity", None),
+            ("tank", Quantity.STORED_VOLUME),
+            ("remaining", Quantity.STORED_VOLUME),
+            ("", Quantity.WATER_VOLUME),
+        ),
+    ),
+    (
+        frozenset({"m3"}),
+        (
+            ("gas", Quantity.GAS_VOLUME),
+            ("water", Quantity.WATER_VOLUME),
+            ("", Quantity.VOLUME),
+        ),
+    ),
+    (
+        frozenset({"\u00b5g/m\u00b3"}),
+        (
+            ("pm2.5", Quantity.PM25_CONCENTRATION),
+            ("pm25", Quantity.PM25_CONCENTRATION),
+        ),
+    ),
+)
+
+# Whole-word name keywords of numeric properties describing static facts.
+_STATIC_NAME_KEYWORDS = ("capacity", "rated", "number of effective digits")
+# Whole-word name keywords that force a measurement despite later rules.
+_MEASUREMENT_NAME_KEYWORDS = ("maximum electric power demand",)
+# (MRA units, whole-word name keywords) identifying resettable totals.
+_TOTAL_UNIT_NAME_KEYWORDS: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
+    (frozenset({"Wh", "kWh", "MJ"}), ("electric energy", "heating value")),
+    (
+        frozenset({"m3"}),
+        ("gas consumption", "water consumption", "flowing water"),
+    ),
+)
+
+# (name keyword, indication) for boolean properties; first substring match
+# wins, so problem-related phrases come first.
+_INDICATION_RULES: tuple[tuple[str, Indication], ...] = (
+    ("fault", Indication.PROBLEM),
+    ("abnormal", Indication.PROBLEM),
+    ("emergency", Indication.PROBLEM),
+    ("exceptional", Indication.PROBLEM),
+    ("maintenance", Indication.PROBLEM),
+    ("filter change", Indication.PROBLEM),
+    ("operation status", Indication.RUNNING),
+    ("heating", Indication.HEAT),
+    ("heater", Indication.HEAT),
+    ("cover", Indication.OPENING),
+    ("removal", Indication.OPENING),
+    ("occupancy", Indication.OCCUPANCY),
+    ("occupant", Indication.OCCUPANCY),
+    ("human", Indication.OCCUPANCY),
+    ("illuminance", Indication.LIGHT),
+    ("sunlight", Indication.LIGHT),
+    ("door", Indication.DOOR),
+    ("gas", Indication.GAS),
+    ("moisture", Indication.MOISTURE),
+    ("motion", Indication.MOTION),
+    ("smoke", Indication.SMOKE),
+    ("window", Indication.WINDOW),
+)
+
+
+def _contains_word(name: str, keyword: str) -> bool:
+    """Return whether ``keyword`` appears as a whole word or phrase in ``name``."""
+    return re.search(rf"\b{re.escape(keyword)}\b", name) is not None
+
+
+def _derive_quantity(entity: EntityDefinition) -> Quantity | None:
+    """Derive the physical quantity from the unit and the English name."""
+    if not entity.unit:
+        return None
+    name = entity.name_en.lower()
+    for units, rules in _QUANTITY_RULES:
+        if entity.unit not in units:
+            continue
+        for keyword, quantity in rules:
+            if keyword in name:
+                return quantity
+        return None
+    return None
+
+
+def _derive_value_kind(entity: EntityDefinition) -> ValueKind | None:
+    """Derive how a numeric value evolves from the unit and the English name."""
+    if entity.format is None:
+        return None
+    name = entity.name_en.lower()
+    if any(_contains_word(name, keyword) for keyword in _STATIC_NAME_KEYWORDS):
+        return None
+    if any(_contains_word(name, keyword) for keyword in _MEASUREMENT_NAME_KEYWORDS):
+        return ValueKind.MEASUREMENT
+    if entity.unit == "degree":
+        return ValueKind.MEASUREMENT
+    if _contains_word(name, "cumulative"):
+        return ValueKind.CUMULATIVE
+    for units, keywords in _TOTAL_UNIT_NAME_KEYWORDS:
+        if entity.unit in units and any(
+            _contains_word(name, keyword) for keyword in keywords
+        ):
+            return ValueKind.TOTAL
+    return ValueKind.MEASUREMENT
+
+
+def _derive_indication(entity: EntityDefinition) -> Indication | None:
+    """Derive the condition indicated by a boolean property from its name."""
+    if not entity.is_binary:
+        return None
+    name = entity.name_en.lower()
+    for keyword, indication in _INDICATION_RULES:
+        if keyword in name:
+            return indication
+    return None
+
+
+def _finalize_entity(entity: EntityDefinition) -> EntityDefinition:
+    """Derive the value semantics of ``entity``."""
+    return dataclasses.replace(
+        entity,
+        quantity=_derive_quantity(entity),
+        value_kind=_derive_value_kind(entity),
+        indication=_derive_indication(entity),
+    )
+
+
+def _finalize_build(build: _DefinitionsBuild) -> None:
+    """Finalize every entity of ``build`` in place."""
+    build.common = [_finalize_entity(entity) for entity in build.common]
+    for device_build in build.devices.values():
+        device_build.entities = [
+            _finalize_entity(entity) for entity in device_build.entities
+        ]
+
+
+# ============================================================================
 # Code Generation Functions
 # ============================================================================
 
@@ -1572,7 +1766,7 @@ def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
     assert (
         not entity.enum_values
         or len(entity.enum_values) != 1
-        or entity.get == "notApplicable"
+        or not entity.readable
         or entity.format is not None
     ), (
         f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
@@ -1621,6 +1815,7 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    DeviceDefinition,",
         "    EntityDefinition,",
         "    EnumValue,",
+        "    Indication,",
         "    ManufacturerDefinition,",
         "    NumericValueEntry,",
         "    ObjectDefinition,",
@@ -1628,7 +1823,9 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    OneOfDefinition,",
         "    PropertyRole,",
         "    PropertyValueDefinition,",
+        "    Quantity,",
         "    ScalarDefinition,",
+        "    ValueKind,",
         ")",
         "",
         "class DeviceClass(IntEnum):",
@@ -1760,6 +1957,7 @@ def _build_generated_source() -> tuple[str, _DefinitionsBuild]:
                 continue
             build.devices[class_code].collection_bindings.extend(bindings)
 
+    _finalize_build(build)
     return _generate_python_source(build), build
 
 

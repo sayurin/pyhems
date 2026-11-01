@@ -31,8 +31,8 @@ class PropertyRole(StrEnum):
     Curated per ``(class_code, epc)`` in ``scripts/property_roles.xlsx`` (MRA
     properties) or directly in ``scripts/custom_definitions.yaml`` (custom
     entries), and applied by ``scripts/generate_definitions.py``. Consumers
-    (e.g. Home Assistant) map this role to their own UI concepts instead of
-    re-deriving it from ``name_en``/``name_ja``.
+    map this role to their own presentation concepts instead of re-deriving
+    it from ``name_en``/``name_ja``.
 
     Members:
         PRIMARY: State or reading belonging to the device's main function,
@@ -64,13 +64,95 @@ class PropertyRole(StrEnum):
         return f"{type(self).__name__}.{self.name}"
 
 
+class Quantity(StrEnum):
+    """Physical quantity measured or set by a numeric property.
+
+    Derived by ``scripts/generate_definitions.py`` from the MRA unit and the
+    English property name.
+    """
+
+    BATTERY_LEVEL = "battery_level"
+    CO2_CONCENTRATION = "co2_concentration"
+    CURRENT = "current"
+    DURATION = "duration"
+    ENERGY = "energy"
+    GAS_VOLUME = "gas_volume"
+    HUMIDITY = "humidity"
+    ILLUMINANCE = "illuminance"
+    MOISTURE = "moisture"
+    PM25_CONCENTRATION = "pm25_concentration"
+    POWER = "power"
+    SOUND_PRESSURE = "sound_pressure"
+    STORED_ENERGY = "stored_energy"
+    STORED_VOLUME = "stored_volume"
+    TEMPERATURE = "temperature"
+    VOLTAGE = "voltage"
+    VOLUME = "volume"
+    VOLUME_FLOW_RATE = "volume_flow_rate"
+    WATER_VOLUME = "water_volume"
+    WIND_SPEED = "wind_speed"
+
+    def __repr__(self) -> str:
+        """Render as importable source for ``_definitions_generated.py``."""
+        return f"{type(self).__name__}.{self.name}"
+
+
+class ValueKind(StrEnum):
+    """How the value of a numeric property evolves over time.
+
+    Derived by ``scripts/generate_definitions.py`` from the MRA unit and the
+    English property name. Numeric properties without a value kind describe
+    static facts such as ratings and capacities.
+
+    Members:
+        MEASUREMENT: Current reading, such as power or temperature.
+        TOTAL: Accumulated amount that may also decrease or be reset.
+        CUMULATIVE: Counter that only increases until it wraps around.
+    """
+
+    MEASUREMENT = "measurement"
+    TOTAL = "total"
+    CUMULATIVE = "cumulative"
+
+    def __repr__(self) -> str:
+        """Render as importable source for ``_definitions_generated.py``."""
+        return f"{type(self).__name__}.{self.name}"
+
+
+class Indication(StrEnum):
+    """Condition indicated by the ``true`` state of a boolean property.
+
+    Derived by ``scripts/generate_definitions.py`` from the English property
+    name.
+    """
+
+    DOOR = "door"
+    GAS = "gas"
+    HEAT = "heat"
+    LIGHT = "light"
+    MOISTURE = "moisture"
+    MOTION = "motion"
+    OCCUPANCY = "occupancy"
+    OPENING = "opening"
+    PROBLEM = "problem"
+    RUNNING = "running"
+    SMOKE = "smoke"
+    WINDOW = "window"
+
+    def __repr__(self) -> str:
+        """Render as importable source for ``_definitions_generated.py``."""
+        return f"{type(self).__name__}.{self.name}"
+
+
 @dataclass(frozen=True, slots=True)
 class EnumValue:
     """A single enum value with EDT, key, and display names.
 
     Attributes:
         edt: EDT byte value
-        key: Identifier key (e.g., "level_1", "on", "off")
+        key: Identifier key. MRA identifiers keep their MRA spelling (e.g.,
+          "allStop"); keys defined by pyhems are snake_case (e.g., "true",
+          "level_1"). See docs/adr/0012-keep-mra-identifiers.md.
         name_en: English display name
         name_ja: Japanese display name
     """
@@ -102,18 +184,15 @@ class NumericValueEntry:
 class EntityDefinition:
     """Definition of an entity to create for a device.
 
-    This is a platform-agnostic definition from MRA data.
-    Home Assistant integration infers platform and device_class from these fields.
+    This is a consumer-agnostic definition from MRA data.
 
     Attributes:
         id: Identifier key (e.g., "class_0130_epc_bb")
         epc: ECHONET Lite Property Code
         name_en: English name
         name_ja: Japanese name
-        get: Access rule for GET (one of "required", "required_c", "required_o",
-          "optional", or "notApplicable")
-        set: Access rule for SET (one of "required", "required_c", "required_o",
-          "optional", or "notApplicable")
+        readable: Whether the property can be read with Get.
+        writable: Whether the property can be written with Set.
         description_en: English description text from MRA
         description_ja: Japanese description text from MRA
         format: MRA format string for numeric values ("uint8", "int16", etc.)
@@ -132,14 +211,20 @@ class EntityDefinition:
           or ``None`` when the value is self-contained.
         role: Curated :class:`PropertyRole`. Defaults to ``PRIMARY`` until
           explicitly reviewed.
+        quantity: Physical :class:`Quantity` of a numeric property, or
+          ``None`` when unknown.
+        value_kind: :class:`ValueKind` of a numeric property, or ``None`` for
+          static values and non-numeric properties.
+        indication: :class:`Indication` of a boolean property, or ``None``
+          when unknown.
     """
 
     id: str
     epc: int
     name_en: str
     name_ja: str
-    get: str
-    set: str
+    readable: bool
+    writable: bool
     description_en: str | None = None
     description_ja: str | None = None
     format: str | None = None
@@ -153,6 +238,9 @@ class EntityDefinition:
     numeric_values: tuple[NumericValueEntry, ...] | None = None
     coefficient_epcs: tuple[int, ...] | None = None
     role: PropertyRole = PropertyRole.PRIMARY
+    quantity: Quantity | None = None
+    value_kind: ValueKind | None = None
+    indication: Indication | None = None
 
     def __repr__(self) -> str:
         """Render as ``EntityDefinition(...)`` source, omitting default-valued fields.

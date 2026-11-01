@@ -9,8 +9,8 @@ def _make_entity(**overrides: object) -> EntityDefinition:
         "epc": 0xD0,
         "name_en": "x",
         "name_ja": "y",
-        "get": "required",
-        "set": "notApplicable",
+        "readable": True,
+        "writable": False,
     }
     defaults.update(overrides)
     return EntityDefinition(**defaults)  # type: ignore[arg-type]
@@ -32,7 +32,7 @@ def test_repr_omits_default_valued_fields() -> None:
     text = repr(entity)
     assert text == (
         "EntityDefinition(id='class_0287_epc_d0', epc=208, name_en='x', "
-        "name_ja='y', get='required', set='notApplicable')"
+        "name_ja='y', readable=True, writable=False)"
     )
     assert "format=" not in text
     assert "enum_values=" not in text
