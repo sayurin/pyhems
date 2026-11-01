@@ -38,8 +38,55 @@ from .runtime import (
 
 _LOGGER = logging.getLogger(__name__)
 
-DeviceCallback = Callable[[str], None]
-RuntimeActivityCallback = Callable[[float], None]
+
+@dataclass(frozen=True, slots=True)
+class DeviceAdded:
+    """A device object was set up and added to ``DeviceManager.data``."""
+
+    device_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class PropertiesChanged:
+    """Cached property values of a device object changed.
+
+    Attributes:
+        device_key: The device object.
+        epcs: EPCs whose cached value changed.
+    """
+
+    device_key: str
+    epcs: frozenset[int]
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityChanged:
+    """The result of scheduled polling for a device object changed.
+
+    Attributes:
+        device_key: The device object.
+        available: Whether the latest scheduled poll was answered.
+    """
+
+    device_key: str
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeActivity:
+    """A response, notification or instance list was received.
+
+    Attributes:
+        received_at: Monotonic time the runtime received it.
+    """
+
+    received_at: float
+
+
+DeviceManagerEvent = (
+    DeviceAdded | PropertiesChanged | AvailabilityChanged | RuntimeActivity
+)
+DeviceManagerCallback = Callable[[DeviceManagerEvent], None]
 # EPCs per device class: a mapping of class_code -> EPCs, or a function of
 # (class_code, manufacturer_code) for manufacturer-specific EPCs.
 EpcSelection = Mapping[int, frozenset[int]] | Callable[[int, int], Collection[int]]
@@ -48,6 +95,8 @@ EpcSelection = Mapping[int, frozenset[int]] | Callable[[int, int], Collection[in
 _VALUE_ESVS = frozenset({ESV.GET_RES, ESV.GET_SNA, ESV.INF, ESV.INFC})
 # Frames received for a device object while it is being set up.
 _MAX_DEFERRED_FRAMES = 64
+# Seconds to wait after an accepted SetC before reading the values back.
+_REFRESH_DELAY = 1.0
 
 
 def _select_epcs(
@@ -354,7 +403,9 @@ class DeviceManager:
         self._fast_epcs = fast_epcs or {}
 
         self.data: dict[str, NodeState] = {}
-        self.last_frame_received_at: float | None = None
+        # Monotonic time of the latest response, notification or instance
+        # list received from any device.
+        self.last_activity_at: float | None = None
 
         self._pending_setups: set[str] = set()
         # Per-node jobs (setup, INF_REQ, range initialization) and the task
@@ -378,9 +429,8 @@ class DeviceManager:
         # before any caller has finished registering its subscriptions).
         self._subscription_confirmed: set[str] = set()
 
-        self._on_device_added: list[DeviceCallback] = []
-        self._on_device_updated: list[DeviceCallback] = []
-        self._on_runtime_activity: list[RuntimeActivityCallback] = []
+        self._listeners: list[DeviceManagerCallback] = []
+        self._refresh_tasks: set[asyncio.Task[None]] = set()
 
     async def async_start(self) -> None:
         """Subscribe to runtime events and start serialized event processing."""
@@ -408,6 +458,12 @@ class DeviceManager:
         self._node_workers.clear()
         self._node_jobs.clear()
         self._deferred_frames.clear()
+        refresh_tasks = list(self._refresh_tasks)
+        for task in refresh_tasks:
+            task.cancel()
+        if refresh_tasks:
+            await asyncio.gather(*refresh_tasks, return_exceptions=True)
+        self._refresh_tasks.clear()
 
         if self._event_consumer_task is None:
             return
@@ -423,75 +479,61 @@ class DeviceManager:
         """Return whether the event consumer is stopped or has completed."""
         return self._event_consumer_task is None or self._event_consumer_task.done()
 
-    def on_runtime_activity(
-        self, callback: RuntimeActivityCallback
-    ) -> Callable[[], None]:
-        """Register a callback for every received runtime event timestamp."""
-        self._on_runtime_activity.append(callback)
+    def subscribe(self, callback: DeviceManagerCallback) -> Callable[[], None]:
+        """Register a callback for device manager events.
 
-        def unsub() -> None:
-            if callback in self._on_runtime_activity:
-                self._on_runtime_activity.remove(callback)
-
-        return unsub
-
-    def _record_runtime_activity(self, timestamp: float) -> None:
-        """Notify listeners that a runtime event was received."""
-        for callback in self._on_runtime_activity:
-            callback(timestamp)
-
-    def on_device_added(self, callback: DeviceCallback) -> Callable[[], None]:
-        """Register a callback for when a new device is added.
-
-        Args:
-            callback: Called with device_key when a new device is set up.
+        The callback receives :class:`DeviceAdded`, :class:`PropertiesChanged`,
+        :class:`AvailabilityChanged` and :class:`RuntimeActivity` events.
 
         Returns:
             Unsubscribe function.
         """
-        self._on_device_added.append(callback)
+        self._listeners.append(callback)
 
         def unsub() -> None:
-            if callback in self._on_device_added:
-                self._on_device_added.remove(callback)
+            if callback in self._listeners:
+                self._listeners.remove(callback)
 
         return unsub
 
-    def on_device_updated(self, callback: DeviceCallback) -> Callable[[], None]:
-        """Register a callback for when an existing device's properties change.
+    def _emit(self, event: DeviceManagerEvent) -> None:
+        """Deliver an event to every listener."""
+        for callback in list(self._listeners):
+            try:
+                callback(event)
+            except Exception:
+                _LOGGER.exception("Error in device manager event callback")
 
-        Args:
-            callback: Called with device_key when properties are updated.
+    def _record_activity(self, timestamp: float) -> None:
+        """Record that a response, notification or instance list was received."""
+        if self.last_activity_at is None or timestamp > self.last_activity_at:
+            self.last_activity_at = timestamp
+        self._emit(RuntimeActivity(received_at=timestamp))
 
-        Returns:
-            Unsubscribe function.
-        """
-        self._on_device_updated.append(callback)
-
-        def unsub() -> None:
-            if callback in self._on_device_updated:
-                self._on_device_updated.remove(callback)
-
-        return unsub
-
-    def _notify_device_updated(self, device_key: str) -> None:
-        """Notify listeners that a device's cached properties changed."""
-        for updated_cb in self._on_device_updated:
-            updated_cb(device_key)
+    def _notify_properties_changed(
+        self, device_key: str, epcs: Collection[int]
+    ) -> None:
+        """Notify listeners that cached property values changed."""
+        if epcs:
+            self._emit(PropertiesChanged(device_key=device_key, epcs=frozenset(epcs)))
 
     @staticmethod
     def _apply_accepted_properties(
         node: NodeState,
         properties: list[Property],
         accepted_epcs: frozenset[int],
-    ) -> bool:
-        """Apply requested EDTs only for EPCs accepted by the device."""
-        updated = False
+    ) -> frozenset[int]:
+        """Apply requested EDTs only for EPCs accepted by the device.
+
+        Returns:
+            The EPCs whose cached value changed.
+        """
+        changed: set[int] = set()
         for prop in properties:
             if prop.epc in accepted_epcs and node.properties.get(prop.epc) != prop.edt:
                 node.properties[prop.epc] = prop.edt
-                updated = True
-        return updated
+                changed.add(prop.epc)
+        return frozenset(changed)
 
     async def set_properties(
         self,
@@ -500,6 +542,8 @@ class DeviceManager:
         properties: list[Property],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SET_REQUEST_TIMEOUT,
+        *,
+        refresh: bool = False,
     ) -> SetRequestResult:
         """Set device properties and cache values accepted by the device.
 
@@ -509,6 +553,8 @@ class DeviceManager:
             properties: Properties to write.
             seoj: Source EOJ.
             request_timeout: Timeout in seconds for the response.
+            refresh: Read the accepted, readable EPCs back from the device
+                shortly afterwards, so the cache reflects the device state.
 
         Returns:
             The SetC result from the runtime client.
@@ -521,13 +567,33 @@ class DeviceManager:
             request_timeout=request_timeout,
         )
         node = self.data.get(_device_key(node_id, deoj))
-        if (
-            node is not None
-            and result.sent
-            and self._apply_accepted_properties(node, properties, result.accepted_epcs)
-        ):
-            self._notify_device_updated(node.device_key)
+        if node is None or not result.sent:
+            return result
+        self._notify_properties_changed(
+            node.device_key,
+            self._apply_accepted_properties(node, properties, result.accepted_epcs),
+        )
+        if refresh and result.accepted_epcs:
+            self._schedule_refresh(node, result.accepted_epcs)
         return result
+
+    def _schedule_refresh(self, node: NodeState, epcs: frozenset[int]) -> None:
+        """Read ``epcs`` back from the device after a short delay."""
+        readable = sorted(epcs & node.get_epcs)
+        if not readable:
+            return
+        task = asyncio.create_task(
+            self._refresh(node, readable), name=f"pyhems_refresh_{node.device_key}"
+        )
+        self._refresh_tasks.add(task)
+        task.add_done_callback(self._refresh_tasks.discard)
+
+    async def _refresh(self, node: NodeState, epcs: list[int]) -> None:
+        """Read EPCs with polling priority; responses update the cache."""
+        await asyncio.sleep(_REFRESH_DELAY)
+        await self._client.get(
+            node.node_id, node.eoj, epcs, priority=RequestPriority.POLL
+        )
 
     def _handle_runtime_event(self, event: RuntimeEvent) -> None:
         """Queue device events for serialized processing."""
@@ -551,7 +617,7 @@ class DeviceManager:
                         event.node_id,
                         len(event.instances),
                     )
-                    self._record_runtime_activity(event.received_at)
+                    self._record_activity(event.received_at)
                     self._enqueue_node_job(
                         event.node_id,
                         functools.partial(self.process_instance_list_event, event),
@@ -683,15 +749,19 @@ class DeviceManager:
 
     def record_poll_success(self, device_key: str) -> None:
         """Record a successful scheduled polling response."""
-        node = self.data.get(device_key)
-        if node is not None:
-            node.polling_available = True
+        self._set_polling_available(device_key, True)
 
     def record_poll_failure(self, device_key: str) -> None:
         """Record an unanswered scheduled polling request."""
+        self._set_polling_available(device_key, False)
+
+    def _set_polling_available(self, device_key: str, available: bool) -> None:
+        """Store the latest polling result and notify listeners of a change."""
         node = self.data.get(device_key)
-        if node is not None:
-            node.polling_available = False
+        if node is None or node.polling_available is available:
+            return
+        node.polling_available = available
+        self._emit(AvailabilityChanged(device_key=device_key, available=available))
 
     def get_observed_batch_capacity(self, device_key: str) -> int | None:
         """Return the concurrent GET response limit learned during setup."""
@@ -713,11 +783,15 @@ class DeviceManager:
     async def _recover_uninitialized_collection_ranges(
         self,
         node: NodeState,
-    ) -> bool:
-        """Set unset collection ranges once and log the acknowledged result."""
+    ) -> frozenset[int]:
+        """Set unset collection ranges once and log the acknowledged result.
+
+        Returns:
+            The EPCs whose cached value changed.
+        """
         properties = _collection_range_recovery_properties(node)
         if not properties:
-            return False
+            return frozenset()
 
         node.range_recovery_attempted_epcs.update(prop.epc for prop in properties)
         _LOGGER.info(
@@ -731,8 +805,10 @@ class DeviceManager:
             properties=properties,
             priority=RequestPriority.SETUP,
         )
-        updated = result.sent and self._apply_accepted_properties(
-            node, properties, result.accepted_epcs
+        changed = (
+            self._apply_accepted_properties(node, properties, result.accepted_epcs)
+            if result.sent
+            else frozenset()
         )
         if not result.sent:
             _LOGGER.warning(
@@ -748,12 +824,13 @@ class DeviceManager:
                 " ".join(f"{epc:02X}" for epc in sorted(result.rejected_epcs)),
                 " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
             )
-        return updated
+        return changed
 
     async def _recover_and_notify(self, node: NodeState) -> None:
         """Initialize unset collection ranges and notify accepted values."""
-        if await self._recover_uninitialized_collection_ranges(node):
-            self._notify_device_updated(node.device_key)
+        self._notify_properties_changed(
+            node.device_key, await self._recover_uninitialized_collection_ranges(node)
+        )
 
     async def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
@@ -775,7 +852,7 @@ class DeviceManager:
         if not frame.is_response_or_notification():
             return False
 
-        self._record_runtime_activity(event.received_at)
+        self._record_activity(event.received_at)
 
         device_key = _device_key(node_id, eoj)
         existing = self.data.get(device_key)
@@ -799,7 +876,6 @@ class DeviceManager:
         """Apply the property values of a frame to a known device object."""
         frame = event.frame
         device_key = node.device_key
-        self.last_frame_received_at = event.received_at
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -813,22 +889,19 @@ class DeviceManager:
         if frame.esv not in _VALUE_ESVS:
             return False
 
-        updated = False
+        changed: set[int] = set()
         for prop in frame.properties:
-            current = node.properties.get(prop.epc)
-            if current is None or current != prop.edt:
+            if node.properties.get(prop.epc) != prop.edt:
                 node.properties[prop.epc] = prop.edt
-                updated = True
+                changed.add(prop.epc)
 
         if _collection_range_recovery_properties(node):
             self._enqueue_node_job(
                 node.node_id, functools.partial(self._recover_and_notify, node)
             )
 
-        if updated:
-            self._notify_device_updated(device_key)
-
-        return updated
+        self._notify_properties_changed(device_key, changed)
+        return bool(changed)
 
     def _apply_deferred_frames(self, node: NodeState) -> None:
         """Apply frames received while the device object was being set up."""
@@ -846,7 +919,7 @@ class DeviceManager:
         Returns:
             List of device_keys for newly set up devices.
         """
-        self._record_runtime_activity(event.received_at)
+        self._record_activity(event.received_at)
         node_id = event.node_id
 
         new_device_keys: list[str] = []
@@ -993,7 +1066,7 @@ class DeviceManager:
             polling_available=None,
         )
 
-        self.last_frame_received_at = timestamp
+        self._record_activity(timestamp)
         self.data[device_key] = node
         self._apply_deferred_frames(node)
 
@@ -1009,8 +1082,7 @@ class DeviceManager:
             bytes(sorted(inf_epcs)).hex(),
         )
 
-        for cb in self._on_device_added:
-            cb(device_key)
+        self._emit(DeviceAdded(device_key=device_key))
 
         return True
 
@@ -1102,4 +1174,12 @@ class DeviceManager:
         )
 
 
-__all__ = ["DeviceManager", "NodeState"]
+__all__ = [
+    "AvailabilityChanged",
+    "DeviceAdded",
+    "DeviceManager",
+    "DeviceManagerEvent",
+    "NodeState",
+    "PropertiesChanged",
+    "RuntimeActivity",
+]

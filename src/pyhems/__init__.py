@@ -47,7 +47,15 @@ from .definitions import (
     PropertyValueDefinition,
     ScalarDefinition,
 )
-from .device_manager import DeviceManager, NodeState
+from .device_manager import (
+    AvailabilityChanged,
+    DeviceAdded,
+    DeviceManager,
+    DeviceManagerEvent,
+    NodeState,
+    PropertiesChanged,
+    RuntimeActivity,
+)
 from .eoj import EOJ
 from .frame import Frame, FrameDecodeError, Property
 from .get_batch_policy import (
@@ -94,15 +102,18 @@ __all__ = [
     "NODE_PROFILE_INSTANCE",
     "REGISTRY",
     "ArrayDefinition",
+    "AvailabilityChanged",
     "BinaryCodec",
     "ClientStoppedError",
     "CollectionBinding",
     "CollectionIndex",
     "CollectionPage",
     "DefinitionsRegistry",
+    "DeviceAdded",
     "DeviceClass",
     "DeviceDefinition",
     "DeviceManager",
+    "DeviceManagerEvent",
     "DevicePollerStats",
     "EchonetLiteProtocol",
     "EntityDefinition",
@@ -128,12 +139,14 @@ __all__ = [
     "ObjectDefinition",
     "ObjectField",
     "OneOfDefinition",
+    "PropertiesChanged",
     "Property",
     "PropertyCodec",
     "PropertyPoller",
     "PropertyRole",
     "PropertyValueDefinition",
     "RequestPriority",
+    "RuntimeActivity",
     "RuntimeEvent",
     "ScalarDefinition",
     "SetRequestResult",

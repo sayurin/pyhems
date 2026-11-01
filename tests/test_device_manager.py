@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,8 +20,13 @@ from pyhems import (
     SetRequestResult,
 )
 from pyhems.device_manager import (
+    AvailabilityChanged,
+    DeviceAdded,
     DeviceManager,
+    DeviceManagerEvent,
     NodeState,
+    PropertiesChanged,
+    RuntimeActivity,
     _compute_poll_epcs,
     _decode_ascii_property,
     _parse_property_map,
@@ -340,6 +346,20 @@ def _make_client() -> AsyncMock:
     return client
 
 
+def _subscribe_keys(
+    dm: DeviceManager,
+    event_type: type[DeviceAdded | PropertiesChanged | AvailabilityChanged],
+    keys: list[str],
+) -> Callable[[], None]:
+    """Collect the device keys of events of ``event_type``."""
+
+    def _listener(event: DeviceManagerEvent) -> None:
+        if isinstance(event, event_type) and not isinstance(event, RuntimeActivity):
+            keys.append(event.device_key)
+
+    return dm.subscribe(_listener)
+
+
 async def _drain_node_jobs(dm: DeviceManager) -> None:
     """Wait until every queued per-node job has run."""
     while dm._node_workers:
@@ -432,7 +452,13 @@ class TestDeviceManagerRuntimeEvents:
         client = _make_client()
         dm = DeviceManager(client, {})
         received_at: list[float] = []
-        dm.on_runtime_activity(received_at.append)
+        dm.subscribe(
+            lambda event: (
+                received_at.append(event.received_at)
+                if isinstance(event, RuntimeActivity)
+                else None
+            )
+        )
 
         await dm.process_instance_list_event(
             HemsInstanceListEvent(
@@ -444,6 +470,7 @@ class TestDeviceManagerRuntimeEvents:
         )
 
         assert received_at == [1.0]
+        assert dm.last_activity_at == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +536,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x31", 0xB0: b"\x41", 0xB1: b"\x42"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
         properties = [
             Property(epc=0x80, edt=b"\x30"),
             Property(epc=0xB0, edt=b"\x40"),
@@ -541,7 +568,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x30"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         await dm.set_properties(
             node_id=node.node_id,
@@ -588,7 +615,7 @@ class TestProcessFrameEvent:
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         await dm.set_properties(
             node_id=node.node_id,
@@ -668,7 +695,7 @@ class TestProcessFrameEvent:
         )
         dm.data[node.device_key] = node
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
         event = _make_frame_event(
             node.node_id,
             node.eoj,
@@ -791,15 +818,15 @@ class TestProcessFrameEvent:
         assert node.properties[0x80] == b"\x30"
 
     @pytest.mark.asyncio
-    async def test_on_device_updated_callback(self) -> None:
-        """Callback is invoked when a device is updated."""
+    async def test_properties_changed_event(self) -> None:
+        """PropertiesChanged is emitted when a cached value changes."""
         client = _make_client()
         dm = DeviceManager(client, {})
         node = _make_node(properties={0x80: b"\x31"})
         dm.data[node.device_key] = node
 
         updated_keys: list[str] = []
-        dm.on_device_updated(updated_keys.append)
+        _subscribe_keys(dm, PropertiesChanged, updated_keys)
 
         event = _make_frame_event(
             node.node_id, node.eoj, ESV.GET_RES, [Property(epc=0x80, edt=b"\x30")]
@@ -816,7 +843,7 @@ class TestProcessFrameEvent:
         dm.data[node.device_key] = node
 
         updated_keys: list[str] = []
-        unsub = dm.on_device_updated(updated_keys.append)
+        unsub = _subscribe_keys(dm, PropertiesChanged, updated_keys)
         unsub()
 
         event = _make_frame_event(
@@ -961,7 +988,7 @@ class TestProcessInstanceListEvent:
         dm = DeviceManager(client, monitored_epcs)
 
         added_keys: list[str] = []
-        dm.on_device_added(added_keys.append)
+        _subscribe_keys(dm, DeviceAdded, added_keys)
 
         event = HemsInstanceListEvent(
             received_at=1.0,
@@ -1905,3 +1932,145 @@ class TestSetupInNodeJobs:
 
         assert dm._node_workers == {}
         assert dm._node_jobs == {}
+
+
+class TestDeviceManagerEvents:
+    """Tests for the typed device manager events."""
+
+    @pytest.mark.asyncio
+    async def test_properties_changed_lists_changed_epcs(self) -> None:
+        """PropertiesChanged carries only the EPCs whose value changed."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node(properties={0x80: b"\x30", 0xB0: b"\x41"})
+        dm.data[node.device_key] = node
+        events: list[object] = []
+        dm.subscribe(events.append)
+
+        await dm.process_frame_event(
+            _make_frame_event(
+                node.node_id,
+                node.eoj,
+                ESV.GET_RES,
+                [Property(epc=0x80, edt=b"\x30"), Property(epc=0xB0, edt=b"\x42")],
+            )
+        )
+
+        assert [e for e in events if isinstance(e, PropertiesChanged)] == [
+            PropertiesChanged(device_key=node.device_key, epcs=frozenset({0xB0}))
+        ]
+
+    @pytest.mark.asyncio
+    async def test_availability_changed_only_on_change(self) -> None:
+        """AvailabilityChanged is emitted when the polling result changes."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+        events: list[object] = []
+        dm.subscribe(events.append)
+
+        dm.record_poll_success(node.device_key)
+        dm.record_poll_success(node.device_key)
+        dm.record_poll_failure(node.device_key)
+
+        assert events == [
+            AvailabilityChanged(device_key=node.device_key, available=True),
+            AvailabilityChanged(device_key=node.device_key, available=False),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_listener_error_does_not_stop_other_listeners(self) -> None:
+        """A failing listener does not prevent delivery to the others."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        node = _make_node()
+        dm.data[node.device_key] = node
+        events: list[object] = []
+
+        def _failing(_event: object) -> None:
+            raise RuntimeError("listener bug")
+
+        dm.subscribe(_failing)
+        dm.subscribe(events.append)
+
+        dm.record_poll_failure(node.device_key)
+
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_set_properties_refreshes_accepted_readable_epcs(self) -> None:
+        """With refresh, accepted readable EPCs are read back with poll priority."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80, 0xB0, 0xE0}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80, 0xB0}))
+        dm.data[node.device_key] = node
+
+        with patch("pyhems.device_manager._REFRESH_DELAY", 0):
+            await dm.set_properties(
+                node.node_id,
+                node.eoj,
+                [
+                    Property(epc=0x80, edt=b"\x30"),
+                    Property(epc=0xB0, edt=b"\x41"),
+                    Property(epc=0xE0, edt=b"\x01"),
+                ],
+                refresh=True,
+            )
+            await asyncio.gather(*dm._refresh_tasks)
+
+        client.get.assert_awaited_once_with(
+            node.node_id, node.eoj, [0x80, 0xB0], priority=RequestPriority.POLL
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_properties_without_refresh_does_not_read(self) -> None:
+        """Without refresh, nothing is read back."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+
+        await dm.set_properties(
+            node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")]
+        )
+
+        assert dm._refresh_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_async_stop_cancels_refresh(self) -> None:
+        """Stopping the manager cancels pending read-backs."""
+        client = _make_client()
+        client.set_properties.return_value = SetRequestResult(
+            sent=True,
+            response_esv=ESV.SET_RES,
+            accepted_epcs=frozenset({0x80}),
+            rejected_epcs=frozenset(),
+            unanswered_epcs=frozenset(),
+        )
+        dm = DeviceManager(client, {})
+        node = _make_node(get_epcs=frozenset({0x80}))
+        dm.data[node.device_key] = node
+        await dm.async_start()
+
+        await dm.set_properties(
+            node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")], refresh=True
+        )
+        await dm.async_stop()
+
+        assert dm._refresh_tasks == set()
+        client.get.assert_not_awaited()

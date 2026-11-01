@@ -266,6 +266,19 @@ await device_manager.async_stop()
 await client.stop()
 ```
 
+`DeviceManager.subscribe(callback)` で、型付きの `DeviceManagerEvent` を受け取れます。
+
+- `DeviceAdded`: 機器の setup が完了した
+- `PropertiesChanged`: キャッシュ値が変わった（変わった EPC を `epcs` に持つ）
+- `AvailabilityChanged`: ポーリングによる可用性が変わった
+- `RuntimeActivity`: フレームを受信した
+
+プロパティと可用性のイベントは、値が実際に変わったときだけ通知されます。最後にフレームを受信した時刻、
+または機器の setup を行った時刻は `DeviceManager.last_activity_at` で参照できます。
+
+`DeviceManager.set_properties(..., refresh=True)` は、受理された EPC のうち読み出せるものを、書き込みの
+少し後に読み直します。機器が実際に適用した値をキャッシュに反映するためです。
+
 `PropertyPoller` は固定周期ではなく、機器状態に応じてポーリング間隔を調整します。
 
 - 機器ごとに同時に 1 つのポーリング周期だけを実行し、ノードのキューを通して応答を待つことで、遅い機器へのリクエスト詰まりを抑制
