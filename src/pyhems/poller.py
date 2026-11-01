@@ -513,11 +513,6 @@ class PropertyPoller:
         self._pending.add(device_key)
         try:
             sent_tid = self._device_manager.poll_device(device_key, chunk)
-        except OSError as err:
-            _LOGGER.debug(
-                "Failed to request properties for node %s: %s", device_key, err
-            )
-            sent_tid = None
         finally:
             self._pending.discard(device_key)
 

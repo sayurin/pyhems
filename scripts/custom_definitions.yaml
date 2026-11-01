@@ -1191,6 +1191,10 @@ devices:
     name_ja: ユーザ定義デバイス (0x0F02)
     properties:
       # 三菱エアリゾートVAV
+      # The EDT meanings are the opposite of the common 0x8F (power-saving
+      # operation setting: 0x41 = saving). This was confirmed on the device in
+      # sayurin/pyhems#39. "true" is the keep mode, which the property name
+      # refers to, regardless of the EDT value.
       - epc: 0x8F
         manufacturer_code: 0x000006
         name_en: Keep operation setting
@@ -1201,11 +1205,11 @@ devices:
         description_ja: VAVのキープ運転（節電機能）を設定し、状態を取得する
         enum_values:
           - edt: 0x41
-            key: "true"
+            key: "false"
             name_en: Operating in normal mode
             name_ja: キープOFF
           - edt: 0x42
-            key: "false"
+            key: "true"
             name_en: Operating in keep mode
             name_ja: キープON
       - epc: 0xB3

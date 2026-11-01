@@ -49,7 +49,7 @@ from .definitions import (
 )
 from .device_manager import DeviceManager, NodeState
 from .eoj import EOJ
-from .frame import Frame, Property
+from .frame import Frame, FrameDecodeError, Property
 from .get_batch_policy import (
     GET_BATCH_POLICIES,
     GetBatchPolicy,
@@ -64,6 +64,7 @@ from .installation_location import (
 )
 from .poller import DevicePollerStats, PropertyPoller
 from .runtime import (
+    ClientStoppedError,
     GetAbortedError,
     HemsClient,
     HemsErrorEvent,
@@ -73,7 +74,7 @@ from .runtime import (
     RuntimeEvent,
     SetRequestResult,
 )
-from .transport import EchonetLiteProtocol, create_multicast_socket
+from .transport import EchonetLiteProtocol, check_interface, create_multicast_socket
 
 __all__ = [
     "CONTROLLER_CLASS",
@@ -92,6 +93,7 @@ __all__ = [
     "REGISTRY",
     "ArrayDefinition",
     "BinaryCodec",
+    "ClientStoppedError",
     "CollectionBinding",
     "CollectionIndex",
     "CollectionPage",
@@ -105,6 +107,7 @@ __all__ = [
     "EnumCodec",
     "EnumValue",
     "Frame",
+    "FrameDecodeError",
     "GetAbortedError",
     "GetBatchPolicy",
     "HemsClient",
@@ -130,6 +133,7 @@ __all__ = [
     "RuntimeEvent",
     "ScalarDefinition",
     "SetRequestResult",
+    "check_interface",
     "create_multicast_socket",
     "decode_collection",
     "decode_collection_page",

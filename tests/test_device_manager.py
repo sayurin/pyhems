@@ -18,6 +18,7 @@ from pyhems.device_manager import (
 )
 from pyhems.frame import Frame
 from pyhems.runtime import (
+    HemsClient,
     HemsFrameEvent,
     HemsInstanceListEvent,
     NotificationRequestResult,
@@ -1197,42 +1198,6 @@ class TestProcessInstanceListEvent:
         assert node.poll_epcs == frozenset({0xB0})
 
     @pytest.mark.asyncio
-    async def test_inf_req_send_failure_falls_back_to_polling(self) -> None:
-        """An OSError sending the INF_REQ leaves the EPC polled."""
-        client = _make_client()
-        eoj = EOJ(0x013001)
-        node_id = "fe00000000000000000000000000000001"
-
-        get_epcs = frozenset({0xB0})
-        inf_epcs = frozenset({0xB0})
-        client.get.return_value = [
-            Property(epc=0x9D, edt=_make_property_map_edt(inf_epcs)),
-            Property(epc=0x9E, edt=_make_property_map_edt(frozenset())),
-            Property(epc=0x9F, edt=_make_property_map_edt(get_epcs)),
-            Property(epc=0x8A, edt=b"\x00\x00\x01"),
-            Property(epc=0x8C, edt=b"PRODUCT\x00"),
-            Property(epc=0x8D, edt=b"SERIAL\x00\x00"),
-            Property(epc=0xB0, edt=b"\x41"),
-        ]
-        client.request_notifications.side_effect = OSError("network unreachable")
-
-        monitored_epcs = {0x0130: frozenset({0xB0})}
-        dm = DeviceManager(client, monitored_epcs)
-
-        event = HemsInstanceListEvent(
-            received_at=1.0,
-            instances=[eoj],
-            node_id=node_id,
-            properties={},
-        )
-
-        result = await dm.process_instance_list_event(event)
-        node = dm.data[result[0]]
-        assert node.confirmed_inf_epcs == frozenset()
-        assert node.failed_inf_epcs == frozenset({0xB0})
-        assert node.poll_epcs == frozenset({0xB0})
-
-    @pytest.mark.asyncio
     async def test_skips_existing_device(self) -> None:
         """Already known devices are not set up again."""
         client = _make_client()
@@ -1519,17 +1484,6 @@ class TestPollDevice:
         result = dm.poll_device(node.device_key)
         assert result is None
 
-    def test_poll_device_send_failure(self) -> None:
-        """Polling handles OSError gracefully."""
-        client = _make_client()
-        client.send.side_effect = OSError("Network error")
-        dm = DeviceManager(client, {})
-        node = _make_node()
-        dm.data[node.device_key] = node
-
-        result = dm.poll_device(node.device_key)
-        assert result is None
-
     def test_poll_device_with_explicit_epcs(self) -> None:
         """An explicit epcs argument overrides the device's poll_epcs."""
         client = _make_client()
@@ -1711,3 +1665,64 @@ class TestSubscribeEpcs:
         assert dm.effective_poll_epcs(node2.device_key) == frozenset({0x80})
         dm.subscribe_epcs(node2.device_key, frozenset())
         assert dm.effective_poll_epcs(node2.device_key) == frozenset()
+
+
+class TestEventConsumerResilience:
+    """Tests that the event consumer survives failures of a single event."""
+
+    @pytest.mark.asyncio
+    async def test_consumer_survives_unexpected_error(self) -> None:
+        """An unexpected exception for one event does not stop the consumer."""
+        client = _make_client()
+        dm = DeviceManager(client, {})
+        processed: list[HemsFrameEvent] = []
+
+        async def _process_frame_event(event: HemsFrameEvent) -> bool:
+            processed.append(event)
+            if len(processed) == 1:
+                raise RuntimeError("unexpected")
+            return False
+
+        with patch.object(
+            dm, "process_frame_event", AsyncMock(side_effect=_process_frame_event)
+        ):
+            await dm.async_start()
+            callback = client.subscribe.call_args.args[0]
+            for _ in range(2):
+                callback(_make_frame_event("node", EOJ(0x013001), ESV.GET_RES, []))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+            assert len(processed) == 2
+            assert not dm.event_consumer_task_done
+            await dm.async_stop()
+
+    @pytest.mark.asyncio
+    async def test_consumer_survives_client_stop_during_setup(self) -> None:
+        """Stopping the client while a setup read is pending keeps the consumer."""
+        client = HemsClient()
+        client._protocol = MagicMock()
+        node_id = "fe00000000000000000000000000000001"
+        client._device_addresses.forceput("192.168.1.10", node_id)
+        dm = DeviceManager(client, {0x0130: frozenset({0x80})})
+        await dm.async_start()
+
+        client._dispatch(
+            HemsInstanceListEvent(
+                received_at=1.0,
+                instances=[EOJ(0x013001)],
+                node_id=node_id,
+                properties={},
+            )
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert client._pending_gets
+
+        await client.stop()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert not dm.event_consumer_task_done
+        assert dm.data == {}
+        await dm.async_stop()

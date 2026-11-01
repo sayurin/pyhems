@@ -16,3 +16,6 @@ pyhems の設計判断を記録します。書式は Nygard 形式（ステー�
 | [0005](0005-get-responsibility-setup-and-polling.md) | 同時応答数の探索は setup で行い、ポーリングは既知の値で分割する | 承認 |
 | [0006](0006-retry-incomplete-setup-on-discovery.md) | 不完全な setup を次の探索でやり直す | 承認 |
 | [0007](0007-cap-koizumi-get-batch-size.md) | コイズミの 0x0290 と 0x02A3 では 1 回の GET の EPC 数を制限する | 承認 |
+| [0008](0008-initialize-unset-collection-ranges.md) | 範囲が未設定の計測値リストを、1 回だけ SetC で初期化する | 承認 |
+| [0009](0009-assume-persistent-status-notifications.md) | INF と INFC は継続して受信できると仮定する | 承認 |
+| [0010](0010-simplified-installation-location.md) | 設置場所（EPC 0x81）は 1 バイト形式だけの簡易実装とする | 承認 |
