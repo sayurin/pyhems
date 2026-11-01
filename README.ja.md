@@ -143,7 +143,7 @@ from pyhems import EOJ, Frame, Property
 
 # フレーム作成
 frame = Frame(
-    tid=Frame.next_tid(),
+    tid=1,
     seoj=EOJ(0x05FF01),    # コントローラ
     deoj=EOJ(0x013001),    # エアコン
     esv=0x62,              # Get
@@ -224,13 +224,13 @@ class HemsErrorEvent:
 ```python
 client = HemsClient(
     interface="0.0.0.0",     # バインドするインターフェース
-    poll_interval=60.0,      # ノードプローブの間隔（秒）
+    discovery_interval=3600.0,  # ノードプローブの間隔（秒）
     extra_epcs=[0x8A, 0x8D], # 追加で取得するEPC
 )
 ```
 
 - `interface`: UDP ソケットをバインドする IP アドレス
-- `poll_interval`: 定期的なノード検出の間隔
+- `discovery_interval`: 定期的なノード検出の間隔
 - `extra_epcs`: ノードプロファイルから追加で取得する EPC（例: 0x8A=メーカーコード, 0x8D=シリアル番号）
 
 `HemsClient.start()` は初期探索を開始し、30 秒後に定期探索を開始します。
@@ -238,6 +238,11 @@ client = HemsClient(
 ## DeviceManager と PropertyPoller
 
 `DeviceManager` は `HemsInstanceListEvent` / `HemsFrameEvent` を処理して、ノードごとの状態を保持します。
+新しく見つかった機器の setup は、ノードごとのタスクで実行されます。setup ではメーカーコード（0x8A）を先に読むので、
+`monitored_epcs` には `(class_code, manufacturer_code)` を受け取る関数も渡せます。
+
+1 つのノードへの要求は、ノードごとのキューを通して 1 つずつ送られます。順番は `RequestPriority`
+（Set、setup などの読み出し、ポーリングの順）で決まります（`docs/adr/0011-serialize-requests-per-node.md`）。
 
 ```python
 from pyhems import DeviceManager, PropertyPoller
@@ -263,10 +268,10 @@ await client.stop()
 
 `PropertyPoller` は固定周期ではなく、機器状態に応じてポーリング間隔を調整します。
 
-- TID 相関で in-flight リクエストを追跡し、遅い機器へのリクエスト詰まりを抑制
+- 機器ごとに同時に 1 つのポーリング周期だけを実行し、ノードのキューを通して応答を待つことで、遅い機器へのリクエスト詰まりを抑制
 - 応答遅延（EWMA）と連続失敗回数に応じて通常ポーリング間隔を動的に調整
 - 瞬時値向け EPC（`fast_poll_epcs`）を高頻度レーンで別スケジュール
-- 部分応答が発生した場合、観測済みバッチ上限（`observed_batch_capacity`）を学習してチャンク送信
+- setup で学習した同時応答数の上限（`observed_batch_capacity`）と機器ごとの GET の制約でチャンクに分けて送信し、応答に含まれなかった EPC は次の周期に任せる
 - `DeviceManager.subscribe_epcs(...)` により実効ポーリング対象を動的に絞り込み
 
 `NodeState`（`device_manager.data[device_key]`）には以下の情報が保持されます。

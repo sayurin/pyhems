@@ -75,7 +75,12 @@ asyncio.run(main())
 - `HemsClient.probe_nodes()`: Trigger recurring multicast node discovery using
   only the self-node instance list.
 - `HemsClient.start_periodic_discovery()`: Start recurring discovery immediately.
-- `HemsClient.get(node_id, deoj, epcs)`: Read property values.
+- `HemsClient.get(node_id, deoj, epcs)`: Read property values. Returns one
+  `Property` per requested EPC; values that could not be read are empty.
+- `HemsClient.request_get(node_id, deoj, epcs)`: Send one unsplit GET and
+  return its `GetResponse`, or `None` when it is not answered.
+- `HemsClient.read_manufacturer_code(node_id, deoj)`: Read EPC 0x8A on its
+  own once and remember it for the device object.
 - `HemsClient.set_property(node_id, deoj, epc, edt)`: Write a single property and
   wait for the acknowledged result.
 - `HemsClient.set_properties(node_id, deoj, properties)`: Write multiple
@@ -86,13 +91,18 @@ asyncio.run(main())
   runtime client and update cached values for accepted EPCs. Fires
   `on_device_updated` only when cached values change.
 - `DeviceManager.async_start()` / `DeviceManager.async_stop()`: Subscribe to
-  runtime events and process device events in arrival order.
+  runtime events and process device events in arrival order. Setup of newly
+  discovered devices runs in a separate task per node.
+
+Requests to one node are sent one at a time through a per-node queue, ordered
+by `RequestPriority` (Set, then setup and other reads, then polling); see
+`docs/adr/0011-serialize-requests-per-node.md`.
 
 ## Adaptive Property Polling
 
 `PropertyPoller` uses an adaptive scheduler designed for mixed ECHONET Lite devices:
 
-- TID-correlated in-flight tracking avoids request pileups on slow devices.
+- One poll cycle per device at a time, each request awaited through the node's request queue, avoids request pileups on slow devices.
 - Poll cadence is adjusted from latency EWMA and failure backoff, starting from the base interval.
 - Instantaneous-value EPCs can be scheduled on a separate fast lane (`fast_poll_epcs`).
 - Requests are split by the per-device batch limit learned during setup (see `docs/adr/`); omitted EPCs are left to the next poll.

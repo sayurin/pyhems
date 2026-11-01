@@ -9,7 +9,7 @@ import pytest
 
 from pyhems import EOJ, ESV, GetAbortedError
 from pyhems.frame import Property
-from pyhems.runtime import HemsClient, _GetCapability, _GetResponse
+from pyhems.runtime import GetResponse, HemsClient, RequestPriority, _GetCapability
 
 _NODE_ID = "fe00000000000000000000000000000001"
 _ADDRESS = "192.168.1.10"
@@ -35,16 +35,21 @@ class _FakeDevice:
         _seoj: EOJ,
         epcs: list[int],
         _request_timeout: float,
-    ) -> tuple[bool, _GetResponse | None]:
+        _priority: RequestPriority,
+    ) -> tuple[bool, GetResponse | None]:
         self.requests.append(list(epcs))
         if not self._sent:
             return False, None
         if epcs == [0x8A]:
-            return True, _GetResponse(esv=ESV.GET_RES, properties=(_MANUFACTURER,))
+            return True, GetResponse(
+                esv=ESV.GET_RES, properties=(_MANUFACTURER,), latency=0.0
+            )
         properties = self._responder(list(epcs))
         if properties is None:
             return True, None
-        return True, _GetResponse(esv=ESV.GET_RES, properties=tuple(properties))
+        return True, GetResponse(
+            esv=ESV.GET_RES, properties=tuple(properties), latency=0.0
+        )
 
     @property
     def sizes(self) -> list[int]:
@@ -268,7 +273,9 @@ class TestSetupGet:
         with pytest.raises(GetAbortedError):
             await client.setup_get(_NODE_ID, _EOJ, [0x8A, 0xC0])
 
-        request.assert_awaited_once_with(_ADDRESS, _EOJ, EOJ(0x05FF01), [0x8A], 30.0)
+        request.assert_awaited_once_with(
+            _ADDRESS, _EOJ, EOJ(0x05FF01), [0x8A], 30.0, RequestPriority.SETUP
+        )
         assert _limit(client) is None
 
     @pytest.mark.asyncio

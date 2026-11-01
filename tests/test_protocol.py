@@ -248,3 +248,22 @@ class TestExtractDiscoveryInfo:
         node_id, instances = _extract_discovery_info(frame)
         assert node_id == "fe00000601058c53e6fffe513d890ef001"
         assert instances == []
+
+
+def test_extract_discovery_info_deduplicates_instances() -> None:
+    """Instances listed by both 0xD5 and 0xD6 are returned once, in order."""
+    instance_list = bytes([2, 0x01, 0x30, 0x01, 0x02, 0x79, 0x01])
+    frame = Frame(
+        tid=1,
+        seoj=EOJ(0x0EF001),
+        deoj=EOJ(0x05FF01),
+        esv=ESV.INF,
+        properties=[
+            Property(epc=EPC.INSTANCE_LIST, edt=instance_list),
+            Property(epc=EPC.SELF_NODE_INSTANCE_LIST, edt=instance_list),
+        ],
+    )
+
+    _node_id, instances = _extract_discovery_info(frame)
+
+    assert instances == [EOJ(0x013001), EOJ(0x027901)]

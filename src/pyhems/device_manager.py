@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import time
-from collections import Counter
-from collections.abc import Callable, Collection, Mapping
+from collections import Counter, deque
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass, field
 
 from ._definitions_generated import REGISTRY
@@ -18,7 +19,7 @@ from .const import (
     SET_REQUEST_TIMEOUT,
 )
 from .eoj import EOJ
-from .frame import Frame, Property
+from .frame import Property
 from .installation_location import (
     InstallationLocation,
     decode_installation_location,
@@ -26,9 +27,11 @@ from .installation_location import (
 from .runtime import (
     ClientStoppedError,
     GetAbortedError,
+    GetResponse,
     HemsClient,
     HemsFrameEvent,
     HemsInstanceListEvent,
+    RequestPriority,
     RuntimeEvent,
     SetRequestResult,
 )
@@ -36,11 +39,24 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 
 DeviceCallback = Callable[[str], None]
-# Fired with (device_key, tid, esv, epcs_in_frame) for every recognized
-# response frame. epcs_in_frame is the set of EPCs actually present in that
-# frame.
-FrameReceivedCallback = Callable[[str, int, ESV, frozenset[int]], None]
 RuntimeActivityCallback = Callable[[float], None]
+# EPCs per device class: a mapping of class_code -> EPCs, or a function of
+# (class_code, manufacturer_code) for manufacturer-specific EPCs.
+EpcSelection = Mapping[int, frozenset[int]] | Callable[[int, int], Collection[int]]
+
+# Frame ESVs whose EDTs carry current property values.
+_VALUE_ESVS = frozenset({ESV.GET_RES, ESV.GET_SNA, ESV.INF, ESV.INFC})
+# Frames received for a device object while it is being set up.
+_MAX_DEFERRED_FRAMES = 64
+
+
+def _select_epcs(
+    selection: EpcSelection, class_code: int, manufacturer_code: int
+) -> frozenset[int]:
+    """Return the EPCs selected for a device class and manufacturer."""
+    if callable(selection):
+        return frozenset(selection(class_code, manufacturer_code))
+    return selection.get(class_code, frozenset())
 
 
 def _parse_property_map(edt: bytes) -> frozenset[int] | None:
@@ -313,22 +329,24 @@ class DeviceManager:
     def __init__(
         self,
         client: HemsClient,
-        monitored_epcs: Mapping[int, frozenset[int]],
+        monitored_epcs: EpcSelection,
         class_code_filter: frozenset[int] | None = None,
-        fast_epcs: Mapping[int, frozenset[int]] | None = None,
+        fast_epcs: EpcSelection | None = None,
     ) -> None:
         """Initialize the device manager.
 
         Args:
             client: HEMS runtime client for communication.
-            monitored_epcs: Mapping of class_code -> EPCs to monitor.
+            monitored_epcs: EPCs to monitor per device class, either as a
+                mapping of class_code -> EPCs or as a function of
+                (class_code, manufacturer_code). The manufacturer code is
+                read before the other EPCs during setup (ADR-0011).
             class_code_filter: If set, only these class codes are accepted.
                 If None, all class codes are accepted.
-            fast_epcs: Mapping of class_code -> EPCs that should be polled at
-                a higher frequency (e.g. instantaneous power). These must be
-                a subset of the corresponding ``monitored_epcs`` entry; any
-                EPC not present in ``monitored_epcs`` is ignored. Defaults to
-                no fast-poll EPCs for any class.
+            fast_epcs: EPCs that should be polled at a higher frequency (e.g.
+                instantaneous power), in the same form as ``monitored_epcs``.
+                EPCs that are not monitored are ignored. Defaults to no
+                fast-poll EPCs for any class.
         """
         self._client = client
         self._monitored_epcs = monitored_epcs
@@ -339,6 +357,11 @@ class DeviceManager:
         self.last_frame_received_at: float | None = None
 
         self._pending_setups: set[str] = set()
+        # Per-node jobs (setup, INF_REQ, range initialization) and the task
+        # running them; nodes run in parallel, jobs of one node in order.
+        self._node_jobs: dict[str, deque[Callable[[], Awaitable[object]]]] = {}
+        self._node_workers: dict[str, asyncio.Task[None]] = {}
+        self._deferred_frames: dict[str, list[HemsFrameEvent]] = {}
         self._event_queue: asyncio.Queue[HemsFrameEvent | HemsInstanceListEvent] = (
             asyncio.Queue()
         )
@@ -357,7 +380,6 @@ class DeviceManager:
 
         self._on_device_added: list[DeviceCallback] = []
         self._on_device_updated: list[DeviceCallback] = []
-        self._on_frame_received: list[FrameReceivedCallback] = []
         self._on_runtime_activity: list[RuntimeActivityCallback] = []
 
     async def async_start(self) -> None:
@@ -377,6 +399,15 @@ class DeviceManager:
         if self._unsubscribe_runtime is not None:
             self._unsubscribe_runtime()
             self._unsubscribe_runtime = None
+
+        workers = list(self._node_workers.values())
+        for worker in workers:
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+        self._node_workers.clear()
+        self._node_jobs.clear()
+        self._deferred_frames.clear()
 
         if self._event_consumer_task is None:
             return
@@ -498,39 +529,17 @@ class DeviceManager:
             self._notify_device_updated(node.device_key)
         return result
 
-    def on_frame_received(self, callback: FrameReceivedCallback) -> Callable[[], None]:
-        """Register a callback for when any response frame is processed for a device.
-
-        Unlike :meth:`on_device_updated`, this fires for every recognized
-        response frame from a known device, even if no property value
-        actually changed (including Set responses). It is primarily used by
-        :class:`~pyhems.poller.PropertyPoller` to know when an outstanding
-        poll request has been answered, so it can stop waiting and send the
-        next batch.
-
-        Args:
-            callback: Called with (device_key, tid, esv, epcs_in_frame) when a
-                response frame is processed. ``epcs_in_frame`` is the set of
-                EPCs actually present in that frame (empty for Set responses).
-
-        Returns:
-            Unsubscribe function.
-        """
-        self._on_frame_received.append(callback)
-
-        def unsub() -> None:
-            if callback in self._on_frame_received:
-                self._on_frame_received.remove(callback)
-
-        return unsub
-
     def _handle_runtime_event(self, event: RuntimeEvent) -> None:
         """Queue device events for serialized processing."""
         if isinstance(event, (HemsFrameEvent, HemsInstanceListEvent)):
             self._event_queue.put_nowait(event)
 
     async def _consume_runtime_events(self) -> None:
-        """Process device events in the order received from the runtime client."""
+        """Process device events in the order received from the runtime client.
+
+        Requests to devices are never awaited here (ADR-0011): setup runs in
+        the node's job task.
+        """
         while True:
             event = await self._event_queue.get()
             try:
@@ -542,13 +551,47 @@ class DeviceManager:
                         event.node_id,
                         len(event.instances),
                     )
-                    await self.process_instance_list_event(event)
+                    self._record_runtime_activity(event.received_at)
+                    self._enqueue_node_job(
+                        event.node_id,
+                        functools.partial(self.process_instance_list_event, event),
+                    )
             except Exception:
                 _LOGGER.exception(
                     "Failed to process ECHONET Lite runtime event: %r", event
                 )
             finally:
                 self._event_queue.task_done()
+
+    def _enqueue_node_job(
+        self, node_id: str, job: Callable[[], Awaitable[object]]
+    ) -> None:
+        """Run ``job`` after the node's earlier jobs, in the node's job task."""
+        self._node_jobs.setdefault(node_id, deque()).append(job)
+        if node_id not in self._node_workers:
+            self._node_workers[node_id] = asyncio.create_task(
+                self._run_node_jobs(node_id), name=f"pyhems_node_jobs_{node_id}"
+            )
+
+    async def _run_node_jobs(self, node_id: str) -> None:
+        """Run the queued jobs of one node in order."""
+        jobs = self._node_jobs[node_id]
+        try:
+            while jobs:
+                job = jobs.popleft()
+                try:
+                    await job()
+                except Exception:
+                    _LOGGER.exception("Failed to run a job for node %s", node_id)
+        finally:
+            self._node_jobs.pop(node_id, None)
+            self._node_workers.pop(node_id, None)
+            for device_key in [
+                key
+                for key, events in self._deferred_frames.items()
+                if events[0].node_id == node_id and key not in self.data
+            ]:
+                del self._deferred_frames[device_key]
 
     def subscribe_epcs(
         self, device_key: str, epcs: frozenset[int]
@@ -686,6 +729,7 @@ class DeviceManager:
             node_id=node.node_id,
             deoj=node.eoj,
             properties=properties,
+            priority=RequestPriority.SETUP,
         )
         updated = result.sent and self._apply_accepted_properties(
             node, properties, result.accepted_epcs
@@ -706,8 +750,17 @@ class DeviceManager:
             )
         return updated
 
+    async def _recover_and_notify(self, node: NodeState) -> None:
+        """Initialize unset collection ranges and notify accepted values."""
+        if await self._recover_uninitialized_collection_ranges(node):
+            self._notify_device_updated(node.device_key)
+
     async def process_frame_event(self, event: HemsFrameEvent) -> bool:
         """Process a received frame and update device state.
+
+        Frames for a device object whose node is still being set up are kept
+        and applied once the setup completes. Requests triggered by the frame
+        (collection range initialization) run in the node's job task.
 
         Args:
             event: Frame event from the runtime client.
@@ -719,7 +772,7 @@ class DeviceManager:
         eoj = event.eoj
         node_id = event.node_id
 
-        if not frame.is_response_frame():
+        if not frame.is_response_or_notification():
             return False
 
         self._record_runtime_activity(event.received_at)
@@ -728,6 +781,11 @@ class DeviceManager:
         existing = self.data.get(device_key)
 
         if existing is None:
+            if node_id in self._node_workers:
+                deferred = self._deferred_frames.setdefault(device_key, [])
+                if len(deferred) < _MAX_DEFERRED_FRAMES:
+                    deferred.append(event)
+                return False
             _LOGGER.debug(
                 "Ignoring frame for unknown node %s %r (setup handled elsewhere)",
                 device_key,
@@ -735,11 +793,13 @@ class DeviceManager:
             )
             return False
 
-        self.last_frame_received_at = event.received_at
+        return self._apply_frame(existing, event)
 
-        received_epcs = frozenset(prop.epc for prop in frame.properties)
-        for frame_cb in self._on_frame_received:
-            frame_cb(device_key, frame.tid, frame.esv, received_epcs)
+    def _apply_frame(self, node: NodeState, event: HemsFrameEvent) -> bool:
+        """Apply the property values of a frame to a known device object."""
+        frame = event.frame
+        device_key = node.device_key
+        self.last_frame_received_at = event.received_at
 
         _LOGGER.debug(
             "Received frame for %s (ESV=0x%02X): %r",
@@ -748,26 +808,32 @@ class DeviceManager:
             frame.properties,
         )
 
-        # Set responses and rejected notification subscriptions (0x53) do
-        # not carry current property values; their (typically empty) EDT
-        # must not overwrite any previously cached value.
-        if frame.esv in (ESV.SET_RES, ESV.SETC_SNA, ESV.INF_SNA):
+        # Set responses, rejected notification requests and other frames
+        # without current values must not overwrite cached values.
+        if frame.esv not in _VALUE_ESVS:
             return False
 
         updated = False
         for prop in frame.properties:
-            current = existing.properties.get(prop.epc)
+            current = node.properties.get(prop.epc)
             if current is None or current != prop.edt:
-                existing.properties[prop.epc] = prop.edt
+                node.properties[prop.epc] = prop.edt
                 updated = True
 
-        if await self._recover_uninitialized_collection_ranges(existing):
-            updated = True
+        if _collection_range_recovery_properties(node):
+            self._enqueue_node_job(
+                node.node_id, functools.partial(self._recover_and_notify, node)
+            )
 
         if updated:
             self._notify_device_updated(device_key)
 
         return updated
+
+    def _apply_deferred_frames(self, node: NodeState) -> None:
+        """Apply frames received while the device object was being set up."""
+        for event in self._deferred_frames.pop(node.device_key, ()):
+            self._apply_frame(node, event)
 
     async def process_instance_list_event(
         self, event: HemsInstanceListEvent
@@ -844,18 +910,21 @@ class DeviceManager:
             self._pending_setups.discard(device_key)
 
     async def _setup_device(self, node_id: str, eoj: EOJ, device_key: str) -> bool:
+        # The monitored EPCs depend on the manufacturer (ADR-0011).
+        manufacturer_code = await self._client.read_manufacturer_code(node_id, eoj)
         base_epcs = [
             EPC.INF_PROPERTY_MAP,
             EPC.SET_PROPERTY_MAP,
             EPC.GET_PROPERTY_MAP,
-            EPC.MANUFACTURER_CODE,
             EPC.PRODUCT_CODE,
             EPC.SERIAL_NUMBER,
         ]
 
-        initial_epcs = self._monitored_epcs.get(eoj.class_code, frozenset())
-        monitored_epcs = initial_epcs - set(base_epcs)
-        all_epcs = base_epcs + list(monitored_epcs)
+        initial_epcs = _select_epcs(
+            self._monitored_epcs, eoj.class_code, manufacturer_code
+        )
+        monitored_epcs = initial_epcs - set(base_epcs) - {EPC.MANUFACTURER_CODE}
+        all_epcs = base_epcs + sorted(monitored_epcs)
 
         _LOGGER.debug(
             "Requesting property maps for node %s %r: base=[%s], monitored=[%s]",
@@ -869,26 +938,21 @@ class DeviceManager:
         properties: dict[int, bytes] = {
             prop.epc: prop.edt for prop in response_props if prop.edt
         }
+        properties[EPC.MANUFACTURER_CODE] = manufacturer_code.to_bytes(3, "big")
 
         timestamp = time.monotonic()
         get_epcs, set_epcs, inf_epcs = _extract_property_maps(properties)
-        manufacturer_code, product_code, serial_number = _extract_node_profile_info(
+        _manufacturer_code, product_code, serial_number = _extract_node_profile_info(
             properties
         )
 
-        if (
-            manufacturer_code is None
-            or get_epcs is None
-            or set_epcs is None
-            or inf_epcs is None
-        ):
+        if get_epcs is None or set_epcs is None or inf_epcs is None:
             invalid_epcs = [
                 epc
                 for epc, value in (
                     (EPC.INF_PROPERTY_MAP, inf_epcs),
                     (EPC.SET_PROPERTY_MAP, set_epcs),
                     (EPC.GET_PROPERTY_MAP, get_epcs),
-                    (EPC.MANUFACTURER_CODE, manufacturer_code),
                 )
                 if value is None
             ]
@@ -900,8 +964,8 @@ class DeviceManager:
             )
             return False
 
-        fast_candidate_epcs = initial_epcs & self._fast_epcs.get(
-            eoj.class_code, frozenset()
+        fast_candidate_epcs = initial_epcs & _select_epcs(
+            self._fast_epcs, eoj.class_code, manufacturer_code
         )
         attempted_inf_epcs = frozenset(initial_epcs & inf_epcs)
         poll_epcs, fast_poll_epcs = _compute_poll_epcs(
@@ -931,6 +995,7 @@ class DeviceManager:
 
         self.last_frame_received_at = timestamp
         self.data[device_key] = node
+        self._apply_deferred_frames(node)
 
         await self._recover_uninitialized_collection_ranges(node)
         await self._send_initial_notification(device_key, node)
@@ -992,19 +1057,28 @@ class DeviceManager:
             " ".join(f"{epc:02X}" for epc in sorted(result.unanswered_epcs)),
         )
 
-    def poll_device(
-        self, device_key: str, epcs: Collection[int] | None = None
-    ) -> int | None:
-        """Send a GET request for a device's poll EPCs.
+    async def poll_device(
+        self,
+        device_key: str,
+        epcs: Collection[int] | None = None,
+        *,
+        request_timeout: float,
+    ) -> GetResponse | None:
+        """Send one GET request for a device's poll EPCs and wait for it.
+
+        The request goes through the node's request queue with polling
+        priority (ADR-0011). Values in the response are applied when the
+        response frame is processed as a runtime event.
 
         Args:
             device_key: The device key to poll.
             epcs: EPCs to request. Defaults to the device's normal-tier
-                ``poll_epcs``; pass ``node.fast_poll_epcs`` explicitly to
-                poll the high-frequency tier instead.
+                ``poll_epcs``.
+            request_timeout: Seconds to wait for the response after sending.
 
         Returns:
-            The request TID if the poll request was sent successfully.
+            The response, or None if the device is unknown, there is nothing
+            to poll, or the request was not sent or answered.
         """
         node = self.data.get(device_key)
         if not node:
@@ -1013,22 +1087,19 @@ class DeviceManager:
         if not target_epcs:
             return None
 
-        ordered_epcs = tuple(target_epcs)
-        properties = [Property(epc=epc, edt=b"") for epc in ordered_epcs]
-        frame = Frame(
-            seoj=CONTROLLER_INSTANCE,
-            deoj=node.eoj,
-            esv=ESV.GET,
-            properties=properties,
-        )
-        frame.tid = Frame.next_tid()
+        ordered_epcs = list(target_epcs)
         _LOGGER.debug(
             "Sending 0x62 poll to node %s for EPCs: [%s]",
             device_key,
             " ".join(f"{epc:02X}" for epc in ordered_epcs),
         )
-        sent = self._client.send(node.node_id, frame)
-        return frame.tid if sent else None
+        return await self._client.request_get(
+            node.node_id,
+            node.eoj,
+            ordered_epcs,
+            request_timeout=request_timeout,
+            priority=RequestPriority.POLL,
+        )
 
 
 __all__ = ["DeviceManager", "NodeState"]
