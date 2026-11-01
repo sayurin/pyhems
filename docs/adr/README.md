@@ -20,3 +20,4 @@ pyhems の設計判断を記録します。書式は Nygard 形式（ステー�
 | [0009](0009-assume-persistent-status-notifications.md) | INF と INFC は継続して受信できると仮定する | 承認 |
 | [0010](0010-simplified-installation-location.md) | 設置場所（EPC 0x81）は 1 バイト形式だけの簡易実装とする | 承認 |
 | [0011](0011-serialize-requests-per-node.md) | 要求をノードごとの直列キューで送り、setup をイベント処理から切り離す | 承認 |
+| [0012](0012-keep-mra-identifiers.md) | MRA に由来する識別子は MRA の表記のまま保持する | 承認 |
