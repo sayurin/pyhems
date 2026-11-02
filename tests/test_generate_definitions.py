@@ -720,3 +720,22 @@ def test_derive_numeric_value_semantics_from_name(
     entity = replace(_entity(0x0130, 0x84), name_en=name_en, unit=unit)
     assert _generate_definitions._derive_quantity(entity) == quantity
     assert _generate_definitions._derive_value_kind(entity) == value_kind
+
+
+def test_time_type_properties_are_generated() -> None:
+    """MRA "time" properties (e.g. 0x0130 EPC 0x91) become time entities."""
+    entities = {entity.epc: entity for entity in REGISTRY.entities[0x0130]}
+    for epc in (0x91, 0x92, 0x95, 0x96):
+        entity = entities.get(epc)
+        assert entity is not None, f"EPC 0x{epc:02X} missing from class 0x0130"
+        assert entity.format == "time"
+        assert entity.time_size == 2
+
+
+def test_time_max_hour_marks_no_setting_sentinel() -> None:
+    """The oneOf time_2/time_2_255 variants keep the hour-0xFF sentinel."""
+    entities = {entity.epc: entity for entity in REGISTRY.entities[0x0130]}
+    assert entities[0x91].time_max_hour == 23
+    assert entities[0x92].time_max_hour == 0xFF
+    assert entities[0x95].time_max_hour == 23
+    assert entities[0x96].time_max_hour == 0xFF

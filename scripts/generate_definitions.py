@@ -193,6 +193,8 @@ class _MRAProperty:
     has_level_enums: bool = False  # True if any level type was processed
     numeric_values: tuple[NumericValueEntry, ...] = ()
     coefficient_epcs: tuple[int, ...] = ()
+    time_size: int | None = None
+    time_max_hour: int | None = None
 
 
 # ============================================================================
@@ -373,6 +375,19 @@ def _parse_mra_property(
             for item in data_spec.get("enum", [])
         )
 
+    # MRA "time" type: EDT is hour + minute (+ optional second). Variants
+    # with "maximumOfHour": 255 (e.g. relative timers) use hour 0xFF as a
+    # "no setting" sentinel.
+    time_size: int | None = None
+    time_max_hour: int | None = None
+    if data_type == "time":
+        time_size = int(data_spec.get("size", 2))
+        time_max_hour = max(
+            int(spec.get("maximumOfHour", 23))
+            for spec in resolved_specs
+            if spec.get("type") == "time"
+        )
+
     # Parse enum values from all specs
     enum_values: list[EnumValue] = []
     has_level_enums = False
@@ -437,6 +452,8 @@ def _parse_mra_property(
         has_level_enums=has_level_enums,
         numeric_values=numeric_values,
         coefficient_epcs=coefficient_epcs,
+        time_size=time_size,
+        time_max_hour=time_max_hour,
     )
 
 
@@ -465,8 +482,9 @@ def _build_entity_from_property(
     is_sensor = prop.data_type == "number"
     is_state = prop.data_type == "state"
     is_numeric_value = prop.data_type == "numericValue"
+    is_time = prop.data_type == "time"
 
-    if not is_sensor and not is_state and not is_numeric_value:
+    if not is_sensor and not is_state and not is_numeric_value and not is_time:
         return None
 
     # Filter out level-based properties with too many enum values (>16)
@@ -513,7 +531,7 @@ def _build_entity_from_property(
         writable=is_writable,
         description_en=prop.description_en,
         description_ja=prop.description_ja,
-        format=prop.mra_format if is_sensor else None,
+        format="time" if is_time else (prop.mra_format if is_sensor else None),
         unit=prop.mra_unit if is_sensor else None,
         minimum=prop.mra_minimum if is_sensor else None,
         maximum=prop.mra_maximum if is_sensor else None,
@@ -527,6 +545,8 @@ def _build_entity_from_property(
         ),
         numeric_values=prop.numeric_values if is_numeric_value else None,
         coefficient_epcs=(prop.coefficient_epcs or None) if is_sensor else None,
+        time_size=prop.time_size if is_time else None,
+        time_max_hour=prop.time_max_hour if is_time else None,
     )
 
 
@@ -1704,7 +1724,7 @@ def _derive_quantity(entity: EntityDefinition) -> Quantity | None:
 
 def _derive_value_kind(entity: EntityDefinition) -> ValueKind | None:
     """Derive how a numeric value evolves from the unit and the English name."""
-    if entity.format is None:
+    if entity.format is None or entity.format == "time":
         return None
     name = entity.name_en.lower()
     if any(_contains_word(name, keyword) for keyword in _STATIC_NAME_KEYWORDS):

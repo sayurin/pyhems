@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import struct
 
 import pytest
@@ -23,6 +24,7 @@ from pyhems import (
     ObjectField,
     OneOfDefinition,
     ScalarDefinition,
+    TimeCodec,
     decode_collection_page,
     decode_property_value,
     get_codec,
@@ -81,6 +83,7 @@ class TestBinaryCodec:
         assert codec.off_edt == 0x31
 
     def test_encode_decode_round_trip(self) -> None:
+        """datetime.time round-trips through EDT bytes."""
         """``encode``/``decode`` are inverses for valid bool input."""
         codec = BinaryCodec(on_edt=0x30, off_edt=0x31)
         assert codec.encode(True) == b"\x30"
@@ -95,6 +98,7 @@ class TestBinaryCodec:
         assert codec.decode(b"\x42") is None
 
     def test_decode_with_byte_offset(self) -> None:
+        """byte_offset skips leading EDT bytes."""
         """``byte_offset`` selects the correct byte from a packed EDT."""
         codec = BinaryCodec(on_edt=0x00, off_edt=0x01, byte_offset=1)
         # byte at offset 1 is 0x00 → True (bright)
@@ -200,6 +204,7 @@ class TestNumericCodec:
         assert codec.decode(b"\x19") == pytest.approx(2.5)
 
     def test_encode_with_byte_offset_rejected(self) -> None:
+        """Encoding at a non-zero byte_offset is rejected."""
         """Encoding into a packed EDT (``byte_offset`` > 0) is not supported."""
         codec = NumericCodec(
             mra_format="uint8",
@@ -538,7 +543,7 @@ def test_get_codec_succeeds_for_all_entity_definitions() -> None:
                 )
             else:
                 if not isinstance(
-                    codec, (BinaryCodec, EnumCodec, NumericCodec)
+                    codec, (BinaryCodec, EnumCodec, NumericCodec, TimeCodec)
                 ):  # pragma: no cover
                     errors.append(
                         f"class 0x{class_code:04X} EPC 0x{entity_def.epc:02X}: "
@@ -1055,3 +1060,103 @@ def test_encode_with_byte_offset_rejected(codec: object, value: object) -> None:
     """Every codec refuses to encode a field that does not start the EDT."""
     with pytest.raises(ValueError, match="byte_offset"):
         codec.encode(value)  # type: ignore[attr-defined]
+
+
+class TestTimeCodec:
+    """Tests for :class:`TimeCodec`."""
+
+    def test_get_codec_returns_time_for_time_format(self) -> None:
+        """get_codec selects TimeCodec for format='time'."""
+        entity = EntityDefinition(
+            id="class_0130_epc_91",
+            epc=0x91,
+            name_en="test",
+            name_ja="test",
+            readable=True,
+            writable=True,
+            format="time",
+            time_size=2,
+        )
+        assert isinstance(get_codec(entity), TimeCodec)
+
+    def test_decode_hh_mm(self) -> None:
+        """HH:MM EDT decodes to datetime.time."""
+        codec = TimeCodec(size=2)
+        assert codec.decode(b"\x07\x30") == datetime.time(7, 48)
+
+    def test_decode_with_seconds(self) -> None:
+        """A size-3 EDT includes seconds."""
+        codec = TimeCodec(size=3)
+        assert codec.decode(b"\x07\x30\x1e") == datetime.time(7, 48, 30)
+
+    def test_decode_sentinel_returns_none(self) -> None:
+        """Hour 0xFF with maximumOfHour 255 decodes to None."""
+        codec = TimeCodec(size=2, max_hour=0xFF)
+        assert codec.decode(b"\xff\xff") is None
+
+    def test_decode_sentinel_hour_is_invalid_without_max_hour(self) -> None:
+        """Hour 0xFF is invalid without the sentinel variant."""
+        codec = TimeCodec(size=2)
+        assert codec.decode(b"\xff\xff") is None
+
+    @pytest.mark.parametrize(
+        ("size", "edt"),
+        [
+            (2, b""),
+            (2, b"\x07"),
+            (2, b"\x18\x00"),
+            (2, b"\x07\x3c"),
+            (3, b"\x07\x30"),
+            (3, b"\x07\x30\x3c"),
+        ],
+    )
+    def test_decode_invalid_returns_none(self, size: int, edt: bytes) -> None:
+        """Short or out-of-range EDTs decode to None."""
+        assert TimeCodec(size=size).decode(edt) is None
+
+    def test_decode_with_byte_offset(self) -> None:
+        """byte_offset skips leading EDT bytes."""
+        codec = TimeCodec(size=2, byte_offset=1)
+        assert codec.decode(b"\x00\x07\x30") == datetime.time(7, 48)
+
+    def test_encode_decode_round_trip(self) -> None:
+        """datetime.time round-trips through EDT bytes."""
+        codec = TimeCodec(size=2)
+        assert codec.decode(codec.encode(datetime.time(23, 59))) == datetime.time(
+            23, 59
+        )
+        codec3 = TimeCodec(size=3)
+        assert codec3.decode(codec3.encode(datetime.time(1, 2, 3))) == datetime.time(
+            1, 2, 3
+        )
+
+    def test_encode_none_writes_sentinel(self) -> None:
+        """None encodes to the hour-0xFF sentinel when allowed."""
+        codec = TimeCodec(size=2, max_hour=0xFF)
+        assert codec.encode(None) == b"\xff\xff"
+
+    def test_encode_none_without_sentinel_raises(self) -> None:
+        """None is rejected without the sentinel variant."""
+        with pytest.raises(ValueError, match="no setting"):
+            TimeCodec(size=2).encode(None)
+
+    def test_encode_wrong_type_raises(self) -> None:
+        """Non-time values are rejected."""
+        with pytest.raises(ValueError, match=r"datetime\.time"):
+            TimeCodec(size=2).encode("07:30")  # type: ignore[arg-type]
+
+    def test_encode_with_byte_offset_rejected(self) -> None:
+        """Encoding at a non-zero byte_offset is rejected."""
+        with pytest.raises(ValueError, match="byte_offset"):
+            TimeCodec(size=2, byte_offset=1).encode(datetime.time(7, 48))
+
+    def test_generated_home_air_conditioner_timers(self) -> None:
+        """The MRA timer properties of class 0x0130 get working codecs."""
+        on_time = get_codec_for_epc(0x0130, 0x91)
+        assert isinstance(on_time, TimeCodec)
+        assert on_time.decode(b"\x07\x30") == datetime.time(7, 48)
+
+        on_relative = get_codec_for_epc(0x0130, 0x92)
+        assert isinstance(on_relative, TimeCodec)
+        assert on_relative.decode(b"\xff\xff") is None
+        assert on_relative.encode(None) == b"\xff\xff"

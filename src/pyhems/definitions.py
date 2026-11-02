@@ -217,6 +217,11 @@ class EntityDefinition:
           static values and non-numeric properties.
         indication: :class:`Indication` of a boolean property, or ``None``
           when unknown.
+        time_size: EDT byte count for MRA ``time`` properties (2 or 3), or
+          ``None`` for other property types.
+        time_max_hour: Largest allowed hour for MRA ``time`` properties.
+          0xFF marks a definition whose hour-0xFF EDT is a "no setting"
+          sentinel. ``None`` for other property types.
     """
 
     id: str
@@ -241,6 +246,8 @@ class EntityDefinition:
     quantity: Quantity | None = None
     value_kind: ValueKind | None = None
     indication: Indication | None = None
+    time_size: int | None = None
+    time_max_hour: int | None = None
 
     def __repr__(self) -> str:
         """Render as ``EntityDefinition(...)`` source, omitting default-valued fields.

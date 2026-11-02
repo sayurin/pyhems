@@ -5,8 +5,9 @@ implementations, and exposes :func:`get_codec` and :func:`get_codec_for_epc`,
 which select the appropriate codec for an :class:`EntityDefinition`.
 
 The goal is to let callers exchange typed Python values (``bool``, ``int``,
-``float``, ``str`` enum key, :class:`InstallationLocation`) with a node
-without having to assemble raw EDT bytes themselves.
+``float``, ``str`` enum key, :class:`datetime.time`,
+:class:`InstallationLocation`) with a node without having to assemble raw
+EDT bytes themselves.
 
 Typical usage::
 
@@ -23,6 +24,7 @@ properties (MRA ``coefficient``) use it.
 
 from __future__ import annotations
 
+import datetime
 import functools
 import math
 from collections.abc import Mapping
@@ -316,6 +318,64 @@ class InstallationLocationCodec:
         return bytes([((value.code & 0x0F) << 3) | (value.instance & 0x07)])
 
 
+@dataclass(frozen=True, slots=True)
+class TimeCodec:
+    """Codec for MRA ``time`` properties exchanging :class:`datetime.time`.
+
+    The EDT is hour + minute (+ second when ``size`` is 3). Definitions with
+    MRA ``maximumOfHour: 255`` use hour ``0xFF`` as a "no setting" sentinel,
+    which decodes to ``None``; encoding ``None`` writes the sentinel and is
+    rejected for definitions without it.
+    """
+
+    size: int
+    max_hour: int = 23
+    byte_offset: int = 0
+
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> datetime.time | None:
+        """Decode EDT bytes to a :class:`datetime.time`.
+
+        Returns ``None`` for empty or short input, out-of-range fields, and
+        the hour-``0xFF`` "no setting" sentinel.
+        """
+        required_len = self.byte_offset + self.size
+        if not edt or len(edt) < required_len:
+            return None
+        hour = edt[self.byte_offset]
+        minute = edt[self.byte_offset + 1]
+        second = edt[self.byte_offset + 2] if self.size > 2 else 0
+        if hour == 0xFF and self.max_hour == 0xFF:
+            return None
+        if hour > 23 or minute > 59 or second > 59:
+            return None
+        return datetime.time(hour, minute, second)
+
+    def encode(self, value: datetime.time | None) -> bytes:
+        """Encode a :class:`datetime.time` to EDT bytes.
+
+        ``None`` writes the "no setting" sentinel and is only allowed when
+        the definition permits hour ``0xFF``. Raises :class:`ValueError` for
+        any other value outside the supported domain.
+        """
+        _reject_byte_offset(self, self.byte_offset)
+        if value is None:
+            if self.max_hour != 0xFF:
+                raise ValueError(
+                    "None is only valid for properties with a "
+                    "'no setting' sentinel (maximumOfHour 255)"
+                )
+            return bytes([0xFF] * self.size)
+        if not isinstance(value, datetime.time):
+            raise ValueError(f"Expected datetime.time, got {type(value).__name__}")
+        return bytes([value.hour, value.minute]) + (
+            bytes([value.second]) if self.size > 2 else b""
+        )
+
+
 def _coefficient_codecs(
     coefficient_epcs: tuple[int, ...], class_code: int | None, epc: int
 ) -> tuple[tuple[int, PropertyCodec], ...]:
@@ -343,7 +403,8 @@ def get_codec(
     * ``enum_values`` with normalized ``key="true"``/``"false"`` values
       produces a :class:`BinaryCodec`.
     * Any other non-empty ``enum_values`` produces an :class:`EnumCodec`.
-    * A populated ``format`` field produces a :class:`NumericCodec`.
+    * A ``format`` of ``"time"`` produces a :class:`TimeCodec`.
+    * Any other populated ``format`` field produces a :class:`NumericCodec`.
 
     ``class_code`` is required when ``entity_def`` has ``coefficient_epcs``,
     so that the coefficient codecs can be looked up for the device class.
@@ -369,6 +430,15 @@ def get_codec(
         return EnumCodec(
             by_key={ev.key: ev.edt for ev in entity_def.enum_values},
             by_edt={ev.edt: ev.key for ev in entity_def.enum_values},
+            byte_offset=entity_def.byte_offset,
+        )
+
+    if entity_def.format == "time":
+        return TimeCodec(
+            size=entity_def.time_size or 2,
+            max_hour=(
+                entity_def.time_max_hour if entity_def.time_max_hour is not None else 23
+            ),
             byte_offset=entity_def.byte_offset,
         )
 
