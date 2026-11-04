@@ -9,6 +9,7 @@ from .codecs import (
     NumericCodec,
     NumericValueCodec,
     PropertyCodec,
+    TemporalCodec,
     decode_collection_page,
     decode_property_value,
     get_codec,
@@ -44,6 +45,8 @@ from .definitions import (
     PropertyValueDefinition,
     Quantity,
     ScalarDefinition,
+    TemporalDefinition,
+    TemporalKind,
     ValueKind,
 )
 from .device_manager import (
@@ -139,6 +142,9 @@ __all__ = [
     "RuntimeEvent",
     "ScalarDefinition",
     "SetRequestResult",
+    "TemporalCodec",
+    "TemporalDefinition",
+    "TemporalKind",
     "ValueKind",
     "check_interface",
     "decode_collection_page",

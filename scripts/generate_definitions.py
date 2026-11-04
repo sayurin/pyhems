@@ -131,6 +131,8 @@ OneOfDefinition: TypeAlias = _defs_mod.OneOfDefinition  # noqa: UP040
 PropertyValueDefinition: TypeAlias = _defs_mod.PropertyValueDefinition  # noqa: UP040
 CollectionBinding: TypeAlias = _defs_mod.CollectionBinding  # noqa: UP040
 CollectionIndex: TypeAlias = _defs_mod.CollectionIndex  # noqa: UP040
+TemporalDefinition: TypeAlias = _defs_mod.TemporalDefinition  # noqa: UP040
+TemporalKind: TypeAlias = _defs_mod.TemporalKind  # noqa: UP040
 
 
 # ============================================================================
@@ -554,9 +556,8 @@ _OBJECT_FIELD_BYTE_SIZE: dict[str, int] = {
     "int32": 4,
 }
 
-# ECHONET Lite standard time-related types (byte width per the ECHONET Lite
-# specification): "date" = year(2)+month(1)+day(1), "time" = relative
-# hour(1)+minute(1)+second(1), "date-time" = date(4)+time(3).
+# Scalar temporal codecs prefer explicit sizes. The existing structured parser
+# retains these raw widths without typed temporal conversion.
 _RAW_TIME_TYPE_SIZE: dict[str, int] = {
     "date": 4,
     "time": 3,
@@ -889,6 +890,93 @@ def _apply_role(
     return entity if role is None else dataclasses.replace(entity, role=role)
 
 
+def _load_temporal_kinds(
+    custom: dict[str, Any],
+) -> dict[tuple[int, int], TemporalKind]:
+    """Load complete, explicitly curated clock/duration classifications."""
+    result: dict[tuple[int, int], TemporalKind] = {}
+    for entry in custom.get("temporal_kinds", []):
+        key = (entry["class_code"], entry["epc"])
+        kind = TemporalKind(entry["kind"])
+        if key in result or kind not in (TemporalKind.CLOCK, TemporalKind.DURATION):
+            raise ValueError(f"Invalid or duplicate temporal classification: {entry}")
+        result[key] = kind
+    return result
+
+
+def _has_temporal_alternative(
+    spec: dict[str, Any], definitions: dict[str, Any]
+) -> bool:
+    """Return whether a property has a top-level temporal alternative."""
+    spec = _resolve_ref(spec, definitions)
+    options = spec.get("oneOf", [spec])
+    return any(
+        _resolve_ref(option, definitions).get("type") in _RAW_TIME_TYPE_SIZE
+        for option in options
+    )
+
+
+def _build_temporal_entity(
+    class_code: int,
+    prop: _MRAProperty,
+    spec: dict[str, Any],
+    definitions: dict[str, Any],
+    temporal_kinds: dict[tuple[int, int], TemporalKind],
+    used_temporal_kinds: set[tuple[int, int]],
+) -> EntityDefinition | None:
+    """Build a scalar temporal value with optional same-width special states."""
+    spec = _resolve_ref(spec, definitions)
+    options = [
+        _resolve_ref(option, definitions) for option in spec.get("oneOf", [spec])
+    ]
+    normal = [option for option in options if option.get("type") in _RAW_TIME_TYPE_SIZE]
+    if not normal:
+        return None
+    if len(normal) != 1:
+        return None
+    value = normal[0]
+    data_type = value["type"]
+    size = value.get("size", _RAW_TIME_TYPE_SIZE[data_type])
+    if data_type == "time":
+        key = (class_code, prop.epc)
+        if key not in temporal_kinds:
+            raise ValueError(f"Unclassified time: {key}")
+        kind = temporal_kinds[key]
+        used_temporal_kinds.add(key)
+    else:
+        kind = TemporalKind.DATE if data_type == "date" else TemporalKind.DATETIME
+    temporal = TemporalDefinition(kind, size, value.get("maximumOfHour", 23))
+    states: list[EnumValue] = []
+    for option in options:
+        if option is value:
+            continue
+        if option.get("type") != "state" or option["size"] != size:
+            return None
+        parsed = _parse_state_enum_values(option)
+        if len(parsed) != len(option.get("enum", [])):
+            raise ValueError("Temporal special states must be exact EDT values")
+        for state in parsed:
+            if not 0 <= state.edt < 1 << (size * 8):
+                raise ValueError("Temporal special state does not fit its size")
+        states.extend(parsed)
+    if len({state.key for state in states}) != len(states) or len(
+        {state.edt for state in states}
+    ) != len(states):
+        raise ValueError("Duplicate temporal special states")
+    return EntityDefinition(
+        id=f"class_{class_code:04x}_epc_{prop.epc:02x}",
+        epc=prop.epc,
+        name_en=prop.name_en,
+        name_ja=prop.name_ja,
+        readable=_is_accessible(prop.get),
+        writable=_is_accessible(prop.set),
+        description_en=prop.description_en,
+        description_ja=prop.description_ja,
+        temporal=temporal,
+        enum_values=tuple(states),
+    )
+
+
 def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
     """Generate definitions from MRA data."""
     devices_path = mra_path / "devices"
@@ -906,6 +994,23 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
 
     mra_version, mra_definitions = _load_mra_metadata(mra_path)
     role_map = _load_property_roles(PROPERTY_ROLES_FILE)
+    temporal_kinds = _load_temporal_kinds(
+        _load_custom_definitions(CUSTOM_DEFINITIONS_FILE)
+    )
+    used_temporal_kinds: set[tuple[int, int]] = set()
+
+    def temporal_entity(
+        class_code: int, prop_data: dict[str, Any]
+    ) -> EntityDefinition | None:
+        return _build_temporal_entity(
+            class_code,
+            _parse_mra_property(prop_data, mra_definitions),
+            prop_data["data"],
+            mra_definitions,
+            temporal_kinds,
+            used_temporal_kinds,
+        )
+
     print(f"  Loaded {len(role_map)} curated property role(s)")
 
     # Build common entities once (shared across all device classes)
@@ -918,7 +1023,11 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             continue
         raw_common_epcs.add(int(prop_data["epc"], 16))
         prop = _parse_mra_property(prop_data, mra_definitions)
-        entity = _build_entity_from_property(0, prop)
+        entity = temporal_entity(0, prop_data)
+        if entity is None:
+            if _has_temporal_alternative(prop_data["data"], mra_definitions):
+                continue
+            entity = _build_entity_from_property(0, prop)
         if entity is not None:
             common.append(_apply_role(entity, role_map, 0))
 
@@ -961,9 +1070,18 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
                 continue
 
             epc = int(prop_data["epc"], 16)
+            entity = temporal_entity(class_code, prop_data)
+            if entity is None and _has_temporal_alternative(
+                prop_data["data"], mra_definitions
+            ):
+                continue
 
             # Skip common EPCs (they are in the common section)
-            if epc in common_entity_epcs:
+            if epc in common_entity_epcs and entity is None:
+                continue
+
+            if entity is not None:
+                entities.append(_apply_role(entity, role_map, class_code))
                 continue
 
             object_entities = _build_entities_from_object_property(
@@ -1002,6 +1120,8 @@ def generate_definitions(mra_path: Path) -> _DefinitionsBuild:
             structured_values=structured_values,
         )
 
+    if unused := temporal_kinds.keys() - used_temporal_kinds:
+        raise ValueError(f"Unused temporal classifications: {sorted(unused)}")
     manufacturers = _load_manufacturer_codes(MANUFACTURER_CODES_FILE)
 
     return _DefinitionsBuild(
@@ -1760,14 +1880,15 @@ def _finalize_build(build: _DefinitionsBuild) -> None:
 
 def _validate_entity(entity: EntityDefinition, class_code: int) -> None:
     """Validate an entity definition at build time."""
-    assert entity.enum_values or entity.format or entity.numeric_values, (
-        f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
-    )
+    assert (
+        entity.enum_values or entity.format or entity.numeric_values or entity.temporal
+    ), f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X} missing format"
     assert (
         not entity.enum_values
         or len(entity.enum_values) != 1
         or not entity.readable
         or entity.format is not None
+        or entity.temporal is not None
     ), (
         f"Entity EPC 0x{entity.epc:02X} for class 0x{class_code:04X}"
         " has only 1 enum_value"
@@ -1825,6 +1946,8 @@ def _generate_python_source(build: _DefinitionsBuild) -> str:
         "    PropertyValueDefinition,",
         "    Quantity,",
         "    ScalarDefinition,",
+        "    TemporalDefinition,",
+        "    TemporalKind,",
         "    ValueKind,",
         ")",
         "",

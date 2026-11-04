@@ -1306,3 +1306,48 @@ collection_bindings:
     items_path: [instantaneousElectricPower]
     start_path: [startChannel]
     page_count_path: [range]
+
+temporal_kinds:
+  - {class_code: 0x0000, epc: 0x97, kind: clock}
+  - {class_code: 0x0130, epc: 0x91, kind: clock}
+  - {class_code: 0x0130, epc: 0x92, kind: duration}
+  - {class_code: 0x0130, epc: 0x95, kind: clock}
+  - {class_code: 0x0130, epc: 0x96, kind: duration}
+  - {class_code: 0x026B, epc: 0x91, kind: clock}
+  - {class_code: 0x026B, epc: 0xB5, kind: duration}
+  - {class_code: 0x026B, epc: 0xC4, kind: duration}
+  - {class_code: 0x0272, epc: 0x91, kind: clock}
+  - {class_code: 0x0272, epc: 0x92, kind: duration}
+  - {class_code: 0x0272, epc: 0xDA, kind: duration}
+  - {class_code: 0x0272, epc: 0xDB, kind: duration}
+  - {class_code: 0x0272, epc: 0xED, kind: clock}
+  - {class_code: 0x0273, epc: 0x91, kind: clock}
+  - {class_code: 0x0273, epc: 0x92, kind: duration}
+  - {class_code: 0x0273, epc: 0x95, kind: clock}
+  - {class_code: 0x0273, epc: 0x96, kind: duration}
+  - {class_code: 0x0279, epc: 0x97, kind: clock}
+  - {class_code: 0x027A, epc: 0x91, kind: clock}
+  - {class_code: 0x027A, epc: 0x92, kind: duration}
+  - {class_code: 0x027A, epc: 0x95, kind: clock}
+  - {class_code: 0x027A, epc: 0x96, kind: duration}
+  - {class_code: 0x027B, epc: 0x91, kind: clock}
+  - {class_code: 0x027B, epc: 0x92, kind: duration}
+  - {class_code: 0x027B, epc: 0x95, kind: clock}
+  - {class_code: 0x027B, epc: 0x96, kind: duration}
+  - {class_code: 0x027D, epc: 0x97, kind: clock}
+  - {class_code: 0x028E, epc: 0xDA, kind: clock}
+  - {class_code: 0x0290, epc: 0x91, kind: clock}
+  - {class_code: 0x0290, epc: 0x95, kind: clock}
+  - {class_code: 0x02A5, epc: 0x97, kind: clock}
+  - {class_code: 0x02A7, epc: 0xC9, kind: clock}
+  - {class_code: 0x03BB, epc: 0x91, kind: clock}
+  - {class_code: 0x03BB, epc: 0x92, kind: duration}
+  - {class_code: 0x03D3, epc: 0x91, kind: clock}
+  - {class_code: 0x03D3, epc: 0x92, kind: duration}
+  - {class_code: 0x03D3, epc: 0xDB, kind: duration}
+  - {class_code: 0x03D3, epc: 0xDC, kind: duration}
+  - {class_code: 0x03D3, epc: 0xDF, kind: duration}
+  - {class_code: 0x03D3, epc: 0xE1, kind: duration}
+  - {class_code: 0x03D3, epc: 0xE5, kind: duration}
+  - {class_code: 0x03D3, epc: 0xE9, kind: duration}
+  - {class_code: 0x03D3, epc: 0xED, kind: duration}
