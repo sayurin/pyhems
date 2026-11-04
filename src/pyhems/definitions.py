@@ -119,6 +119,43 @@ class ValueKind(StrEnum):
         return f"{type(self).__name__}.{self.name}"
 
 
+class TemporalKind(StrEnum):
+    """Meaning of an MRA temporal value, independent of its wire format."""
+
+    DATE = "date"
+    CLOCK = "clock"
+    DURATION = "duration"
+    DATETIME = "datetime"
+
+    def __repr__(self) -> str:
+        """Render as importable generated source."""
+        return f"{type(self).__name__}.{self.name}"
+
+
+@dataclass(frozen=True, slots=True)
+class TemporalDefinition:
+    """Temporal meaning, byte width and maximum hour of a value."""
+
+    kind: TemporalKind
+    size: int
+    maximum_hour: int = 23
+
+    def __post_init__(self) -> None:
+        """Reject unsupported sizes and inconsistent ranges."""
+        sizes = {
+            TemporalKind.DATE: (4,),
+            TemporalKind.CLOCK: (2, 3),
+            TemporalKind.DURATION: (2, 3),
+            TemporalKind.DATETIME: (6, 7),
+        }
+        if self.size not in sizes[self.kind]:
+            raise ValueError(f"Unsupported {self.kind} size: {self.size}")
+        if not 0 <= self.maximum_hour <= 255:
+            raise ValueError("maximum_hour must be in 0..255")
+        if self.kind is TemporalKind.CLOCK and self.maximum_hour > 23:
+            raise ValueError("Clock maximum_hour cannot exceed 23")
+
+
 class Indication(StrEnum):
     """Condition indicated by the ``true`` state of a boolean property.
 
@@ -217,6 +254,8 @@ class EntityDefinition:
           static values and non-numeric properties.
         indication: :class:`Indication` of a boolean property, or ``None``
           when unknown.
+        temporal: Meaning and wire precision of a scalar temporal value.
+          enum_values, when present, are its alternative special states.
     """
 
     id: str
@@ -241,6 +280,7 @@ class EntityDefinition:
     quantity: Quantity | None = None
     value_kind: ValueKind | None = None
     indication: Indication | None = None
+    temporal: TemporalDefinition | None = None
 
     def __repr__(self) -> str:
         """Render as ``EntityDefinition(...)`` source, omitting default-valued fields.

@@ -292,6 +292,35 @@ await client.stop()
 - `inf_request_epcs` / `inf_notified_epcs` / `inf_unconfirmed_epcs`: setup で 1 回送る INF_REQ（0x63）の対象、そのうち機器が通知した EPC、拒否または応答がなかった EPC。通知された EPC はポーリングしません（`docs/adr/0009-assume-persistent-status-notifications.md`）
 - `manufacturer_code` / `product_code` / `serial_number`
 
+## 日時・時間量
+
+単体codecは日時を型付きの値として扱います。暦日は`datetime.date`、
+時刻はnaiveな`datetime.time`、時間量は`datetime.timedelta`、
+日時はnaiveな`datetime.datetime`です。timezoneは付与しません。
+`TemporalCodec.resolution`は通信精度を`timedelta`で返し、
+duration codecの`maximum_duration`は正常時間量の最大値を返します。
+利用側でバイト幅や通信上限を再解釈する必要はありません。
+`time`の意味は`TemporalDefinition.kind`に保持し、対応する単体プロパティを
+`scripts/custom_definitions.yaml`で明示分類します。
+
+対応サイズはdate=4、time=2/3、date-time=6/7バイトです。明示sizeを優先し、
+省略時は4/3/7とします。encodeは表現できない秒・microsecond、timezone付きの値、
+不正暦日・範囲外を拒否し、丸めません。明示oneOfの特殊状態はMRAキー文字列、
+不正値は`None`です。既存codec同様、encodeはアクセス権を検査しません。
+書き込み可否は呼び出し側がプロパティのwritableで判断します。
+単体temporalと、同じ幅のstateだけを含む単純oneOfに対応します。
+複雑な候補を含むoneOfは全体を除外します。洗濯乾燥機の時間設定は
+通常time・auto・相対levelが混在するためプロパティ全体が対象外です。
+MRA外の特殊符号補完・時計の自動設定は行いません。
+
+`EntityDefinition.temporal`に正常値の意味・size、既存の`enum_values`に
+同じ幅の特殊状態を保持し、状態別のアクセス情報は追加しません。
+再帰的な値ツリーは追加しません。object / array内の日時変換は今回の対象外とし、
+既存の構造化デコードは変更しません。
+
+ノードプロファイルの日時定義はregistryの対象外です。
+詳細は[ADR-0013](docs/adr/0013-typed-temporal-values.md)を参照してください。
+
 ## エンティティ定義
 
 pyhems は MRA（Machine Readable Appendix）データに基づいたエンティティ定義を提供します。

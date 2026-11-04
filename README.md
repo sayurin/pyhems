@@ -105,6 +105,36 @@ Requests to one node are sent one at a time through a per-node queue, ordered
 by `RequestPriority` (Set, then setup and other reads, then polling); see
 `docs/adr/0011-serialize-requests-per-node.md`.
 
+## Temporal values
+
+`get_codec()` / `get_codec_for_epc()` provide typed scalar temporal
+conversion: `date` becomes `datetime.date`, clock `time`
+becomes naive `datetime.time`, duration `time` becomes `datetime.timedelta`,
+and `date-time` becomes naive `datetime.datetime`. `TemporalDefinition.kind`
+records the meaning; supported scalar MRA `time` properties are classified in
+`scripts/custom_definitions.yaml`, not inferred from received values.
+
+Supported widths are date=4, time=2/3 and date-time=6/7 bytes. Explicit MRA
+sizes take precedence over defaults 4/3/7. Encoding rejects precision loss,
+timezone-aware values, invalid calendars and out-of-range durations.
+`TemporalCodec.resolution` exposes wire precision as a `timedelta`;
+`maximum_duration` exposes the largest normal duration for duration codecs.
+Callers can use these without interpreting byte widths or calculating wire limits.
+Special `oneOf` states retain their MRA string keys; invalid values return
+`None`. Like existing codecs, encoding does not enforce access rights; callers
+must check the property's writable access. Scalar temporal values and simple
+oneOfs containing only same-width explicit states are supported. A oneOf with
+complex alternatives is excluded as a whole; this includes the washer/dryer
+duration settings that combine normal times, states and relative levels.
+`EntityDefinition.temporal` holds the normal value's meaning and size;
+existing `enum_values` hold same-width special states. No recursive value tree
+or state-specific access metadata is added.
+Temporal conversion inside objects/arrays, MRA-external sentinels and automatic
+clock synchronization are not added. Existing structured decoding is unchanged.
+
+Node-profile temporal definitions are not included in the registry.
+See [ADR-0013](docs/adr/0013-typed-temporal-values.md).
+
 ## Adaptive Property Polling
 
 `PropertyPoller` uses an adaptive scheduler designed for mixed ECHONET Lite devices:

@@ -5,7 +5,7 @@ implementations, and exposes :func:`get_codec` and :func:`get_codec_for_epc`,
 which select the appropriate codec for an :class:`EntityDefinition`.
 
 The goal is to let callers exchange typed Python values (``bool``, ``int``,
-``float``, ``str`` enum key, :class:`InstallationLocation`) with a node
+``float``, ``str`` enum key, temporal values, :class:`InstallationLocation`) with a node
 without having to assemble raw EDT bytes themselves.
 
 Typical usage::
@@ -24,9 +24,11 @@ properties (MRA ``coefficient``) use it.
 from __future__ import annotations
 
 import functools
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from typing import Any, Protocol
 
 from ._definitions_generated import REGISTRY
@@ -34,10 +36,13 @@ from .definitions import (
     ArrayDefinition,
     CollectionBinding,
     EntityDefinition,
+    EnumValue,
     ObjectDefinition,
     OneOfDefinition,
     PropertyValueDefinition,
     ScalarDefinition,
+    TemporalDefinition,
+    TemporalKind,
 )
 from .installation_location import (
     INSTALLATION_LOCATIONS,
@@ -54,6 +59,114 @@ _FORMAT_INFO: dict[str, tuple[bool, int]] = {
     "uint32": (False, 4),
     "int32": (True, 4),
 }
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _decode_temporal(
+    definition: TemporalDefinition, edt: bytes
+) -> date | time | timedelta | None:
+    """Decode a validated local temporal value without guessing sentinels."""
+    if len(edt) != definition.size:
+        return None
+    kind = definition.kind
+    try:
+        if kind is TemporalKind.DATE:
+            return date(int.from_bytes(edt[:2], "big"), edt[2], edt[3])
+        if kind is TemporalKind.DATETIME:
+            return datetime(int.from_bytes(edt[:2], "big"), *edt[2:])
+        hour, minute = edt[:2]
+        second = edt[2] if definition.size == 3 else 0
+        if hour > definition.maximum_hour or minute > 59 or second > 59:
+            return None
+        if kind is TemporalKind.CLOCK:
+            return time(hour, minute, second)
+        return timedelta(hours=hour, minutes=minute, seconds=second)
+    except ValueError:
+        return None
+
+
+def _encode_temporal(definition: TemporalDefinition, value: Any) -> bytes:
+    """Encode exactly representable local values, rejecting precision loss."""
+    kind = definition.kind
+    if kind is TemporalKind.DATE and type(value) is date:
+        return value.year.to_bytes(2, "big") + bytes((value.month, value.day))
+    if kind is TemporalKind.DATETIME and type(value) is datetime:
+        if value.tzinfo is not None or value.fold or value.microsecond:
+            raise ValueError("Expected naive datetime without fold or microseconds")
+        if definition.size == 6 and value.second:
+            raise ValueError("Seconds cannot be encoded at minute precision")
+        edt = value.year.to_bytes(2, "big") + bytes(
+            (value.month, value.day, value.hour, value.minute, value.second)
+        )
+        return edt[: definition.size]
+    if kind is TemporalKind.CLOCK and type(value) is time:
+        if value.tzinfo is not None or value.fold or value.microsecond:
+            raise ValueError("Expected naive time without fold or microseconds")
+        hour, minute, second = value.hour, value.minute, value.second
+    elif kind is TemporalKind.DURATION and type(value) is timedelta:
+        if value.days < 0 or value.microseconds:
+            raise ValueError("Expected nonnegative duration with whole seconds")
+        seconds = value.days * 86400 + value.seconds
+        hour, remainder = divmod(seconds, 3600)
+        minute, second = divmod(remainder, 60)
+    else:
+        raise ValueError(f"Invalid value type for {kind}: {type(value).__name__}")
+    if hour > definition.maximum_hour:
+        raise ValueError("Hour out of range")
+    if definition.size == 2 and second:
+        raise ValueError("Seconds cannot be encoded at minute precision")
+    return bytes((hour, minute, second))[: definition.size]
+
+
+@dataclass(frozen=True, slots=True)
+class TemporalCodec:
+    """Single temporal property, optionally combined with explicit states."""
+
+    temporal: TemporalDefinition
+    enum_values: tuple[EnumValue, ...] = ()
+
+    @property
+    def resolution(self) -> timedelta:
+        """Return the smallest time interval represented by the wire format."""
+        if self.temporal.kind is TemporalKind.DATE:
+            return timedelta(days=1)
+        return (
+            timedelta(minutes=1)
+            if self.temporal.size in (2, 6)
+            else timedelta(seconds=1)
+        )
+
+    @property
+    def maximum_duration(self) -> timedelta:
+        """Return the largest normal duration, raising TypeError for other kinds."""
+        if self.temporal.kind is not TemporalKind.DURATION:
+            raise TypeError("Expected a duration codec")
+        return timedelta(hours=self.temporal.maximum_hour + 1) - self.resolution
+
+    def decode(
+        self,
+        edt: bytes,
+        context: Mapping[int, bytes] | None = None,  # noqa: ARG002
+    ) -> date | time | timedelta | str | None:
+        """Return a normal value, explicit state key, or diagnosed invalid value."""
+        if len(edt) == self.temporal.size:
+            for state in self.enum_values:
+                if edt == state.edt.to_bytes(self.temporal.size, "big"):
+                    return state.key
+        value = _decode_temporal(self.temporal, edt)
+        if value is None:
+            _LOGGER.debug("Invalid or unsupported temporal EDT: %s", edt.hex())
+        return value
+
+    def encode(self, value: Any) -> bytes:
+        """Encode a normal value or an explicitly defined state."""
+        if isinstance(value, str):
+            for state in self.enum_values:
+                if state.key == value:
+                    return state.edt.to_bytes(self.temporal.size, "big")
+            raise ValueError(f"Unknown or unsupported temporal state: {value!r}")
+        return _encode_temporal(self.temporal, value)
 
 
 class PropertyCodec(Protocol):
@@ -352,6 +465,10 @@ def get_codec(
     when ``enum_values``, ``format``, and ``numeric_values`` are all absent)
     or when the coefficient EPCs cannot be resolved.
     """
+    if entity_def.temporal is not None:
+        if entity_def.byte_offset:
+            raise ValueError("Temporal codecs do not support byte_offset")
+        return TemporalCodec(entity_def.temporal, entity_def.enum_values)
     if entity_def.numeric_values:
         return NumericValueCodec(
             by_edt={nv.edt: nv.value for nv in entity_def.numeric_values},

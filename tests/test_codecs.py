@@ -23,6 +23,7 @@ from pyhems import (
     ObjectField,
     OneOfDefinition,
     ScalarDefinition,
+    TemporalCodec,
     decode_collection_page,
     decode_property_value,
     get_codec,
@@ -528,7 +529,11 @@ def test_get_codec_succeeds_for_all_entity_definitions() -> None:
     errors: list[str] = []
     for class_code, entities in _DEFINITIONS.entities.items():
         for entity_def in entities:
-            if not entity_def.enum_values and entity_def.format is None:
+            if (
+                not entity_def.enum_values
+                and entity_def.format is None
+                and entity_def.temporal is None
+            ):
                 continue
             try:
                 codec = get_codec(entity_def, class_code=class_code)
@@ -538,7 +543,7 @@ def test_get_codec_succeeds_for_all_entity_definitions() -> None:
                 )
             else:
                 if not isinstance(
-                    codec, (BinaryCodec, EnumCodec, NumericCodec)
+                    codec, (BinaryCodec, EnumCodec, NumericCodec, TemporalCodec)
                 ):  # pragma: no cover
                     errors.append(
                         f"class 0x{class_code:04X} EPC 0x{entity_def.epc:02X}: "

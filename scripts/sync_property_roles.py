@@ -142,11 +142,15 @@ def _candidate_role(name_en: str, set_val: str, unit: str | None) -> str:
 def _scan_mra_properties(mra_path: Path) -> dict[tuple[int, int], dict[str, Any]]:
     """Scan MRA data for the current (class_code, epc) universe.
 
-    Mirrors generate_definitions.generate_definitions()'s notion of "common"
-    vs. device-specific properties: common (superClass) properties are keyed
-    under class_code 0 and skipped when encountered again per-device.
+    Common (superClass) properties are keyed under class_code 0. Device
+    properties sharing a common EPC are skipped unless the generator builds
+    a device-specific temporal override, whose access rules may differ.
     """
     _, mra_definitions = gd._load_mra_metadata(mra_path)
+    temporal_kinds = gd._load_temporal_kinds(
+        gd._load_custom_definitions(gd.CUSTOM_DEFINITIONS_FILE)
+    )
+    used_temporal_kinds: set[tuple[int, int]] = set()
 
     def _extract(prop_data: dict[str, Any], class_name_ja: str) -> dict[str, Any]:
         name_en = gd._normalize_trailing_number(prop_data["propertyName"]["en"])
@@ -193,7 +197,18 @@ def _scan_mra_properties(mra_path: Path) -> dict[tuple[int, int], dict[str, Any]
             if not gd._is_latest_version(prop_data):
                 continue
             epc = int(prop_data["epc"], 16)
-            if epc in common_epcs:
+            if (
+                epc in common_epcs
+                and gd._build_temporal_entity(
+                    class_code,
+                    gd._parse_mra_property(prop_data, mra_definitions),
+                    prop_data["data"],
+                    mra_definitions,
+                    temporal_kinds,
+                    used_temporal_kinds,
+                )
+                is None
+            ):
                 continue
             properties[class_code, epc] = _extract(prop_data, device_name_ja)
 
