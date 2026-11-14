@@ -1,39 +1,71 @@
 repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+  - repo: local
     hooks:
       - id: trailing-whitespace
+        name: Fix trailing whitespace
+        entry: uv run --locked --extra dev trailing-whitespace-fixer
+        language: system
+        types: [text]
       - id: end-of-file-fixer
+        name: Fix end of files
+        entry: uv run --locked --extra dev end-of-file-fixer
+        language: system
+        types: [text]
       - id: check-yaml
+        name: Check YAML
+        entry: uv run --locked --extra dev check-yaml
+        language: system
+        types: [yaml]
       - id: check-toml
+        name: Check TOML
+        entry: uv run --locked --extra dev check-toml
+        language: system
+        types: [toml]
       - id: check-added-large-files
+        name: Check for added large files
+        entry: uv run --locked --extra dev check-added-large-files
+        language: system
       - id: debug-statements
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.13.0
-    hooks:
+        name: Check for debug statements
+        entry: uv run --locked --extra dev debug-statement-hook
+        language: system
+        types: [python]
       - id: ruff-check
-        args:
-          - --fix
+        name: Ruff check
+        entry: uv run --locked --extra dev ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
-    hooks:
+        name: Ruff format
+        entry: uv run --locked --extra dev ruff format
+        language: system
+        types: [python]
       - id: codespell
-        # Manufacturer names are not subject to spell checking.
+        name: Codespell
+        entry: uv run --locked --extra dev codespell
+        language: system
         exclude: ^scripts/manufacturer_codes\.yaml$
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
-    hooks:
       - id: mypy
-        additional_dependencies:
-          - bidict
-          - pytest
-          - types-PyYAML
+        name: Mypy
+        entry: uv run --locked --extra dev mypy src/pyhems
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-actions-lock
+        name: Check GitHub Actions lockfile
+        entry: gh actions-lock --verify-local
+        language: system
+        pass_filenames: false
+        always_run: true
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.32.0
+    hooks:
+      - id: zizmor
   - repo: local
     hooks:
       - id: check-generated-definitions
         name: Check generated definitions
-        entry: uv run scripts/generate_definitions.py --check
+        entry: uv run --locked --extra dev python scripts/generate_definitions.py --check
         language: system
         pass_filenames: false
         always_run: true

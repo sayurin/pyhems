@@ -26,13 +26,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "codespell",
     "mypy",
     "openpyxl",
+    "pre-commit-hooks",
     "prek",
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
     "PyYAML",
+    "ruff",
+    "twine",
     "types-openpyxl",
     "types-PyYAML",
 ]
@@ -95,3 +99,6 @@ strict = false
 [tool.codespell]
 skip = "./.*,*.csv,*.json"
 quiet-level = 2
+
+[tool.uv]
+required-version = ">=0.13.1"
