@@ -253,6 +253,24 @@ def test_custom_ventilation_function_normalizes_boolean_values() -> None:
     assert codec.decode(b"\x42") is True
 
 
+def test_custom_filter_replacement_alarm_maps_and_resets() -> None:
+    """Mitsubishi 0x0F01 EPC 0xCF maps the alarm and clears it with 0x42."""
+    entity = _entity(0x0F01, 0xCF)
+    assert entity.manufacturer_code == 0x000006
+    assert entity.readable
+    assert entity.writable
+    assert tuple((value.edt, value.key) for value in entity.enum_values) == (
+        (0x41, "true"),
+        (0x42, "false"),
+    )
+
+    codec = get_codec_for_epc(0x0F01, 0xCF, manufacturer_code=0x000006)
+    assert isinstance(codec, BinaryCodec)
+    assert codec.decode(b"\x41") is True
+    assert codec.decode(b"\x42") is False
+    assert codec.encode(False) == b"\x42"
+
+
 def test_custom_define_overrides_common_epc_for_its_class() -> None:
     """A custom class definition replaces the matching common EPC."""
     entities = [entity for entity in REGISTRY.entities[0x0F02] if entity.epc == 0x8F]

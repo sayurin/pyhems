@@ -1184,6 +1184,23 @@ devices:
             key: level_8
             name_en: Level 8
             name_ja: レベル8
+      - epc: 0xCF
+        manufacturer_code: 0x000006
+        name_en: Filter replacement alarm status
+        name_ja: フィルター交換アラーム状態
+        get: required
+        set: required
+        description_en: This property indicates whether the filter replacement alarm is active. Setting 0x42 clears the alarm; setting 0x41 has no effect.
+        description_ja: フィルター交換アラームの状態を示す。0x42を設定するとアラームが解除され、0x41を設定しても変化しない
+        enum_values:
+          - edt: 0x41
+            key: "true"
+            name_en: Filter replacement alarm active
+            name_ja: フィルター交換アラーム発報中
+          - edt: 0x42
+            key: "false"
+            name_en: No filter replacement alarm
+            name_ja: フィルター交換アラームなし
 
   0x0F02:
     short_name: userDefinedDevice
