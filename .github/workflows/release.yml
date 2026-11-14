@@ -23,28 +23,35 @@ jobs:
   release-please:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - name: Require release token
+      - name: Require GitHub App configuration
         env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          APP_ID: ${{ vars.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
-          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
-            echo "::error::Set the RELEASE_PLEASE_TOKEN repository secret so release PRs trigger CI."
+          if [[ -z "$APP_ID" || -z "$APP_PRIVATE_KEY" ]]; then
+            echo "::error::Configure APP_ID and APP_PRIVATE_KEY for the release GitHub App."
             exit 1
           fi
+
+      - name: Create GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2.2.2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
 
       - name: Create or update release pull request
         id: release
         uses: googleapis/release-please-action@v4.4.1
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
