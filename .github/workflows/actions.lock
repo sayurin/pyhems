@@ -5,7 +5,7 @@ version: 'v0.0.3'
 workflows:
     '.github/workflows/ci.yml':
         - 'actions/checkout@v7.0.1'
-        - 'actions/setup-go@v6.5.0'
+        - 'actions/setup-go@v7.0.0'
         - 'actions/setup-python@v7.1.0'
         - 'actions/upload-artifact@v7.0.1'
         - 'astral-sh/setup-uv@v8.2.0'
@@ -33,9 +33,9 @@ dependencies:
         commit: 'sha1-ed597411d8f924073f98dfc5c65a23a2325f34cd'
         owner_id: 44036562
         repo_id: 205262760
-    'actions/setup-go@v6.5.0':
-        ref: 'v6.5.0'
-        commit: 'sha1-924ae3a1cded613372ab5595356fb5720e22ba16'
+    'actions/setup-go@v7.0.0':
+        ref: 'v7.0.0'
+        commit: 'sha1-b7ad1dad31e06c5925ef5d2fc7ad053ef454303e'
         owner_id: 44036562
         repo_id: 192624594
     'actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405':
