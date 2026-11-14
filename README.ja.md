@@ -45,6 +45,8 @@ MIT License
 pip install pyhems
 ```
 
+開発環境の準備と貢献方法は[CONTRIBUTING.md](CONTRIBUTING.md)を参照してください。
+
 ## 基本的な使い方
 
 ### クライアントの起動とイベント購読

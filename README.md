@@ -32,6 +32,9 @@ MIT License
 pip install pyhems
 ```
 
+For development setup and contribution guidelines, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Quick Start
 
 ```python
