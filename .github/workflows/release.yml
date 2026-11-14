@@ -49,7 +49,7 @@ jobs:
 
       - name: Create or update release pull request
         id: release
-        uses: googleapis/release-please-action@v4.4.1
+        uses: googleapis/release-please-action@v5.0.0
         with:
           token: ${{ steps.app.outputs.token }}
           config-file: release-please-config.json
