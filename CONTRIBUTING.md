@@ -40,9 +40,11 @@ distributions for PyPI and the GitHub Release.
 
 Repository setup required for automation:
 
-- Add a `RELEASE_PLEASE_TOKEN` Actions secret with permission to create and
-  update pull requests and releases. Using this token allows CI to run for
-  Release Please pull requests.
+- Install a GitHub App on this repository with Contents, Pull requests, and
+  Issues read and write permissions. Set its App ID as the `APP_ID` Actions
+  variable and its private key as the `APP_PRIVATE_KEY` Actions secret.
+  The workflow creates a short-lived App token so CI runs for Release Please
+  pull requests.
 - Configure the `pypi` Actions environment as a PyPI Trusted Publisher for
   `.github/workflows/release.yml`.
 - Require the CI checks before merging pull requests.
