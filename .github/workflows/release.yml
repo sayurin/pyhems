@@ -6,17 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: Existing draft release tag to rebuild and reattach
+        description: Existing published release tag to safely retry
         required: true
         type: string
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ github.event.release.tag_name || github.ref }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +24,7 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - name: Require GitHub App configuration
         env:
@@ -55,21 +54,59 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  prepare-draft:
+  prepare-release:
     needs: release-please
     if: |
       always() &&
       (
         (github.event_name == 'push' && needs.release-please.result == 'success' && needs.release-please.outputs.release_created == 'true')
-        || github.event_name == 'workflow_dispatch'
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
       )
     runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ inputs.tag_name || needs.release-please.outputs.tag_name }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release state and resolve immutable revision
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag_name || needs.release-please.outputs.tag_name }}
+          EXPECTED_SHA: ${{ needs.release-please.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release tag: $TAG_NAME"
+            exit 1
+          fi
+          release="$(gh release view "$TAG_NAME" --json isDraft,isPrerelease,tagName)"
+          [[ "$(jq -r .tagName <<<"$release")" == "$TAG_NAME" ]]
+          [[ "$(jq -r .isDraft <<<"$release")" == false ]]
+          [[ "$(jq -r .isPrerelease <<<"$release")" == false ]]
+          tag_sha="$(git rev-parse "refs/tags/$TAG_NAME^{commit}")"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            [[ "$tag_sha" == "$EXPECTED_SHA" ]]
+            latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            if [[ "$latest_tag" != "$TAG_NAME" ]]; then
+              echo "::error::The newly created release is not GitHub's latest release."
+              exit 1
+            fi
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "sha=$tag_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -83,23 +120,17 @@ jobs:
           version: 0.13.1
           enable-cache: false
 
-      - name: Verify draft release and version
+      - name: Install locked development dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Verify tag version
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ inputs.tag_name || needs.release-please.outputs.tag_name }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Invalid release tag: $TAG_NAME"
-            exit 1
-          fi
-          if [[ "$(uv version --short)" != "${TAG_NAME#v}" ]]; then
-            echo "::error::The tag version does not match pyproject.toml."
-            exit 1
-          fi
-          if [[ "$(gh release view "$TAG_NAME" --json isDraft --jq '.isDraft')" != "true" ]]; then
-            echo "::error::The release for $TAG_NAME is not a draft."
-            exit 1
-          fi
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ "$(uv version --short)" == "${TAG_NAME#v}" ]]
 
       - name: Build package
         run: uv build
@@ -107,14 +138,36 @@ jobs:
       - name: Check distributions
         run: uv run --locked --extra dev twine check dist/*
 
-      - name: Attach distributions to draft release
+      - name: Attach distributions without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ inputs.tag_name || needs.release-please.outputs.tag_name }}
-        run: gh release upload "$TAG_NAME" dist/* --clobber
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          asset_names="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
+          for artifact in dist/*; do
+            name="$(basename "$artifact")"
+            if grep -Fqx -- "$name" <<<"$asset_names"; then
+              gh release download "$TAG_NAME" --pattern "$name" --dir "$RUNNER_TEMP/release-assets"
+              if ! cmp --silent "$artifact" "$RUNNER_TEMP/release-assets/$name"; then
+                echo "::error::Existing release asset $name does not match the rebuilt distribution."
+                exit 1
+              fi
+            else
+              gh release upload "$TAG_NAME" "$artifact"
+            fi
+          done
 
   publish:
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    needs: [release-please, prepare-release]
+    if: |
+      always() &&
+      needs.prepare-release.result == 'success' &&
+      (
+        (github.event_name == 'push' && needs.release-please.result == 'success' && needs.release-please.outputs.release_created == 'true')
+        || github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -123,7 +176,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.prepare-release.outputs.tag_name }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -137,14 +191,45 @@ jobs:
           version: 0.13.1
           enable-cache: false
 
-      - name: Build package
-        run: uv build
+      - name: Install locked development dependencies
+        run: uv sync --locked --extra dev
 
-      - name: Check distributions
-        run: uv run --locked --extra dev twine check dist/*
+      - name: Verify release assets and build distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          [[ "$(uv version --short)" == "${TAG_NAME#v}" ]]
+          [[ "$(git rev-parse "refs/tags/$TAG_NAME^{commit}")" == "$(git rev-parse HEAD)" ]]
+          release="$(gh release view "$TAG_NAME" --json isDraft,isPrerelease,tagName)"
+          [[ "$(jq -r .tagName <<<"$release")" == "$TAG_NAME" ]]
+          [[ "$(jq -r .isDraft <<<"$release")" == false ]]
+          [[ "$(jq -r .isPrerelease <<<"$release")" == false ]]
+          uv build
+          uv run --locked --extra dev twine check dist/*
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          for artifact in dist/*; do
+            name="$(basename "$artifact")"
+            gh release download "$TAG_NAME" --pattern "$name" --dir "$RUNNER_TEMP/release-assets"
+            if ! cmp --silent "$artifact" "$RUNNER_TEMP/release-assets/$name"; then
+              echo "::error::GitHub asset $name does not match the rebuilt distribution."
+              exit 1
+            fi
+          done
+
+      - name: Verify existing PyPI files before retry-safe publication
+        env:
+          TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+        run: uv run --locked --extra dev python -m scripts.check_pypi_artifacts "$TAG_NAME" dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
           skip-existing: true
+
+      - name: Verify all published PyPI files
+        env:
+          TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+        run: uv run --locked --extra dev python -m scripts.check_pypi_artifacts "$TAG_NAME" dist --complete
