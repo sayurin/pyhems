@@ -34,9 +34,10 @@ CI also rechecks the title when a pull request is edited.
 ## Releases
 
 Release Please proposes version and changelog updates in a pull request.
-Review and merge that pull request to create a draft GitHub Release. Review the
-draft and publish it manually; the published tag is then used to build the
-distributions for PyPI and the GitHub Release.
+Review and merge that pull request to create a published GitHub Release and
+tag. The Release workflow builds the distributions from that tag, attaches
+them to the release, verifies the same files against PyPI, and publishes them
+through Trusted Publishing.
 
 Repository setup required for automation:
 
@@ -54,7 +55,7 @@ Repository setup required for automation:
   `gh extension install github/gh-actions-lock --pin v0.4.1`; prek checks local
   lockfile coverage, and CI verifies the resolved pins against GitHub.
 
-If preparing a draft release fails, rerun the `Release` workflow with the
-existing tag to rebuild and reattach its distributions. If PyPI publication
-fails after a release is published, rerun the failed job; existing files are
-skipped rather than overwritten.
+If release preparation or PyPI publication fails, rerun the `Release` workflow
+on `master` with the existing published tag. Recovery verifies the tag,
+version, release state, GitHub assets, and any existing PyPI files. It only
+adds missing files; mismatched files fail explicitly and are never overwritten.
