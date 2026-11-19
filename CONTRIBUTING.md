@@ -19,7 +19,14 @@ an out-of-date lockfile.
 
 ## Commits and pull requests
 
-Use English Conventional Commit subjects, for example:
+Use English Conventional Commit subjects. The type must be one of the
+Release Please Python strategy's default changelog sections:
+`feat`, `fix`, `perf`, `deps`, `revert`, `docs`, `style`, `chore`,
+`refactor`, `test`, `build`, or `ci`. Other types are rejected, even though
+Conventional Commits permits custom types. Use a scope for the affected
+component, for example `fix(device-manager): ...`.
+
+Examples:
 
 ```text
 fix: handle incomplete responses
