@@ -95,8 +95,6 @@ EpcSelection = Mapping[int, frozenset[int]] | Callable[[int, int], Collection[in
 _VALUE_ESVS = frozenset({ESV.GET_RES, ESV.GET_SNA, ESV.INF, ESV.INFC})
 # Frames received for a device object while it is being set up.
 _MAX_DEFERRED_FRAMES = 64
-# Seconds to wait after an accepted SetC before reading the values back.
-_REFRESH_DELAY = 1.0
 
 
 def _select_epcs(
@@ -426,7 +424,6 @@ class DeviceManager:
         self._subscription_confirmed: set[str] = set()
 
         self._listeners: list[DeviceManagerCallback] = []
-        self._refresh_tasks: set[asyncio.Task[None]] = set()
 
     async def async_start(self) -> None:
         """Subscribe to runtime events and start serialized event processing."""
@@ -454,12 +451,6 @@ class DeviceManager:
         self._node_workers.clear()
         self._node_jobs.clear()
         self._deferred_frames.clear()
-        refresh_tasks = list(self._refresh_tasks)
-        for task in refresh_tasks:
-            task.cancel()
-        if refresh_tasks:
-            await asyncio.gather(*refresh_tasks, return_exceptions=True)
-        self._refresh_tasks.clear()
 
         if self._event_consumer_task is None:
             return
@@ -538,8 +529,6 @@ class DeviceManager:
         properties: list[Property],
         seoj: EOJ = CONTROLLER_INSTANCE,
         request_timeout: float = SET_REQUEST_TIMEOUT,
-        *,
-        refresh: bool = False,
     ) -> SetRequestResult:
         """Set device properties and cache values accepted by the device.
 
@@ -549,8 +538,6 @@ class DeviceManager:
             properties: Properties to write.
             seoj: Source EOJ.
             request_timeout: Timeout in seconds for the response.
-            refresh: Read the accepted, readable EPCs back from the device
-                shortly afterwards, so the cache reflects the device state.
 
         Returns:
             The SetC result from the runtime client.
@@ -569,27 +556,7 @@ class DeviceManager:
             node.device_key,
             self._apply_accepted_properties(node, properties, result.accepted_epcs),
         )
-        if refresh and result.accepted_epcs:
-            self._schedule_refresh(node, result.accepted_epcs)
         return result
-
-    def _schedule_refresh(self, node: NodeState, epcs: frozenset[int]) -> None:
-        """Read ``epcs`` back from the device after a short delay."""
-        readable = sorted(epcs & node.get_epcs)
-        if not readable:
-            return
-        task = asyncio.create_task(
-            self._refresh(node, readable), name=f"pyhems_refresh_{node.device_key}"
-        )
-        self._refresh_tasks.add(task)
-        task.add_done_callback(self._refresh_tasks.discard)
-
-    async def _refresh(self, node: NodeState, epcs: list[int]) -> None:
-        """Read EPCs with polling priority; responses update the cache."""
-        await asyncio.sleep(_REFRESH_DELAY)
-        await self._client.get(
-            node.node_id, node.eoj, epcs, priority=RequestPriority.POLL
-        )
 
     def _handle_runtime_event(self, event: RuntimeEvent) -> None:
         """Queue device events for serialized processing."""
