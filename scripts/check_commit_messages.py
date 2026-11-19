@@ -10,11 +10,28 @@ import sys
 _SUBJECT_PATTERN = re.compile(
     r"^(?P<type>[a-z][a-z0-9-]*)(?:\((?P<scope>[^()\r\n]+)\))?!?: (?P<description>\S.*)$"
 )
+_ALLOWED_TYPES = frozenset(
+    {
+        "feat",
+        "fix",
+        "perf",
+        "deps",
+        "revert",
+        "docs",
+        "style",
+        "chore",
+        "refactor",
+        "test",
+        "build",
+        "ci",
+    }
+)
 
 
 def is_conventional_subject(subject: str) -> bool:
-    """Return whether a commit subject follows the Conventional Commits format."""
-    return _SUBJECT_PATTERN.fullmatch(subject) is not None
+    """Return whether a subject uses an allowed type and Conventional Commit format."""
+    match = _SUBJECT_PATTERN.fullmatch(subject)
+    return match is not None and match.group("type") in _ALLOWED_TYPES
 
 
 def main() -> int:
@@ -40,7 +57,9 @@ def main() -> int:
 
     if invalid_subjects:
         for subject in invalid_subjects:
-            sys.stderr.write(f"Invalid Conventional Commit subject: {subject}\n")
+            sys.stderr.write(
+                f"Invalid Conventional Commit subject or unsupported type: {subject}\n"
+            )
         return 1
     return 0
 
