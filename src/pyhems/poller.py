@@ -71,8 +71,8 @@ class PropertyPoller:
     """Periodically poll devices whose monitored EPCs lack notification support.
 
     This scheduler iterates ``device_manager.data`` on a fixed tick and polls
-    each device's ``poll_epcs``. Reading values back after a Set is done by
-    ``DeviceManager.set_properties(..., refresh=True)``.
+    each device's ``poll_epcs``. Set operations do not trigger immediate reads;
+    accepted values are reconciled by notifications or the regular poll cycle.
 
     A device is never sent a new poll cycle while a previous one is still in
     progress. Each cycle is split into chunks by the device's

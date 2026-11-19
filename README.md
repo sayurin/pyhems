@@ -90,10 +90,10 @@ asyncio.run(main())
   properties and wait for the acknowledged result. The returned
   `SetRequestResult` separates accepted, rejected, and unanswered EPCs. This
   low-level client API does not update a `DeviceManager` cache.
-- `DeviceManager.set_properties(node_id, deoj, properties, *, refresh=False)`:
+- `DeviceManager.set_properties(node_id, deoj, properties)`:
   Write through the runtime client and update cached values for accepted EPCs.
-  With `refresh=True`, the accepted readable EPCs are read back shortly after
-  the write so the cache reflects the value the device actually applied.
+  Later notifications and regular polling reconcile the cache with observed
+  device values; writes do not trigger immediate readback.
 - `DeviceManager.subscribe(callback)`: Receive typed `DeviceManagerEvent`s:
   `DeviceAdded`, `PropertiesChanged` (with the changed EPCs),
   `AvailabilityChanged`, and `RuntimeActivity`. Property and availability

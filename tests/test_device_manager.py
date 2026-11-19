@@ -1957,40 +1957,8 @@ class TestDeviceManagerEvents:
         assert len(events) == 1
 
     @pytest.mark.asyncio
-    async def test_set_properties_refreshes_accepted_readable_epcs(self) -> None:
-        """With refresh, accepted readable EPCs are read back with poll priority."""
-        client = _make_client()
-        client.set_properties.return_value = SetRequestResult(
-            sent=True,
-            response_esv=ESV.SET_RES,
-            accepted_epcs=frozenset({0x80, 0xB0, 0xE0}),
-            rejected_epcs=frozenset(),
-            unanswered_epcs=frozenset(),
-        )
-        dm = DeviceManager(client, {})
-        node = _make_node(get_epcs=frozenset({0x80, 0xB0}))
-        dm.data[node.device_key] = node
-
-        with patch("pyhems.device_manager._REFRESH_DELAY", 0):
-            await dm.set_properties(
-                node.node_id,
-                node.eoj,
-                [
-                    Property(epc=0x80, edt=b"\x30"),
-                    Property(epc=0xB0, edt=b"\x41"),
-                    Property(epc=0xE0, edt=b"\x01"),
-                ],
-                refresh=True,
-            )
-            await asyncio.gather(*dm._refresh_tasks)
-
-        client.get.assert_awaited_once_with(
-            node.node_id, node.eoj, [0x80, 0xB0], priority=RequestPriority.POLL
-        )
-
-    @pytest.mark.asyncio
-    async def test_set_properties_without_refresh_does_not_read(self) -> None:
-        """Without refresh, nothing is read back."""
+    async def test_set_properties_does_not_read_back(self) -> None:
+        """A Set does not trigger an immediate read of accepted EPCs."""
         client = _make_client()
         client.set_properties.return_value = SetRequestResult(
             sent=True,
@@ -2007,28 +1975,4 @@ class TestDeviceManagerEvents:
             node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")]
         )
 
-        assert dm._refresh_tasks == set()
-
-    @pytest.mark.asyncio
-    async def test_async_stop_cancels_refresh(self) -> None:
-        """Stopping the manager cancels pending read-backs."""
-        client = _make_client()
-        client.set_properties.return_value = SetRequestResult(
-            sent=True,
-            response_esv=ESV.SET_RES,
-            accepted_epcs=frozenset({0x80}),
-            rejected_epcs=frozenset(),
-            unanswered_epcs=frozenset(),
-        )
-        dm = DeviceManager(client, {})
-        node = _make_node(get_epcs=frozenset({0x80}))
-        dm.data[node.device_key] = node
-        await dm.async_start()
-
-        await dm.set_properties(
-            node.node_id, node.eoj, [Property(epc=0x80, edt=b"\x30")], refresh=True
-        )
-        await dm.async_stop()
-
-        assert dm._refresh_tasks == set()
         client.get.assert_not_awaited()
