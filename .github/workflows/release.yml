@@ -285,4 +285,7 @@ jobs:
       - name: Verify all published PyPI files
         env:
           TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
-        run: uv run --locked --extra dev python -m scripts.check_pypi_artifacts "$TAG_NAME" dist --complete
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_SHA:scripts/check_pypi_artifacts.py" > "$RUNNER_TEMP/check_pypi_artifacts.py"
+          uv run --locked --extra dev python "$RUNNER_TEMP/check_pypi_artifacts.py" "$TAG_NAME" dist --complete --wait
