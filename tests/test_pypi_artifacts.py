@@ -119,6 +119,41 @@ def test_complete_matching_publication_passes(
     check_pypi_artifacts.verify_artifacts("v1.2.3", distributions, complete=True)
 
 
+def test_complete_publication_ignores_attestation_sidecars(
+    distributions: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = response_for(distributions)
+    for name in ("pyhems-1.2.3.tar.gz", "pyhems-1.2.3-py3-none-any.whl"):
+        (distributions / f"{name}.publish.attestation").write_bytes(b"attestation")
+    monkeypatch.setattr(check_pypi_artifacts, "urlopen", mocked_response(response))
+    check_pypi_artifacts.verify_artifacts("v1.2.3", distributions, complete=True)
+
+
+def test_orphan_attestation_is_rejected(distributions: Path) -> None:
+    (distributions / "missing.whl.publish.attestation").write_bytes(b"attestation")
+    with pytest.raises(ValueError, match="Attestation"):
+        check_pypi_artifacts.local_digests(distributions)
+
+
+def test_attestations_do_not_hide_mismatched_distributions(
+    distributions: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = response_for(distributions)
+    (distributions / "pyhems-1.2.3.tar.gz").write_bytes(b"changed")
+    (distributions / "pyhems-1.2.3.tar.gz.publish.attestation").write_bytes(
+        b"attestation"
+    )
+    monkeypatch.setattr(check_pypi_artifacts, "urlopen", mocked_response(response))
+    with pytest.raises(ValueError, match="mismatched"):
+        check_pypi_artifacts.verify_artifacts("v1.2.3", distributions, complete=True)
+
+
+def test_attestations_without_distributions_are_rejected(tmp_path: Path) -> None:
+    (tmp_path / "pyhems-1.2.3.tar.gz.publish.attestation").write_bytes(b"attestation")
+    with pytest.raises(ValueError, match="distribution"):
+        check_pypi_artifacts.local_digests(tmp_path)
+
+
 @pytest.mark.parametrize("initial", [None, {"pyhems-1.2.3.tar.gz": "source"}])
 def test_complete_verification_waits_for_pypi(
     distributions: Path,

@@ -14,9 +14,19 @@ from urllib.request import Request, urlopen
 
 def local_digests(directory: Path) -> dict[str, str]:
     """Return SHA-256 digests for every distribution in a build directory."""
-    artifacts = sorted(path for path in directory.iterdir() if path.is_file())
+    files = sorted(path for path in directory.iterdir() if path.is_file())
+    suffix = ".publish.attestation"
+    artifacts = [path for path in files if not path.name.endswith(suffix)]
     if not artifacts:
         raise ValueError(f"No distribution files found in {directory}")
+    names = {path.name for path in artifacts}
+    orphaned = [
+        path.name
+        for path in files
+        if path.name.endswith(suffix) and path.name.removesuffix(suffix) not in names
+    ]
+    if orphaned:
+        raise ValueError(f"Attestation without distribution: {orphaned}")
     return {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts
     }

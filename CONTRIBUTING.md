@@ -46,7 +46,8 @@ tag. The Release workflow builds the distributions once from that tag, attaches
 them to the release, and publishes those same files through PyPI Trusted
 Publishing. It checks their hashes between jobs and against PyPI.
 The final PyPI check waits briefly for newly published files to appear; hash
-mismatches fail immediately.
+mismatches fail immediately. PyPI publishing attestations are not distribution
+files and are excluded from the comparison.
 
 Repository setup required for automation:
 
