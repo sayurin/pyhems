@@ -42,9 +42,9 @@ CI also rechecks the title when a pull request is edited.
 
 Release Please proposes version and changelog updates in a pull request.
 Review and merge that pull request to create a published GitHub Release and
-tag. The Release workflow builds the distributions from that tag, attaches
-them to the release, verifies the same files against PyPI, and publishes them
-through Trusted Publishing.
+tag. The Release workflow builds the distributions once from that tag, attaches
+them to the release, and publishes those same files through PyPI Trusted
+Publishing. It checks their hashes between jobs and against PyPI.
 
 Repository setup required for automation:
 
@@ -64,5 +64,8 @@ Repository setup required for automation:
 
 If release preparation or PyPI publication fails, rerun the `Release` workflow
 on `master` with the existing published tag. Recovery verifies the tag,
-version, release state, GitHub assets, and any existing PyPI files. It only
-adds missing files; mismatched files fail explicitly and are never overwritten.
+version, release state, GitHub assets, and any existing PyPI files. A complete
+set of GitHub distributions is reused without rebuilding; PyPI files must
+match and are never overwritten. If only one GitHub distribution exists,
+recovery stops for manual investigation instead of mixing separate builds.
+GitHub release assets must be protected from unauthorized modification.
