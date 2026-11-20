@@ -119,6 +119,65 @@ def test_complete_matching_publication_passes(
     check_pypi_artifacts.verify_artifacts("v1.2.3", distributions, complete=True)
 
 
+@pytest.mark.parametrize("initial", [None, {"pyhems-1.2.3.tar.gz": "source"}])
+def test_complete_verification_waits_for_pypi(
+    distributions: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    initial: dict[str, str] | None,
+) -> None:
+    expected = check_pypi_artifacts.local_digests(distributions)
+    if initial is not None:
+        initial = {"pyhems-1.2.3.tar.gz": expected["pyhems-1.2.3.tar.gz"]}
+    responses = iter([initial, expected])
+    monkeypatch.setattr(check_pypi_artifacts, "pypi_digests", lambda _: next(responses))
+    waits: list[float] = []
+    monkeypatch.setattr(check_pypi_artifacts.time, "sleep", waits.append)
+    check_pypi_artifacts.verify_artifacts(
+        "v1.2.3", distributions, complete=True, wait=True
+    )
+    assert len(waits) == 1
+
+
+def test_complete_verification_stops_after_wait_limit(
+    distributions: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(check_pypi_artifacts, "pypi_digests", lambda _: None)
+    waits: list[float] = []
+    monkeypatch.setattr(check_pypi_artifacts.time, "sleep", waits.append)
+    with pytest.raises(ValueError, match="no distributions"):
+        check_pypi_artifacts.verify_artifacts(
+            "v1.2.3", distributions, complete=True, wait=True
+        )
+    assert sum(waits) == 60
+
+
+@pytest.mark.parametrize(
+    ("published", "error"),
+    [
+        ({"pyhems-1.2.3.tar.gz": "bad"}, "mismatched"),
+        ({"unexpected.whl": "bad"}, "unexpected"),
+    ],
+)
+def test_complete_verification_does_not_retry_invalid_files(
+    distributions: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    published: dict[str, str],
+    error: str,
+) -> None:
+    monkeypatch.setattr(
+        check_pypi_artifacts,
+        "pypi_digests",
+        lambda _: published,
+    )
+    waits: list[float] = []
+    monkeypatch.setattr(check_pypi_artifacts.time, "sleep", waits.append)
+    with pytest.raises(ValueError, match=error):
+        check_pypi_artifacts.verify_artifacts(
+            "v1.2.3", distributions, complete=True, wait=True
+        )
+    assert not waits
+
+
 def test_release_workflow_publishes_directly_and_validates_recovery():
     config = json.loads((ROOT / "release-please-config.json").read_text())
     assert not config["packages"]["."]["draft"]
@@ -150,6 +209,13 @@ def test_release_workflow_publishes_directly_and_validates_recovery():
     assert not any(
         "uv build" in step.get("run", "") for step in jobs["publish"]["steps"]
     )
+    verify_published = next(
+        step
+        for step in jobs["publish"]["steps"]
+        if step.get("name") == "Verify all published PyPI files"
+    )
+    assert "GITHUB_SHA" in verify_published["run"]
+    assert "--wait" in verify_published["run"]
 
 
 @pytest.fixture

@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -40,29 +42,42 @@ def pypi_digests(version: str) -> dict[str, str] | None:
     }
 
 
-def verify_artifacts(version: str, directory: Path, *, complete: bool = False) -> None:
+def verify_artifacts(
+    version: str, directory: Path, *, complete: bool = False, wait: bool = False
+) -> None:
     """Reject mismatched existing files and optionally require a complete upload."""
+    if wait and not complete:
+        raise ValueError("Waiting requires complete verification")
     expected = local_digests(directory)
-    published = pypi_digests(version)
-    if published is None:
-        if complete:
-            raise ValueError(f"PyPI has no distributions for version {version}")
-        return
-
-    unexpected = published.keys() - expected.keys()
-    mismatched = {
-        name
-        for name, digest in published.items()
-        if name in expected and digest != expected[name]
-    }
-    missing = expected.keys() - published.keys()
-    if unexpected or mismatched or (complete and missing):
-        raise ValueError(
-            "PyPI distribution mismatch: "
-            f"unexpected={sorted(unexpected)}, "
-            f"mismatched={sorted(mismatched)}, "
-            f"missing={sorted(missing) if complete else []}"
-        )
+    attempts = 13 if wait else 1
+    for attempt in range(attempts):
+        published = pypi_digests(version)
+        if published is None:
+            if not complete:
+                return
+            error = f"PyPI has no distributions for version {version}"
+        else:
+            unexpected = published.keys() - expected.keys()
+            mismatched = {
+                name
+                for name, digest in published.items()
+                if name in expected and digest != expected[name]
+            }
+            missing = expected.keys() - published.keys()
+            error = (
+                "PyPI distribution mismatch: "
+                f"unexpected={sorted(unexpected)}, "
+                f"mismatched={sorted(mismatched)}, "
+                f"missing={sorted(missing) if complete else []}"
+            )
+            if unexpected or mismatched:
+                raise ValueError(error)
+            if not complete or not missing:
+                return
+        if attempt + 1 == attempts:
+            raise ValueError(error)
+        sys.stderr.write(f"{error}; retrying in 5 seconds\n")
+        time.sleep(5)
 
 
 def main() -> None:
@@ -71,9 +86,13 @@ def main() -> None:
     parser.add_argument("version")
     parser.add_argument("directory", type=Path)
     parser.add_argument("--complete", action="store_true")
+    parser.add_argument("--wait", action="store_true")
     arguments = parser.parse_args()
     verify_artifacts(
-        arguments.version, arguments.directory, complete=arguments.complete
+        arguments.version,
+        arguments.directory,
+        complete=arguments.complete,
+        wait=arguments.wait,
     )
 
 
