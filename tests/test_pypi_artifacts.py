@@ -3,6 +3,8 @@
 import hashlib
 import io
 import json
+import os
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from urllib.error import HTTPError
@@ -145,3 +147,111 @@ def test_release_workflow_publishes_directly_and_validates_recovery():
         if step.get("name") == "Publish to PyPI"
     )
     assert publish["with"]["skip-existing"]
+    assert not any(
+        "uv build" in step.get("run", "") for step in jobs["publish"]["steps"]
+    )
+
+
+@pytest.fixture
+def release_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text(
+        """#!/bin/bash
+set -euo pipefail
+if [[ "$2" == view ]]; then
+  for file in "$MOCK_ASSETS"/*; do
+    [[ -e "$file" ]] && basename "$file"
+  done
+  exit 0
+fi
+pattern="$5"
+directory="$7"
+cp "$MOCK_ASSETS/$pattern" "$directory/$pattern"
+"""
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setenv("MOCK_ASSETS", str(assets))
+    monkeypatch.setenv("TAG_NAME", "v1.2.3")
+    return assets
+
+
+@pytest.mark.parametrize(
+    "existing", ["none", "complete", "wheel", "sdist", "unexpected"]
+)
+def test_release_distribution_selection(
+    tmp_path: Path, release_assets: Path, existing: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if existing in {"wheel", "complete"}:
+        (release_assets / "pyhems-1.2.3-py3-none-any.whl").write_bytes(b"wheel")
+    if existing in {"sdist", "complete"}:
+        (release_assets / "pyhems-1.2.3.tar.gz").write_bytes(b"source")
+    if existing == "unexpected":
+        (release_assets / "unexpected.whl").write_bytes(b"unexpected")
+    output = tmp_path / "output"
+    output.touch()
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    step = next(
+        step
+        for step in WORKFLOW["jobs"]["prepare-release"]["steps"]
+        if step.get("name") == "Select release distributions"
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if existing not in {"none", "complete"}:
+        assert result.returncode != 0
+        assert (
+            "Unexpected" if existing == "unexpected" else "incomplete"
+        ) in result.stdout
+        assert not (tmp_path / "dist").exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert (
+            f"build={'true' if existing == 'none' else 'false'}" in output.read_text()
+        )
+        if existing == "complete":
+            assert (tmp_path / "dist/pyhems-1.2.3.tar.gz").read_bytes() == b"source"
+            assert (
+                tmp_path / "dist/pyhems-1.2.3-py3-none-any.whl"
+            ).read_bytes() == b"wheel"
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_publish_download_checks_prepared_hashes(
+    tmp_path: Path,
+    release_assets: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changed: bool,
+) -> None:
+    (release_assets / "pyhems-1.2.3-py3-none-any.whl").write_bytes(
+        b"changed" if changed else b"wheel"
+    )
+    (release_assets / "pyhems-1.2.3.tar.gz").write_bytes(b"source")
+    monkeypatch.setenv("WHEEL_SHA256", hashlib.sha256(b"wheel").hexdigest())
+    monkeypatch.setenv("SDIST_SHA256", hashlib.sha256(b"source").hexdigest())
+    step = next(
+        step
+        for step in WORKFLOW["jobs"]["publish"]["steps"]
+        if step.get("name") == "Download and verify release distributions"
+    )
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode != 0) == changed
+    if not changed:
+        assert (
+            tmp_path / "dist/pyhems-1.2.3-py3-none-any.whl"
+        ).read_bytes() == b"wheel"

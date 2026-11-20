@@ -66,6 +66,8 @@ jobs:
     outputs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
+      wheel_sha256: ${{ steps.hashes.outputs.wheel_sha256 }}
+      sdist_sha256: ${{ steps.hashes.outputs.sdist_sha256 }}
     permissions:
       contents: write
     steps:
@@ -132,32 +134,73 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
           [[ "$(uv version --short)" == "${TAG_NAME#v}" ]]
 
-      - name: Build package
-        run: uv build
-
-      - name: Check distributions
-        run: uv run --locked --extra dev twine check dist/*
-
-      - name: Attach distributions without replacing existing assets
+      - name: Select release distributions
+        id: artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/release-assets"
+          wheel="pyhems-${TAG_NAME#v}-py3-none-any.whl"
+          sdist="pyhems-${TAG_NAME#v}.tar.gz"
           asset_names="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
-          for artifact in dist/*; do
-            name="$(basename "$artifact")"
-            if grep -Fqx -- "$name" <<<"$asset_names"; then
-              gh release download "$TAG_NAME" --pattern "$name" --dir "$RUNNER_TEMP/release-assets"
-              if ! cmp --silent "$artifact" "$RUNNER_TEMP/release-assets/$name"; then
-                echo "::error::Existing release asset $name does not match the rebuilt distribution."
+          while IFS= read -r name; do
+            if [[ "$name" == *.whl || "$name" == *.tar.gz ]]; then
+              if [[ "$name" != "$wheel" && "$name" != "$sdist" ]]; then
+                echo "::error::Unexpected release distribution: $name"
                 exit 1
               fi
-            else
-              gh release upload "$TAG_NAME" "$artifact"
             fi
-          done
+          done <<<"$asset_names"
+          have_wheel=false
+          have_sdist=false
+          if grep -Fqx -- "$wheel" <<<"$asset_names"; then have_wheel=true; fi
+          if grep -Fqx -- "$sdist" <<<"$asset_names"; then have_sdist=true; fi
+          if [[ "$have_wheel" == false && "$have_sdist" == false ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$have_wheel" == true && "$have_sdist" == true ]]; then
+            mkdir -p dist
+            gh release download "$TAG_NAME" --pattern "$wheel" --dir dist
+            gh release download "$TAG_NAME" --pattern "$sdist" --dir dist
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Release distributions are incomplete; manual recovery is required."
+            exit 1
+          fi
+
+      - name: Build package
+        if: steps.artifacts.outputs.build == 'true'
+        run: uv build
+
+      - name: Check distributions
+        run: uv run --locked --extra dev twine check dist/*
+
+      - name: Verify existing PyPI files
+        env:
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: uv run --locked --extra dev python -m scripts.check_pypi_artifacts "$TAG_NAME" dist
+
+      - name: Attach new distributions
+        if: steps.artifacts.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          wheel="dist/pyhems-${TAG_NAME#v}-py3-none-any.whl"
+          sdist="dist/pyhems-${TAG_NAME#v}.tar.gz"
+          [[ -f "$wheel" && -f "$sdist" ]]
+          [[ "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2 ]]
+          gh release upload "$TAG_NAME" "$wheel" "$sdist"
+
+      - name: Record distribution hashes
+        id: hashes
+        env:
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          echo "wheel_sha256=$(sha256sum "dist/pyhems-${TAG_NAME#v}-py3-none-any.whl" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "sdist_sha256=$(sha256sum "dist/pyhems-${TAG_NAME#v}.tar.gz" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: [release-please, prepare-release]
@@ -176,7 +219,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ needs.prepare-release.outputs.tag_name }}
+          ref: ${{ needs.prepare-release.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -194,29 +237,39 @@ jobs:
       - name: Install locked development dependencies
         run: uv sync --locked --extra dev
 
-      - name: Verify release assets and build distributions
+      - name: Validate release state
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.prepare-release.outputs.sha }}
         run: |
           set -euo pipefail
           [[ "$(uv version --short)" == "${TAG_NAME#v}" ]]
-          [[ "$(git rev-parse "refs/tags/$TAG_NAME^{commit}")" == "$(git rev-parse HEAD)" ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          [[ "$(git rev-parse "refs/tags/$TAG_NAME^{commit}")" == "$RELEASE_SHA" ]]
           release="$(gh release view "$TAG_NAME" --json isDraft,isPrerelease,tagName)"
           [[ "$(jq -r .tagName <<<"$release")" == "$TAG_NAME" ]]
           [[ "$(jq -r .isDraft <<<"$release")" == false ]]
           [[ "$(jq -r .isPrerelease <<<"$release")" == false ]]
-          uv build
-          uv run --locked --extra dev twine check dist/*
-          mkdir -p "$RUNNER_TEMP/release-assets"
-          for artifact in dist/*; do
-            name="$(basename "$artifact")"
-            gh release download "$TAG_NAME" --pattern "$name" --dir "$RUNNER_TEMP/release-assets"
-            if ! cmp --silent "$artifact" "$RUNNER_TEMP/release-assets/$name"; then
-              echo "::error::GitHub asset $name does not match the rebuilt distribution."
-              exit 1
-            fi
-          done
+
+      - name: Download and verify release distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare-release.outputs.tag_name }}
+          WHEEL_SHA256: ${{ needs.prepare-release.outputs.wheel_sha256 }}
+          SDIST_SHA256: ${{ needs.prepare-release.outputs.sdist_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          wheel="pyhems-${TAG_NAME#v}-py3-none-any.whl"
+          sdist="pyhems-${TAG_NAME#v}.tar.gz"
+          gh release download "$TAG_NAME" --pattern "$wheel" --dir dist
+          gh release download "$TAG_NAME" --pattern "$sdist" --dir dist
+          echo "$WHEEL_SHA256  dist/$wheel" | sha256sum --check
+          echo "$SDIST_SHA256  dist/$sdist" | sha256sum --check
+
+      - name: Check distributions
+        run: uv run --locked --extra dev twine check dist/*
 
       - name: Verify existing PyPI files before retry-safe publication
         env:
