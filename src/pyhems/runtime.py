@@ -31,6 +31,7 @@ from .get_batch_policy import (
     has_get_batch_policy_for_class,
     take_first_batch,
 )
+from .local_node import LocalNodeResponder
 from .transport import EchonetLiteProtocol, create_multicast_socket
 
 _LOGGER = logging.getLogger(__name__)
@@ -270,6 +271,8 @@ class HemsClient:
         # This is intentionally runtime-only and is relearned after restart.
         self._get_capabilities: dict[tuple[str, EOJ], _GetCapability] = {}
         self._decode_error_count = 0
+        self._local_node_responder = LocalNodeResponder(interface)
+        self._local_request_tids: set[int] = set()
 
     @property
     def decode_error_count(self) -> int:
@@ -303,10 +306,22 @@ class HemsClient:
             self._interface, self._on_receive, error_callback=self._on_transport_error
         )
         _LOGGER.debug("HEMS runtime client started on %s", self._interface)
+        if not self._announce_local_node():
+            await self.stop()
+            raise OSError("Local ECHONET Lite node announcement could not be sent")
         if not self.probe_initial_nodes():
             await self.stop()
             raise OSError("Initial ECHONET Lite node discovery could not be sent")
         self.start_periodic_discovery()
+
+    def _announce_local_node(self) -> bool:
+        """Announce the fixed local Node Profile and Controller objects."""
+        return self._send_to_address(
+            self._local_node_responder.startup_announcement(
+                self._next_transaction_id()
+            ),
+            ECHONET_MULTICAST,
+        )
 
     async def stop(self) -> None:
         """Stop the runtime client."""
@@ -318,6 +333,7 @@ class HemsClient:
         self._address_discovery_tasks.clear()
         self._pending_frames.clear()
         self._get_capabilities.clear()
+        self._local_request_tids.clear()
 
         if not self._protocol:
             return
@@ -1147,6 +1163,24 @@ class HemsClient:
             _format_frame(frame),
         )
 
+        # The client uses the local Controller SEOJ for its own multicast node
+        # probes.  Do not answer a looped-back copy of one of those requests as
+        # the local node.
+        if (
+            frame.esv in {ESV.GET, ESV.INF_REQ}
+            and frame.tid in self._local_request_tids
+        ):
+            _LOGGER.debug(
+                "Discarding looped-back local request: %s", _format_frame(frame)
+            )
+            return
+
+        if frame.esv in {ESV.GET, ESV.INF_REQ}:
+            response = self._local_node_responder.respond(frame)
+            if response is not None:
+                self._send_to_address(response, address)
+                return
+
         # Discard request ESVs - loopback or other node requests
         if frame.esv in {
             ESV.SETI,
@@ -1439,6 +1473,13 @@ class HemsClient:
         """
         if not self._protocol:
             return False
+
+        if (
+            frame.esv in {ESV.GET, ESV.INF_REQ}
+            and frame.seoj == CONTROLLER_INSTANCE
+            and self._local_node_responder.response_seoj(frame.deoj) is not None
+        ):
+            self._local_request_tids.add(frame.tid)
 
         try:
             _LOGGER.debug(

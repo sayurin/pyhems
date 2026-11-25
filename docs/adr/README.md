@@ -23,3 +23,4 @@ pyhems の設計判断を記録します。書式は Nygard 形式（ステー�
 | [0012](0012-keep-mra-identifiers.md) | MRA に由来する識別子は MRA の表記のまま保持する | 承認 |
 | [0013](0013-typed-temporal-values.md) | 日時の通信形式と意味を分離して型付きの値を返す | 承認 |
 | [0014](0014-no-immediate-readback-after-set.md) | SetC 後の即時読み戻しを行わない | 承認 |
+| [0015](0015-fixed-local-controller-bootstrap.md) | 固定ローカルノードによる Controller 起動シーケンス | 提案 |

@@ -329,6 +329,9 @@ class TestNodeProbe:
                     client, "probe_initial_nodes", return_value=True
                 ) as initial_probe,
                 patch.object(
+                    client, "_announce_local_node", return_value=True
+                ) as local_announcement,
+                patch.object(
                     client,
                     "start_periodic_discovery",
                     wraps=client.start_periodic_discovery,
@@ -338,6 +341,7 @@ class TestNodeProbe:
 
             assert client._protocol is not None
             assert client._discovery_task is not None
+            local_announcement.assert_called_once_with()
             initial_probe.assert_called_once_with()
             periodic_start.assert_called_once_with()
 
